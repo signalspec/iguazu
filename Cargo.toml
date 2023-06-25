@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/*"
+]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+rust-version = "1.68"
+homepage = "https://github.com/signalspec/iguazu"
+authors = ["Kevin Mehall <km@kevinmehall.net>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/signalspec/iguazu"
+
+[workspace.dependencies]
+append-array = { path = "crates/append-array", version = "0.1.0" }
+iguazu = { path = "crates/iguazu", version = "0.1.0" }
+num-complex = "0.4.3"
+num-rational = "0.4.1"
+num-traits = "0.2.15"
+
+[profile.release]
+panic = "abort"
