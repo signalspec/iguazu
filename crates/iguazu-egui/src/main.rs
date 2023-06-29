@@ -1,0 +1,101 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+
+use std::{sync::Arc, hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
+
+use eframe::egui;
+use egui::{Color32, Frame};
+use iguazu::{ Idx, IdxRange, TimeType, Stream, in_memory::MemoryStream, stream::cache::IntView };
+use timeline::{TimePanel, EnumVariant, DisplayItem, DisplayEvent, DisplayItemKind};
+
+mod time;
+mod ui;
+use self::time::{ Time, Duration };
+
+mod idx_f;
+use idx_f::{IdxF, IdxRangeF};
+
+mod format_time;
+
+mod timeline;
+
+struct ViewerContext<'a> {
+    time: &'a mut Option<IdxF>,
+}
+impl<'a> ViewerContext<'a> {
+    fn time(&self) -> Option<IdxF> {
+        *self.time
+    }
+
+    fn set_time(&mut self, time: IdxF) {
+        *self.time = Some(time);
+    }
+}
+
+fn main() -> Result<(), eframe::Error> {
+    // Log to stdout (if you run with `RUST_LOG=debug`).
+    tracing_subscriber::fmt::init();
+
+    let options = eframe::NativeOptions {
+        initial_window_size: Some(egui::vec2(640.0, 480.0)),
+        ..Default::default()
+    };
+
+    let variants = vec![
+        EnumVariant { name: "A".to_string(), color: Color32::RED },
+        EnumVariant { name: "B".to_string(), color: Color32::GREEN },
+        EnumVariant { name: "C".to_string(), color: Color32::BLUE },
+    ];
+
+    let app = App {
+        time: None,
+        time_panel: TimePanel {
+            col_width: 0.0,
+            time_range: IdxRange { min: 0, max: 200 },
+            time_type: TimeType::Sequence,
+            visible_range: None,
+            items: (1..=40).map(|i| {
+                let items: Vec<_> = (0..200).map(|x| {
+                    let mut hasher = DefaultHasher::new();
+                    (i, x).hash(&mut hasher);
+                    (hasher.finish() % 3) as u8
+                }).collect();
+                let data = MemoryStream::new(&items) as Arc<dyn Stream<u8>>;
+
+                DisplayItem {
+                    name: format!("Channel {i}"),
+                    kind: DisplayItemKind::Event(DisplayEvent { data: IntView::new(data.into()), variants: variants.clone() }),
+                }
+            }).collect(),
+        },
+    };
+
+    eframe::run_native(
+        "Iguazu Viewer",
+        options,
+        Box::new(|_cc| Box::new(app)),
+    )
+}
+
+struct App {
+    time_panel: timeline::TimePanel,
+
+    /// Selected time
+    time: Option<IdxF>,
+}
+
+impl eframe::App for App {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0; 4]
+    }
+
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        ctx.set_pixels_per_point(2.0);
+        let frame = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
+        egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+            let vctx = &mut ViewerContext {
+                time: &mut self.time,
+            };
+            self.time_panel.show(vctx, ui)
+        });
+    }
+}
