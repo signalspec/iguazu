@@ -68,9 +68,12 @@ impl TimePanel {
                 .at_least(50.0)
                 .at_most(ui.max_rect().right() - 100.0);
 
+        let x_margin = 20.0;
+        let scrollbar_width = ui.spacing_mut().scroll_bar_outer_margin + ui.spacing_mut().scroll_bar_width;
+
         let time_x_range = time_x_left..=rect.right();
         let time_x_range_without_scrollbar = {
-            let right = rect.right() - ui.spacing_mut().scroll_bar_outer_margin - ui.spacing_mut().scroll_bar_width;
+            let right = rect.right() - scrollbar_width;
             debug_assert!(time_x_left < right);
             time_x_left..=right
         };
@@ -79,6 +82,8 @@ impl TimePanel {
             time_x_range.clone(),
             self.visible_range.unwrap_or(self.time_range.into()),
             self.time_range,
+            x_margin,
+            x_margin + scrollbar_width,
         );
 
         ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {

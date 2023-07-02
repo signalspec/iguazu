@@ -1,12 +1,16 @@
 use std::ops::RangeInclusive;
 
+use egui::NumExt;
+
 use crate::{IdxF, IdxRange, IdxRangeF};
 
 /// Scale between screen space and time or index
 #[derive(Debug)]
-pub struct Scale {
-    /// The visible range of indexes
-    pub visible: IdxRangeF,
+pub(crate) struct Scale {
+    /// The range of indexes for view
+    ///
+    /// The visible range is slightly wider due to margins, see [`Self::visible`]
+    pub view_range: IdxRangeF,
 
     /// The endpoints of the overall index space
     pub bounds: IdxRange,
@@ -16,6 +20,12 @@ pub struct Scale {
 
     /// Points per index
     pub x_scale: f32,
+
+    /// Margin in points used to center the view on-screen
+    pub x_margin_left: f32,
+
+    /// Margin in points used to center the view on-screen
+    pub x_margin_right: f32,
 }
 
 impl Scale {
@@ -23,9 +33,12 @@ impl Scale {
         x_range: RangeInclusive<f32>,
         visible: IdxRangeF,
         bounds: IdxRange,
+        x_margin_left: f32,
+        x_margin_right: f32,
     ) -> Self {
         let x_width = *x_range.end() - *x_range.start();
-        let x_scale = x_width / visible.length().as_f32();
+
+        let x_scale = (x_width - x_margin_left - x_margin_right) / visible.length().as_f32();
         let x_scale = if x_scale > 0.0 && x_scale.is_finite() {
             x_scale
         } else {
@@ -34,9 +47,11 @@ impl Scale {
 
         Self {
             x_range,
-            visible,
+            view_range: visible,
             bounds,
             x_scale,
+            x_margin_left,
+            x_margin_right,
         }
     }
 
@@ -48,33 +63,45 @@ impl Scale {
         )
     }
 
+    pub fn visible(&self) -> IdxRangeF {
+        let min = self.view_range.min - IdxF::from(self.x_margin_left / self.x_scale);
+        let max = self.view_range.max + IdxF::from(self.x_margin_right / self.x_scale);
+        IdxRangeF { min, max }
+    }
+
     /// Visible range clamped to bounds
     pub fn clamped_visible(&self) -> IdxRange {
-        let min = self.visible.min.floor().clamp(self.bounds.min, self.bounds.max);
-        let max = self.visible.max.ceil().clamp(self.bounds.min, self.bounds.max);
+        let min = self.visible().min.floor().clamp(self.bounds.min, self.bounds.max);
+        let max = self.visible().max.ceil().clamp(self.bounds.min, self.bounds.max);
         IdxRange { min, max }
     }
 
     pub fn x_from_idx(&self, idx: IdxF) -> f32 {
-        self.x_range.start() + self.x_scale * (idx - self.visible.min).as_f32()
+        self.x_range.start() + self.x_margin_left + self.x_scale * (idx - self.view_range.min).as_f32()
     }
 
     pub fn idx_from_x(&self, x: f32) -> IdxF {
-        self.visible.min + IdxF::from((x - self.x_range.start()) / self.x_scale)
+        self.view_range.min + IdxF::from((x - self.x_range.start() - self.x_margin_left) / self.x_scale)
     }
 
     /// Pan the view, returning the new visible range.
     pub fn pan(&self, delta_x: f32) -> IdxRangeF {
-        let delta_t = IdxF::from(delta_x / self.x_scale);
-        IdxRangeF::new(self.visible.min + delta_t, self.visible.max + delta_t)
+        let delta_t = IdxF::from(delta_x / self.x_scale)
+            .max(IdxF::from(self.bounds.min) - self.view_range.min)
+            .min(IdxF::from(self.bounds.max) - self.view_range.max);
+        IdxRangeF::new(self.view_range.min + delta_t, self.view_range.max + delta_t)
     }
 
     /// Zoom the view around the given x, returning the new visble range.
     pub fn zoom_at(&self, x: f32, zoom_factor: f32) -> IdxRangeF {
-        let zoom_factor = zoom_factor as f64;
+        let range_width = self.view_range.max - self.view_range.min;
+        let zoom_factor = (zoom_factor as f64)
+            .at_least(1.0/(range_width.as_f64()));
         let t = self.idx_from_x(x);
-        let min = (self.visible.min - t) * zoom_factor + t;
-        let max = (self.visible.max - t) * zoom_factor + t;
+        let min = ((self.view_range.min - t) * zoom_factor + t)
+            .max(IdxF::from(self.bounds.min));
+        let max = ((self.view_range.max - t) * zoom_factor + t)
+            .min(IdxF::from(self.bounds.max));
         IdxRangeF { min, max }
     }
 }
@@ -90,7 +117,9 @@ fn test_scale() {
         IdxRange {
             min: 10,
             max: 20,
-        }
+        },
+        20.0,
+        28.0,
     );
 
     let pixel_precision = 0.5;

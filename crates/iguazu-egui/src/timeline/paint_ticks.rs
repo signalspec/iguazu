@@ -9,7 +9,7 @@ use crate::format_time::next_grid_tick_magnitude_ns;
 
 use super::Scale;
 
-pub fn paint_time_ranges_and_ticks(
+pub(crate) fn paint_time_ranges_and_ticks(
     time_ranges_ui: &Scale,
     ui: &mut egui::Ui,
     time_area_painter: &egui::Painter,
