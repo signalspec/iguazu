@@ -4,8 +4,8 @@ use std::{sync::Arc, hash::{Hash, Hasher}, collections::hash_map::DefaultHasher}
 
 use eframe::egui;
 use egui::{Color32, Frame};
-use iguazu::{ Idx, IdxRange, TimeType, Stream, in_memory::MemoryStream, stream::cache::IntView };
-use timeline::{TimePanel, EnumVariant, DisplayItem, DisplayEvent, DisplayItemKind};
+use iguazu::{ Idx, IdxRange, TimeType, Stream, in_memory::MemoryStream, stream::cache::{IntView, index::IndexView} };
+use timeline::{TimePanel, EnumVariant, DisplayItem, DisplayEvent, DisplayItemKind, DisplayLogic};
 
 mod time;
 mod ui;
@@ -46,6 +46,21 @@ fn main() -> Result<(), eframe::Error> {
         EnumVariant { name: "C".to_string(), color: Color32::BLUE },
     ];
 
+    let items = [
+        DisplayItem {
+            name: format!("Logic"),
+            kind: DisplayItemKind::Logic(DisplayLogic{
+                data: IndexView::new(MemoryStream::new(&[
+                    10,
+                    11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+                    25, 30, 35, 40, 45, 55, 60, 65, 70,
+                    80, 90, 100, 110, 120, 130, 140, 150, 160, 170,
+                ])),
+                color: Color32::GREEN,
+            }),
+        }
+    ];
+
     let app = App {
         time: None,
         time_panel: TimePanel {
@@ -53,7 +68,7 @@ fn main() -> Result<(), eframe::Error> {
             time_range: IdxRange { min: 0, max: 200 },
             time_type: TimeType::Sequence,
             visible_range: None,
-            items: (1..=40).map(|i| {
+            items: items.into_iter().chain((1..=40).map(|i| {
                 let items: Vec<_> = (0..200).map(|x| {
                     let mut hasher = DefaultHasher::new();
                     (i, x).hash(&mut hasher);
@@ -65,7 +80,7 @@ fn main() -> Result<(), eframe::Error> {
                     name: format!("Channel {i}"),
                     kind: DisplayItemKind::Event(DisplayEvent { data: IntView::new(data.into()), variants: variants.clone() }),
                 }
-            }).collect(),
+            })).collect(),
         },
     };
 

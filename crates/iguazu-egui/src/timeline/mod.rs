@@ -3,8 +3,8 @@ mod scale;
 
 use std::ops::RangeInclusive;
 
-use egui::{pos2, CursorIcon, NumExt, PointerButton, Rect, Vec2, Color32, Rounding, Layout};
-use iguazu::{TimeType, stream::cache::IntView, Idx};
+use egui::{pos2, CursorIcon, NumExt, PointerButton, Rect, Vec2, Color32, Rounding, Layout, Stroke};
+use iguazu::{TimeType, stream::cache::{IntView, index::{IndexView, Event as IndexEvent}}, Idx};
 use crate::{ ViewerContext, ui::draw_shadow_line, IdxRange, IdxRangeF };
 
 use scale::Scale;
@@ -27,6 +27,7 @@ pub struct DisplayItem {
 
 pub enum DisplayItemKind {
     Event(DisplayEvent),
+    Logic(DisplayLogic),
 }
 
 pub struct DisplayEvent {
@@ -37,6 +38,11 @@ pub struct DisplayEvent {
 #[derive(Clone)]
 pub struct EnumVariant {
     pub name: String,
+    pub color: Color32,
+}
+
+pub struct DisplayLogic {
+    pub data: IndexView,
     pub color: Color32,
 }
 
@@ -260,6 +266,41 @@ fn render_item(
                 }
             });
         },
+        DisplayItemKind::Logic(item) => {
+            let padded_rect = row_rect.shrink2(Vec2::new(0.0, 2.0));
+            let bounds = scale.clamped_visible();
+            let stroke_width = 1.0;
+            let stroke = Stroke::new(stroke_width, item.color);
+
+            item.data.set_parent_range(bounds);
+            let mut vertical = false;
+            item.data.for_each_range(bounds, (stroke_width / scale.x_scale).round() as u64, |range, evt| {
+                let x1 = scale.x_from_idx(range.min.into());
+                let x2 = scale.x_from_idx(range.max.into());
+                match evt {
+                    IndexEvent::Element(i) => {
+                        if vertical {
+                            time_area_painter.vline(x1, padded_rect.y_range(), stroke);
+                        }
+                        let y = if i % 2 == 0 {
+                            padded_rect.bottom()
+                        } else {
+                            padded_rect.top()
+                        };
+                        time_area_painter.hline(x1..=x2, y, stroke);
+                        vertical = true;
+                    },
+                    IndexEvent::TooDense => {
+                        time_area_painter.rect_filled(Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range()).expand(stroke_width / 2.0), 0.0, item.color);
+                        vertical = false;
+                    },
+                    IndexEvent::Loading => {
+                        time_area_painter.rect_filled(Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range()).expand(stroke_width / 2.0), 0.0, Color32::GRAY);
+                        vertical = false;
+                    }
+                }
+            });
+        }
     }
 }
 

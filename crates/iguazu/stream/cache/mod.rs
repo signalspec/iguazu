@@ -8,6 +8,8 @@ use crate::{Idx, IdxRange, Stream};
 mod int;
 pub use int::IntView;
 
+pub mod index;
+
 pub struct Cache<T> {
     /// Wrapped stream
     stream: Arc<dyn Stream<T>>,
@@ -38,7 +40,7 @@ impl<T: Copy + 'static> Cache<T> {
     pub fn set_range(&mut self, range: IdxRange) {
         let block_size = self.stream.block_size();
         let min_block = range.min / (block_size as u64);
-        let max_block = range.max / (block_size as u64);
+        let max_block = (range.max + block_size as u64 - 1) / (block_size as u64);
 
         if max_block < self.offset || min_block >= self.offset + self.blocks.len() as u64 {
             // no overlap with existing range; start over
@@ -66,7 +68,7 @@ impl<T: Copy + 'static> Cache<T> {
         }
 
         // load blocks at end
-        while max_block >= self.offset + self.blocks.len() as u64 {
+        while max_block > self.offset + self.blocks.len() as u64 {
             let block = self.offset + self.blocks.len() as u64;
             self.blocks.push_back(self.stream.get_block(block).unwrap())
         }
@@ -80,7 +82,7 @@ impl<T: Copy + 'static> Cache<T> {
             let idx = (self.offset + block_i as u64) * block_size as u64;
             let data = block.as_slice();
 
-            let start = self.range.min.saturating_sub(idx) as usize;
+            let start = self.range.min.saturating_sub(idx).min(data.len() as u64) as usize;
             let end = self.range.max.saturating_sub(idx).min(data.len() as u64) as usize;
 
             for (i, v) in data[start..end].iter().enumerate() {
