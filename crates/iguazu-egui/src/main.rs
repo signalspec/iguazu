@@ -4,29 +4,27 @@ use std::{sync::Arc, hash::{Hash, Hasher}, collections::hash_map::DefaultHasher}
 
 use eframe::egui;
 use egui::{Color32, Frame};
-use iguazu::{ Idx, IdxRange, TimeType, Stream, in_memory::MemoryStream, stream::cache::{IntView, index::IndexView} };
+use iguazu::{ Stream, in_memory::MemoryStream, stream::cache::{IntView, index::IndexView} };
+use num_rational::Ratio;
+use time::TimeRange;
 use timeline::{TimePanel, EnumVariant, DisplayItem, DisplayEvent, DisplayItemKind, DisplayLogic};
 
 mod time;
 mod ui;
-use self::time::{ Time, Duration };
-
-mod idx_f;
-use idx_f::{IdxF, IdxRangeF};
-
-mod format_time;
+mod util;
+use self::time::Time;
 
 mod timeline;
 
 struct ViewerContext<'a> {
-    time: &'a mut Option<IdxF>,
+    time: &'a mut Option<Time>,
 }
 impl<'a> ViewerContext<'a> {
-    fn time(&self) -> Option<IdxF> {
+    fn time(&self) -> Option<Time> {
         *self.time
     }
 
-    fn set_time(&mut self, time: IdxF) {
+    fn set_time(&mut self, time: Time) {
         *self.time = Some(time);
     }
 }
@@ -49,6 +47,7 @@ fn main() -> Result<(), eframe::Error> {
     let items = [
         DisplayItem {
             name: format!("Logic"),
+            sample_rate: Ratio::new(1000, 1),
             kind: DisplayItemKind::Logic(DisplayLogic{
                 data: IndexView::new(MemoryStream::new(&[
                     10,
@@ -65,8 +64,7 @@ fn main() -> Result<(), eframe::Error> {
         time: None,
         time_panel: TimePanel {
             col_width: 0.0,
-            time_range: IdxRange { min: 0, max: 200 },
-            time_type: TimeType::Sequence,
+            time_range: TimeRange { min: Time::ZERO, max: Time::SECOND },
             visible_range: None,
             items: items.into_iter().chain((1..=40).map(|i| {
                 let items: Vec<_> = (0..200).map(|x| {
@@ -78,6 +76,7 @@ fn main() -> Result<(), eframe::Error> {
 
                 DisplayItem {
                     name: format!("Channel {i}"),
+                    sample_rate: Ratio::new(200, 1),
                     kind: DisplayItemKind::Event(DisplayEvent { data: IntView::new(data.into()), variants: variants.clone() }),
                 }
             })).collect(),
@@ -95,7 +94,7 @@ struct App {
     time_panel: timeline::TimePanel,
 
     /// Selected time
-    time: Option<IdxF>,
+    time: Option<Time>,
 }
 
 impl eframe::App for App {

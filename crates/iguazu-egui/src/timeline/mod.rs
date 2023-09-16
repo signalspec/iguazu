@@ -4,25 +4,28 @@ mod scale;
 use std::ops::RangeInclusive;
 
 use egui::{pos2, CursorIcon, NumExt, PointerButton, Rect, Vec2, Color32, Rounding, Layout, Stroke};
-use iguazu::{TimeType, stream::cache::{IntView, index::{IndexView, Event as IndexEvent}}, Idx};
-use crate::{ ViewerContext, ui::draw_shadow_line, IdxRange, IdxRangeF };
+use iguazu::{stream::cache::{IntView, index::{IndexView, Event as IndexEvent}}, Idx};
+use num_rational::Ratio;
+use crate::{ ViewerContext, ui::draw_shadow_line, time::TimeRange };
 
 use scale::Scale;
+
+use self::scale::IdxScale;
 
 pub(crate) struct TimePanel {
     /// Width of the entity name columns previous frame.
     pub col_width: f32,
 
-    pub time_range: IdxRange,
-    pub time_type: TimeType,
+    pub time_range: TimeRange,
     pub items: Vec<DisplayItem>,
 
-    pub visible_range: Option<IdxRangeF>,
+    pub visible_range: Option<TimeRange>,
 }
 
 pub struct DisplayItem {
     pub name: String,
     pub kind: DisplayItemKind,
+    pub sample_rate: Ratio<u64>,
 }
 
 pub enum DisplayItemKind {
@@ -47,7 +50,7 @@ pub struct DisplayLogic {
 }
 
 impl TimePanel {
-    fn set_visible_range(&mut self, range: IdxRangeF) {
+    fn set_visible_range(&mut self, range: TimeRange) {
         self.visible_range = Some(range);
     }
 
@@ -86,7 +89,7 @@ impl TimePanel {
 
         let scale = Scale::new(
             time_x_range.clone(),
-            self.visible_range.unwrap_or(self.time_range.into()),
+            self.visible_range.unwrap_or(self.time_range),
             self.time_range,
             x_margin,
             x_margin + scrollbar_width,
@@ -108,7 +111,6 @@ impl TimePanel {
                 ui,
                 &ui.painter_at(timeline_rect),
                 timeline_rect.y_range(),
-                self.time_type,
             );
 
             let streams_rect = Rect::from_x_y_ranges(
@@ -256,27 +258,26 @@ fn render_item(
     row_rect: Rect,
     item: &mut DisplayItem,
 ) {
+    let idx_scale = scale.idx_scale(item.sample_rate);
     match &mut item.kind {
         DisplayItemKind::Event(e) => {
-            let bounds = scale.clamped_visible();
-            e.data.set_range(bounds);
+            e.data.set_range(idx_scale.visible);
             e.data.for_each_elem(|idx, value| {
                 if let Some(variant) = value.and_then(|v| e.variants.get(v as usize)) {
-                    render_event_rect(ctx, time_area_painter, ui, scale, row_rect, idx, variant)
+                    render_event_rect(ctx, time_area_painter, ui, &idx_scale, row_rect, idx, variant)
                 }
             });
         },
         DisplayItemKind::Logic(item) => {
             let padded_rect = row_rect.shrink2(Vec2::new(0.0, 2.0));
-            let bounds = scale.clamped_visible();
             let stroke_width = 1.0;
             let stroke = Stroke::new(stroke_width, item.color);
 
-            item.data.set_parent_range(bounds);
+            item.data.set_parent_range(idx_scale.visible);
             let mut vertical = false;
-            item.data.for_each_range(bounds, (stroke_width / scale.x_scale).round() as u64, |range, evt| {
-                let x1 = scale.x_from_idx(range.min.into());
-                let x2 = scale.x_from_idx(range.max.into());
+            item.data.for_each_range(idx_scale.visible, (stroke_width / idx_scale.x_scale).round() as u64, |range, evt| {
+                let x1 = idx_scale.x_from_idx(range.min);
+                let x2 = idx_scale.x_from_idx(range.max);
                 match evt {
                     IndexEvent::Element(i) => {
                         if vertical {
@@ -308,7 +309,7 @@ fn render_event_rect(
     _ctx: &mut ViewerContext<'_>,
     time_area_painter: &egui::Painter,
     ui: &mut egui::Ui,
-    scale: &Scale,
+    scale: &IdxScale,
     row_rect: Rect,
     idx: Idx,
     variant: &EnumVariant,
@@ -349,7 +350,7 @@ fn time_marker_ui(
 
     // show current time as a line:
     if let Some(time) = ctx.time() {
-        let x= time_ranges_ui.x_from_idx(time);
+        let x= time_ranges_ui.x_from_t(time);
         if timeline_rect.x_range().contains(&x) {
             let line_rect =
                 Rect::from_x_y_ranges(x..=x, timeline_rect.top()..=ui.max_rect().bottom())
@@ -363,7 +364,7 @@ fn time_marker_ui(
 
             if response.dragged() {
                 if let Some(pointer_pos) = pointer_pos {
-                    let time = time_ranges_ui.idx_from_x(pointer_pos.x);
+                    let time = time_ranges_ui.t_from_x(pointer_pos.x);
                     let time = time_ranges_ui.clamp_time(time);
                     ctx.set_time(time);
                 }
@@ -409,7 +410,7 @@ fn time_marker_ui(
             && !is_anything_being_dragged
             && !is_hovering_the_loop_selection
         {
-            let time = time_ranges_ui.idx_from_x(pointer_pos.x);
+            let time = time_ranges_ui.t_from_x(pointer_pos.x);
             let time = time_ranges_ui.clamp_time(time);
             ctx.set_time(time);
             ui.memory_mut(|mem| mem.set_dragged_id(time_drag_id));

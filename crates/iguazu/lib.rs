@@ -1,9 +1,6 @@
 pub mod stream;
 pub use stream::{Stream, AnyStream};
 
-mod time;
-pub use time::TimeType;
-
 pub mod in_memory;
 
 pub type Idx = u64;
