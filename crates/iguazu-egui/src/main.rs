@@ -3,15 +3,18 @@
 use std::{sync::Arc, hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
 
 use eframe::egui;
-use egui::{Color32, Frame};
-use iguazu::{ Stream, in_memory::MemoryStream, stream::cache::{IntView, index::IndexView} };
+use egui::Frame;
+use iguazu::{ Stream, in_memory::MemoryStream, entity::{Entity, NamedColor, Enum, EnumVariant, Timestamp } };
+use indexmap::indexmap;
 use num_rational::Ratio;
 use time::TimeRange;
-use timeline::{TimePanel, EnumVariant, DisplayItem, DisplayEvent, DisplayItemKind, DisplayLogic};
+use timeline::TimePanel;
 
 mod time;
 mod ui;
 mod util;
+mod color;
+mod egui_util;
 use self::time::Time;
 
 mod timeline;
@@ -38,27 +41,37 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
-    let variants = vec![
-        EnumVariant { name: "A".to_string(), color: Color32::RED },
-        EnumVariant { name: "B".to_string(), color: Color32::GREEN },
-        EnumVariant { name: "C".to_string(), color: Color32::BLUE },
-    ];
+    let entity = Entity::Group(indexmap!{
+        "Enum".into() => Entity::Enum(Enum {
+            sample_rate: Some(Ratio::new(1000, 1)),
+            data: {
+                let values: Vec<_> = (0..2000).map(|x| {
+                    let mut hasher = DefaultHasher::new();
+                    x.hash(&mut hasher);
+                    (hasher.finish() % 3) as u8
+                }).collect();
+                (MemoryStream::new(&values) as Arc<dyn Stream<_>>).into()
+            },
+            variants: indexmap!{
+                "A".into() => EnumVariant { color: Some(NamedColor::Red) },
+                "B".into() => EnumVariant { color: Some(NamedColor::Green) },
+                "C".into() => EnumVariant { color: Some(NamedColor::Blue) },
+            }
+        }),
 
-    let items = [
-        DisplayItem {
-            name: format!("Logic"),
-            sample_rate: Ratio::new(1000, 1),
-            kind: DisplayItemKind::Logic(DisplayLogic{
-                data: IndexView::new(MemoryStream::new(&[
+        "Logic".into() => Entity::Timestamp(Timestamp {
+            color: Some(NamedColor::Green),
+            base_clock: Ratio::new(1000, 1),
+            data: {
+                MemoryStream::new(&[
                     10,
                     11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
                     25, 30, 35, 40, 45, 55, 60, 65, 70,
                     80, 90, 100, 110, 120, 130, 140, 150, 160, 170,
-                ])),
-                color: Color32::GREEN,
-            }),
-        }
-    ];
+                ])
+            }
+        }),
+    });
 
     let app = App {
         time: None,
@@ -66,20 +79,7 @@ fn main() -> Result<(), eframe::Error> {
             col_width: 0.0,
             time_range: TimeRange { min: Time::ZERO, max: Time::SECOND },
             visible_range: None,
-            items: items.into_iter().chain((1..=40).map(|i| {
-                let items: Vec<_> = (0..200).map(|x| {
-                    let mut hasher = DefaultHasher::new();
-                    (i, x).hash(&mut hasher);
-                    (hasher.finish() % 3) as u8
-                }).collect();
-                let data = MemoryStream::new(&items) as Arc<dyn Stream<u8>>;
-
-                DisplayItem {
-                    name: format!("Channel {i}"),
-                    sample_rate: Ratio::new(200, 1),
-                    kind: DisplayItemKind::Event(DisplayEvent { data: IntView::new(data.into()), variants: variants.clone() }),
-                }
-            })).collect(),
+            entity
         },
     };
 

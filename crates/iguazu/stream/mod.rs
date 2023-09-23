@@ -1,5 +1,5 @@
 use append_array::AppendArray;
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, hash::Hash};
 use crate::Idx;
 
 pub mod cache;
@@ -17,11 +17,39 @@ pub struct StreamState {
     pub streaming: bool,
 }
 
+pub type IdxStream = Arc<dyn Stream<u64>>;
+
+#[derive(Clone)]
 pub enum AnyStream {
     I8(Arc<dyn Stream<u8>>),
     I16(Arc<dyn Stream<u16>>),
     I32(Arc<dyn Stream<u32>>),
     I64(Arc<dyn Stream<u64>>),
+}
+
+impl AnyStream {
+    /// Address used for pointer equality and hash
+    fn addr(&self) -> *const () {
+        match self {
+            AnyStream::I8(x) => Arc::as_ptr(x) as *const (),
+            AnyStream::I16(x) => Arc::as_ptr(x) as *const (),
+            AnyStream::I32(x) => Arc::as_ptr(x) as *const (),
+            AnyStream::I64(x) => Arc::as_ptr(x) as *const (),
+        }
+    }
+}
+
+impl PartialEq for AnyStream {
+    fn eq(&self, other: &Self) -> bool {
+        self.addr() == other.addr()
+    }
+}
+impl Eq for AnyStream {}
+
+impl Hash for AnyStream {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.addr().hash(state);
+    }
 }
 
 impl From<Arc<dyn Stream<u8>>> for AnyStream {

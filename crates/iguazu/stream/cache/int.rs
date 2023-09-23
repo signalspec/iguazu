@@ -27,6 +27,24 @@ impl IntView {
         }
     }
 
+    pub fn range(&self) -> IdxRange {
+        match self {
+            IntView::I8(v) => v.range(),
+            IntView::I16(v) => v.range(),
+            IntView::I32(v) => v.range(),
+            IntView::I64(v) => v.range(),
+        }
+    }
+
+    pub fn get(&self, idx: Idx) -> Option<u64> {
+        match self {
+            IntView::I8(v) => v.get(idx).map(|v| v as u64),
+            IntView::I16(v) => v.get(idx).map(|v| v as u64),
+            IntView::I32(v) => v.get(idx).map(|v| v as u64),
+            IntView::I64(v) => v.get(idx),
+        }
+    }
+
     pub fn for_each_elem(&self, mut f: impl FnMut(Idx, Option<u64>)) {
         match self {
             IntView::I8(c) => c.for_each_elem(|i, v| f(i, v.map(|v| v as u64))),

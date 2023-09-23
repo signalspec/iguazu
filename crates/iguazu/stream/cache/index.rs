@@ -4,21 +4,41 @@ use crate::{ Stream, Idx, IdxRange };
 use super::Cache;
 pub struct IndexView {
     inner: Cache<u64>,
+    parent_range: IdxRange,
+    min_duration: u64,
 }
 
 impl IndexView {
     pub fn new(stream: Arc<dyn Stream<u64>>) -> IndexView {
         IndexView {
-            inner: Cache::new(stream)
+            inner: Cache::new(stream),
+            parent_range: IdxRange { min: 0, max: 0 },
+            min_duration: 0,
         }
     }
 
-    pub fn set_parent_range(&mut self, _range: IdxRange) {
+    pub fn set_parent_range(&mut self, parent_range: IdxRange, min_duration: u64) {
+        self.parent_range = parent_range;
+        self.min_duration = min_duration;
         let block_size = self.inner.stream.block_size();
         self.inner.set_range(IdxRange { min: 0, max: block_size as u64 }); // Assume top-level overview is one block
     }
 
-    pub fn for_each_range(&self, parent_range: IdxRange, min_duration: u64, mut f: impl FnMut(IdxRange, Event)) {
+    pub fn parent_range(&self) -> IdxRange {
+        self.parent_range
+    }
+
+    pub fn index_range(&self) -> IdxRange {
+        self.inner.range()
+    }
+
+    pub fn min_duration(&self) -> u64 {
+        self.min_duration
+    }
+
+    pub fn for_each_range(&self, mut f: impl FnMut(IdxRange, Event)) {
+        let parent_range = self.parent_range;
+        let min_duration = self.min_duration;
         let block = self.inner.blocks.front().map_or(&[] as &[u64], |b| b.as_slice());
         let offset = self.inner.offset * self.inner.stream.block_size() as u64;
 
@@ -76,10 +96,10 @@ fn test_one_block() {
     use crate::in_memory::MemoryStream;
     let stream = MemoryStream::new(&[10u64, 20, 30, 35, 40, 42, 45, 50, 60]) as Arc<dyn Stream<u64>>;
     let mut view = IndexView::new(stream);
-    view.set_parent_range(IdxRange { min: 0, max: 100 });
+    view.set_parent_range(IdxRange { min: 0, max: 100 }, 0);
 
     let mut r = Vec::new();
-    view.for_each_range(IdxRange { min: 0, max: 100 }, 0, |range, e| r.push((range, e)));
+    view.for_each_range(|range, e| r.push((range, e)));
     assert_eq!(&r[..], &[
         (IdxRange { min: 0, max: 10 }, Event::Element(0)),
         (IdxRange { min: 10, max: 20 }, Event::Element(1)),
@@ -94,7 +114,9 @@ fn test_one_block() {
     ]);
 
     let mut r = Vec::new();
-    view.for_each_range(IdxRange { min: 0, max: 100 }, 2, |range, e| r.push((range, e)));
+    view.set_parent_range(IdxRange { min: 0, max: 100 }, 2);
+
+    view.for_each_range(|range, e| r.push((range, e)));
     assert_eq!(&r[..], &[
         (IdxRange { min: 0, max: 10 }, Event::Element(0)),
         (IdxRange { min: 10, max: 20 }, Event::Element(1)),
@@ -109,7 +131,8 @@ fn test_one_block() {
     ]);
 
     let mut r = Vec::new();
-    view.for_each_range(IdxRange { min: 15, max: 32 }, 2, |range, e| r.push((range, e)));
+    view.set_parent_range(IdxRange { min: 15, max: 32 }, 2);
+    view.for_each_range(|range, e| r.push((range, e)));
     assert_eq!(&r[..], &[
         (IdxRange { min: 10, max: 20 }, Event::Element(1)),
         (IdxRange { min: 20, max: 30 }, Event::Element(2)),
@@ -117,7 +140,8 @@ fn test_one_block() {
     ]);
 
     let mut r = Vec::new();
-    view.for_each_range(IdxRange { min: 0, max: 100 }, 3, |range, e| r.push((range, e)));
+    view.set_parent_range(IdxRange { min: 0, max: 100 }, 3);
+    view.for_each_range(|range, e| r.push((range, e)));
     assert_eq!(&r[..], &[
         (IdxRange { min: 0, max: 10 }, Event::Element(0)),
         (IdxRange { min: 10, max: 20 }, Event::Element(1)),
@@ -133,7 +157,8 @@ fn test_one_block() {
     ]);
 
     let mut r = Vec::new();
-    view.for_each_range(IdxRange { min: 0, max: 100 }, 5, |range, e| r.push((range, e)));
+    view.set_parent_range(IdxRange { min: 0, max: 100 }, 5);
+    view.for_each_range(|range, e| r.push((range, e)));
     assert_eq!(&r[..], &[
         (IdxRange { min: 0, max: 10 }, Event::Element(0)),
         (IdxRange { min: 10, max: 20 }, Event::Element(1)),
@@ -147,7 +172,8 @@ fn test_one_block() {
     ]);
 
     let mut r = Vec::new();
-    view.for_each_range(IdxRange { min: 0, max: 100 }, 10, |range, e| r.push((range, e)));
+    view.set_parent_range(IdxRange { min: 0, max: 100 }, 10);
+    view.for_each_range(|range, e| r.push((range, e)));
     assert_eq!(&r[..], &[
         (IdxRange { min: 0, max: 10 }, Event::Element(0)),
         (IdxRange { min: 10, max: 20 }, Event::Element(1)),
@@ -158,13 +184,15 @@ fn test_one_block() {
     ]);
 
     let mut r = Vec::new();
-    view.for_each_range(IdxRange { min: 35, max: 48 }, 10, |range, e| r.push((range, e)));
+    view.set_parent_range(IdxRange { min: 35, max: 48 }, 10);
+    view.for_each_range(|range, e| r.push((range, e)));
     assert_eq!(&r[..], &[
         (IdxRange { min: 35, max: 50 }, Event::TooDense),
     ]);
 
     let mut r = Vec::new();
-    view.for_each_range(IdxRange { min: 0, max: 100 }, 11, |range, e| r.push((range, e)));
+    view.set_parent_range(IdxRange { min: 0, max: 100 }, 11);
+    view.for_each_range(|range, e| r.push((range, e)));
     assert_eq!(&r[..], &[
         (IdxRange { min: 0, max: 60 }, Event::TooDense),
         (IdxRange { min: 60, max: 100 }, Event::Element(9)),

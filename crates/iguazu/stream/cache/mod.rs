@@ -20,7 +20,7 @@ pub struct Cache<T> {
     /// Block index of first block in `blocks`
     offset: u64,
 
-    ///
+    /// Selected range
     range: IdxRange,
 }
 
@@ -74,6 +74,18 @@ impl<T: Copy + 'static> Cache<T> {
         }
 
         self.range = range;
+    }
+
+    fn range(&self) -> IdxRange {
+        self.range
+    }
+
+    pub fn get(&self, idx: Idx) -> Option<T> {
+        let block_size = self.stream.block_size();
+        let block = idx / block_size as Idx;
+        let pos = idx % block_size as Idx;
+        let block = self.blocks.get(block.checked_sub(self.offset)? as usize)?;
+        block.get(pos as usize).copied()
     }
 
     pub fn for_each_elem(&self, mut f: impl FnMut(Idx, Option<T>)) {
