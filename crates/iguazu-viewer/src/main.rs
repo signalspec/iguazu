@@ -5,30 +5,7 @@ use std::fs::File;
 use eframe::egui;
 use egui::Frame;
 
-use time::TimeRange;
-use timeline::TimePanel;
-
-mod time;
-mod ui;
-mod util;
-mod color;
-mod egui_util;
-use self::time::Time;
-
-mod timeline;
-
-struct ViewerContext<'a> {
-    time: &'a mut Option<Time>,
-}
-impl<'a> ViewerContext<'a> {
-    fn time(&self) -> Option<Time> {
-        *self.time
-    }
-
-    fn set_time(&mut self, time: Time) {
-        *self.time = Some(time);
-    }
-}
+use iguazu_egui::{timeline::TimePanel, TimeRange, Time, ViewerContext};
 
 fn main() -> Result<(), eframe::Error> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
@@ -62,7 +39,7 @@ fn main() -> Result<(), eframe::Error> {
 }
 
 struct App {
-    time_panel: timeline::TimePanel,
+    time_panel: TimePanel,
 
     /// Selected time
     time: Option<Time>,

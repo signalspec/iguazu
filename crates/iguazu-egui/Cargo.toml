@@ -15,9 +15,7 @@ num-rational.workspace = true
 num-traits.workspace = true
 indexmap.workspace = true
 hashbrown.workspace = true
-eframe = { version = "0.22", default-features=false, features = ["accesskit", "default_fonts", "wgpu"] }
-egui = "0.22.0"
+egui.workspace = true
 serde = "1.0.160"
 time = { version = "0.3.20", features = ["serde", "macros", "formatting"] }
-tracing-subscriber = "0.3.16"
 by_address = "1.1.0"

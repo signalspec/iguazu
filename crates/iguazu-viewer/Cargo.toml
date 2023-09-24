@@ -1,0 +1,16 @@
+[package]
+name = "iguazu-viewer"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+iguazu.workspace = true
+iguazu-egui.workspace = true
+egui.workspace = true
+tracing-subscriber = "0.3.16"
+eframe = { version = "0.22", default-features=false, features = ["accesskit", "default_fonts", "wgpu"] }

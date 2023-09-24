@@ -7,13 +7,13 @@ use by_address::ByAddress;
 use egui::{pos2, CursorIcon, NumExt, PointerButton, Rect, Vec2, Color32, Rounding, Layout, Stroke, Id};
 use iguazu::{stream::cache::{IntView, index::{IndexView, Event as IndexEvent}}, Idx, entity::{Entity, NamedColor, SampleRate, Timestamp}, Stream, IdxRange, AnyStream};
 use indexmap::IndexMap;
-use crate::{ ViewerContext, ui::draw_shadow_line, time::TimeRange, color::named_color, egui_util::cache::FrameCache };
+use crate::{ ViewerContext, time::TimeRange, color::named_color, egui_util::{ shadow_line::draw_shadow_line, cache::FrameCache} };
 
 use scale::Scale;
 
 use self::scale::IdxScale;
 
-pub(crate) struct TimePanel {
+pub struct TimePanel {
     /// Width of the entity name columns previous frame.
     pub col_width: f32,
 
