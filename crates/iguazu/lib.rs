@@ -1,5 +1,6 @@
 pub mod stream;
 pub mod entity;
+pub mod import;
 pub use stream::{Stream, IdxStream, AnyStream};
 
 pub mod in_memory;

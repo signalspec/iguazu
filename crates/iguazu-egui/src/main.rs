@@ -1,12 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::{sync::Arc, hash::{Hash, Hasher}, collections::hash_map::DefaultHasher};
+use std::fs::File;
 
 use eframe::egui;
 use egui::Frame;
-use iguazu::{ Stream, in_memory::MemoryStream, entity::{Entity, NamedColor, Enum, EnumVariant, Timestamp } };
-use indexmap::indexmap;
-use num_rational::Ratio;
+
 use time::TimeRange;
 use timeline::TimePanel;
 
@@ -41,43 +39,16 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
-    let entity = Entity::Group(indexmap!{
-        "Enum".into() => Entity::Enum(Enum {
-            sample_rate: Some(Ratio::new(1000, 1)),
-            data: {
-                let values: Vec<_> = (0..2000).map(|x| {
-                    let mut hasher = DefaultHasher::new();
-                    x.hash(&mut hasher);
-                    (hasher.finish() % 3) as u8
-                }).collect();
-                (MemoryStream::new(&values) as Arc<dyn Stream<_>>).into()
-            },
-            variants: indexmap!{
-                "A".into() => EnumVariant { color: Some(NamedColor::Red) },
-                "B".into() => EnumVariant { color: Some(NamedColor::Green) },
-                "C".into() => EnumVariant { color: Some(NamedColor::Blue) },
-            }
-        }),
-
-        "Logic".into() => Entity::Timestamp(Timestamp {
-            color: Some(NamedColor::Green),
-            base_clock: Ratio::new(1000, 1),
-            data: {
-                MemoryStream::new(&[
-                    10,
-                    11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-                    25, 30, 35, 40, 45, 55, 60, 65, 70,
-                    80, 90, 100, 110, 120, 130, 140, 150, 160, 170,
-                ])
-            }
-        }),
-    });
+    let fname = std::env::args().nth(1).expect("filename passed as command line arg");
+    let importer = iguazu::import::IMPORTERS.first_for_filename(&fname).expect("No importer for extension");
+    let mut file = File::open(fname).unwrap();
+    let entity = importer.import(&mut file).unwrap();
 
     let app = App {
         time: None,
         time_panel: TimePanel {
             col_width: 0.0,
-            time_range: TimeRange { min: Time::ZERO, max: Time::SECOND },
+            time_range: TimeRange { min: Time::ZERO, max: Time::MINUTE },
             visible_range: None,
             entity
         },
