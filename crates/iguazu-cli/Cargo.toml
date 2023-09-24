@@ -1,0 +1,18 @@
+[package]
+name = "iguazu-cli"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "iguazu"
+path = "src/main.rs"
+
+[dependencies]
+iguazu.workspace = true
+clap = { version = "4.4.4", features = ["derive"] }
+owo-colors = "3.5.0"
