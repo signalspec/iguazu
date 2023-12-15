@@ -1,6 +1,4 @@
-use std::ops::RangeInclusive;
-
-use egui::{lerp, pos2, remap_clamp, Align2, Color32, Rect, Rgba, Shape, Stroke};
+use egui::{lerp, pos2, remap_clamp, Align2, Color32, Rect, Rgba, Shape, Stroke, Rangef};
 
 use crate::{Time, time::next_time_step};
 
@@ -10,7 +8,7 @@ pub(crate) fn paint_time_ranges_and_ticks(
     time_ranges_ui: &Scale,
     ui: &mut egui::Ui,
     time_area_painter: &egui::Painter,
-    line_y_range: RangeInclusive<f32>,
+    line_y_range: Rangef,
 ) {
     time_area_painter
         .extend(paint_time_range_ticks(ui, time_ranges_ui, line_y_range));
@@ -20,7 +18,7 @@ pub(crate) fn paint_time_ranges_and_ticks(
 fn paint_time_range_ticks(
     ui: &mut egui::Ui,
     scale: &Scale,
-    line_y_range: RangeInclusive<f32>,
+    line_y_range: Rangef,
 ) -> Vec<Shape> {
     let font_id = egui::TextStyle::Small.resolve(ui.style());
 
@@ -40,7 +38,7 @@ fn paint_ticks(
     scale: &Scale,
     dark_mode: bool,
     font_id: &egui::FontId,
-    line_y_range: RangeInclusive<f32>,
+    line_y_range: Rangef,
     clip_rect: &Rect,
 ) -> Vec<egui::Shape> {
     let min_tick_size = Time::NANOSECOND; // TODO: set from max sample rate
@@ -102,7 +100,7 @@ fn paint_ticks(
     while current_time <= visible.max {
         let line_x = scale.x_from_t(current_time);
 
-        if clip_rect.x_range().contains(&line_x) {
+        if clip_rect.x_range().contains(line_x) {
             let medium_line = current_time % medium_spacing_time == Time::ZERO;
             let big_line = current_time % big_spacing_time == Time::ZERO;
 
@@ -118,7 +116,7 @@ fn paint_ticks(
             let line_top = lerp(line_y_range.clone(), lerp(0.75..=0.5, height_factor));
 
             shapes.push(egui::Shape::line_segment(
-                [pos2(line_x, line_top), pos2(line_x, *line_y_range.end())],
+                [pos2(line_x, line_top), pos2(line_x, line_y_range.max)],
                 Stroke::new(1.0, line_color),
             ));
 

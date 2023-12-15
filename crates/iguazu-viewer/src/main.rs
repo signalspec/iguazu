@@ -12,7 +12,6 @@ fn main() -> Result<(), eframe::Error> {
     tracing_subscriber::fmt::init();
 
     let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::vec2(640.0, 480.0)),
         ..Default::default()
     };
 

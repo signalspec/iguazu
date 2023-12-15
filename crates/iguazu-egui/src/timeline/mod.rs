@@ -1,10 +1,10 @@
 mod paint_ticks;
 mod scale;
 
-use std::{ops::RangeInclusive, sync::Arc};
+use std::sync::Arc;
 
 use by_address::ByAddress;
-use egui::{pos2, CursorIcon, NumExt, PointerButton, Rect, Vec2, Color32, Rounding, Layout, Stroke, Id};
+use egui::{pos2, CursorIcon, NumExt, PointerButton, Rect, Vec2, Color32, Rounding, Layout, Stroke, Id, Rangef};
 use iguazu::{stream::cache::{IntView, index::{IndexView, Event as IndexEvent}}, Idx, entity::{Entity, NamedColor, SampleRate, Timestamp}, Stream, IdxRange, AnyStream};
 use indexmap::IndexMap;
 use crate::{ ViewerContext, time::TimeRange, color::named_color, egui_util::{ shadow_line::draw_shadow_line, cache::FrameCache} };
@@ -52,9 +52,9 @@ impl TimePanel {
                 .at_most(ui.max_rect().right() - 100.0);
 
         let x_margin = 20.0;
-        let scrollbar_width = ui.spacing_mut().scroll_bar_outer_margin + ui.spacing_mut().scroll_bar_width;
+        let scrollbar_width = ui.spacing_mut().scroll.bar_outer_margin + ui.spacing_mut().scroll.bar_width;
 
-        let time_x_range = time_x_left..=rect.right();
+        let time_x_range = Rangef::new(time_x_left, rect.right());
         let time_x_range_without_scrollbar = {
             let right = rect.right() - scrollbar_width;
             debug_assert!(time_x_left < right);
@@ -62,7 +62,7 @@ impl TimePanel {
         };
 
         let scale = Scale::new(
-            time_x_range.clone(),
+            time_x_range,
             self.visible_range.unwrap_or(self.time_range),
             self.time_range,
             x_margin,
@@ -422,10 +422,10 @@ fn render_events(
                 painter.rect_filled(evt_rect, Rounding::same(5.0), color);
             },
             IndexEvent::Loading => {
-                painter.rect_filled(evt_rect, Rounding::none(), Color32::GRAY);
+                painter.rect_filled(evt_rect, Rounding::ZERO, Color32::GRAY);
             },
             IndexEvent::TooDense => {
-                painter.rect_filled(evt_rect, Rounding::none(), color.fixed().unwrap_or(Color32::WHITE));
+                painter.rect_filled(evt_rect, Rounding::ZERO, color.fixed().unwrap_or(Color32::WHITE));
             },
         }
 
@@ -454,7 +454,7 @@ fn time_marker_ui(
     // show current time as a line:
     if let Some(time) = ctx.time() {
         let x= time_ranges_ui.x_from_t(time);
-        if timeline_rect.x_range().contains(&x) {
+        if timeline_rect.x_range().contains(x) {
             let line_rect =
                 Rect::from_x_y_ranges(x..=x, timeline_rect.top()..=ui.max_rect().bottom())
                     .expand(interact_radius);
@@ -483,7 +483,7 @@ fn time_marker_ui(
             paint_time_cursor(
                 time_area_painter,
                 x,
-                timeline_rect.top()..=ui.max_rect().bottom(),
+                Rangef::new(timeline_rect.top(), ui.max_rect().bottom()),
                 stroke,
             );
         }
@@ -524,12 +524,9 @@ fn time_marker_ui(
 pub fn paint_time_cursor(
     painter: &egui::Painter,
     x: f32,
-    y: RangeInclusive<f32>,
+    y: Rangef,
     stroke: egui::Stroke,
 ) {
-    let y_min = *y.start();
-    let y_max = *y.end();
-
     let stroke = egui::Stroke {
         width: 1.5 * stroke.width,
         color: stroke.color,
@@ -537,14 +534,14 @@ pub fn paint_time_cursor(
 
     let w = 10.0;
     let triangle = vec![
-        pos2(x - 0.5 * w, y_min), // left top
-        pos2(x + 0.5 * w, y_min), // right top
-        pos2(x, y_min + w),       // bottom
+        pos2(x - 0.5 * w, y.min), // left top
+        pos2(x + 0.5 * w, y.min), // right top
+        pos2(x, y.min + w),       // bottom
     ];
     painter.add(egui::Shape::convex_polygon(
         triangle,
         stroke.color,
         egui::Stroke::NONE,
     ));
-    painter.vline(x, (y_min + w)..=y_max, stroke);
+    painter.vline(x, (y.min + w)..=y.max, stroke);
 }

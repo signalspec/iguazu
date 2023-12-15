@@ -1,6 +1,4 @@
-use std::ops::RangeInclusive;
-
-use egui::NumExt;
+use egui::{NumExt, Rangef};
 use iguazu::{ Idx, IdxRange };
 use num_rational::Ratio;
 
@@ -21,7 +19,7 @@ pub(crate) struct Scale {
     pub bounds: TimeRange,
 
     /// The on-screen x position in points (outside of margin)
-    pub x_range: RangeInclusive<f32>,
+    pub x_range: Rangef,
 
     /// Margin in points used to center the view on-screen
     pub x_margin_left: f32,
@@ -34,7 +32,7 @@ const MIN_TIME: Time = Time::NANOSECOND;
 
 impl Scale {
     pub fn new(
-        x_range: RangeInclusive<f32>,
+        x_range: Rangef,
         view_range: TimeRange,
         bounds: TimeRange,
         x_margin_left: f32,
@@ -51,7 +49,7 @@ impl Scale {
 
     /// Width in points corresponding to the view_range
     pub fn x_width(&self) -> f32 {
-        (*self.x_range.end() - *self.x_range.start()) - self.x_margin_left - self.x_margin_right
+        self.x_range.span() - self.x_margin_left - self.x_margin_right
     }
 
     /// The time offset represented by an on-screen displacement in points
@@ -101,12 +99,12 @@ impl Scale {
 
     /// Map a timestamp to a screen position
     pub fn x_from_t(&self, idx: Time) -> f32 {
-        self.x_range.start() + self.x_margin_left + self.points_from_time(idx - self.view_range.min)
+        self.x_range.min + self.x_margin_left + self.points_from_time(idx - self.view_range.min)
     }
 
     /// Map a screen position to a timestamp
     pub fn t_from_x(&self, x: f32) -> Time {
-        self.view_range.min + self.points_to_time(x - self.x_range.start() - self.x_margin_left)
+        self.view_range.min + self.points_to_time(x - self.x_range.min - self.x_margin_left)
     }
 
     /// Pan the view, returning the new visible range.
@@ -159,7 +157,7 @@ fn test_scale() {
     let m1 = 20.0;
     let m2 = 30.0;
     let scale = Scale::new(
-        x1..=x2,
+        Rangef::new(x1, x2),
         TimeRange {
             min: 10 * Time::SECOND,
             max: 30 * Time::SECOND,
@@ -205,7 +203,7 @@ fn test_idx_scale() {
     let m1 = 20.0;
     let m2 = 30.0;
     let scale = Scale::new(
-        x1..=x2,
+        Rangef::new(x1, x2),
         TimeRange {
             min: 10 * Time::SECOND,
             max: 20 * Time::SECOND,
@@ -234,7 +232,7 @@ fn test_idx_scale() {
 #[test]
 fn test_pan_zoom() {
     let scale = Scale::new(
-        1000.0..=2000.0,
+        Rangef::new(1000.0, 2000.0),
         TimeRange {
             min: 2 * Time::SECOND,
             max: 102 * Time::SECOND,
