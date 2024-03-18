@@ -47,7 +47,7 @@ impl Time {
     pub fn scale(&self, factor: f32) -> Time {
         let (mantissa, exponent, sign) = factor.integer_decode();
 
-        if exponent < -128 {
+        if exponent <= -128 {
             Time(0)
         } else if exponent < 0 {
             Time((self.0 * (mantissa as i128) >> -exponent) * sign as i128)
@@ -86,6 +86,9 @@ fn test_scale() {
     assert_eq!(Time::NANOSECOND.scale(1e9), Time::SECOND);
     assert_eq!(Time::DAY.scale(-10.0), -10 * Time::DAY);
     assert_eq!(Time::DAY.scale(0.0), Time::ZERO);
+    assert_eq!(Time::DAY.scale(1.157407407e-23f32), Time::UNIT);
+    assert_eq!(Time::DAY.scale(2.465190329e-32f32), Time::ZERO); // exponent -128
+    assert_eq!(Time::DAY.scale(f32::MIN_POSITIVE), Time::ZERO);
 }
 
 #[test]
