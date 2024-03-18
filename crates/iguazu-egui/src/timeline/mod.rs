@@ -154,9 +154,9 @@ impl TimePanel {
 
         if response.hovered() {
             ui.input(|input| {
-                delta_x += input.scroll_delta.x;
+                delta_x += input.smooth_scroll_delta.x;
                 zoom_factor *= input.zoom_delta_2d().x;
-                zoom_factor *= (input.scroll_delta.y * -0.01).exp();
+                zoom_factor *= (input.smooth_scroll_delta.y * -0.01).exp();
             });
         }
 
