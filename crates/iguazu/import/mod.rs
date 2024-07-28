@@ -1,23 +1,20 @@
-use std::{io::Read, error::Error};
+use std::{error::Error, fs::File};
 
-use crate::entity::Entity;
+use crate::schema::{attribute::SampleRate, Entity};
 
 pub struct Importer {
-    name: &'static str,
-    extensions: &'static [&'static str],
-    import: fn (&mut dyn Read) -> Result<Entity, Box<dyn Error>>,
+    pub name: &'static str,
+    pub extensions: &'static [&'static str],
+    pub import: fn (File) -> Result<Entity, Box<dyn Error>>,
 }
 
 impl Importer {
-    pub const fn name(&self) -> &'static str { self.name }
-    pub const fn extensions(&self) -> &'static [&'static str] { self.extensions }
-
     pub fn matches_filename(&self, name: &str) -> bool {
         self.extensions.iter().any(|ext| name.ends_with(ext))
     }
 
-    pub fn import(&self, r: &mut dyn Read) -> Result<Entity, Box<dyn Error>> {
-        (self.import)(r)
+    pub fn import(&self, f: File) -> Result<Entity, Box<dyn Error>> {
+        (self.import)(f)
     }
 }
 
@@ -29,7 +26,7 @@ impl<T> Importers<T> where T: AsRef<[Importer]> {
     }
 
     pub fn by_name(&self, name: &str) -> Option<&Importer> {
-        self.iter().find(|imp| imp.name() == name)
+        self.iter().find(|imp| imp.name == name)
     }
 
     pub fn first_for_filename(&self, fname: &str) -> Option<&Importer> {
@@ -46,16 +43,18 @@ impl<'a, T> IntoIterator for &'a Importers<T> where T: AsRef<[Importer]> {
     }
 }
 
-#[cfg(feature = "vcd")]
-mod vcd;
-
-#[cfg(feature = "vcd")]
-pub const VCD: Importer = Importer {
-    name: "vcd",
-    extensions: &[".vcd"],
-    import: vcd::import,
+pub const BIN: Importer = Importer {
+    name: "bin",
+    extensions: &[".bin"],
+    import: |f| Ok(crate::storage::binary_file(f)?),
 };
 
-pub const IMPORTERS: Importers<&'static[Importer]> = Importers(&[
-    #[cfg(feature = "vcd")] VCD,
+pub const LOGIC8: Importer = Importer {
+    name: "8ch logic trace - raw binary",
+    extensions: &[".logic8"],
+    import: |f| Ok(crate::storage::logic8(f, SampleRate(200.0))?),
+};
+
+pub const IMPORTERS: Importers<&'static [Importer]> = Importers(&[
+    BIN, LOGIC8
 ]);

@@ -24,8 +24,13 @@ impl Time {
     pub const DAY: Time = Time(86400_000_000_000_000_000_000);
 
     /// Get the period for a frequency expressed as a ratio
-    pub fn period(freq: Ratio<u64>) -> Time {
+    pub fn period_ratio(freq: Ratio<u64>) -> Time {
         (*freq.denom() as i128) * Self::SECOND / (*freq.numer() as i128)
+    }
+
+    /// Get the period for a frequency expressed as a float
+    pub fn period_float(freq: f64) -> Time {
+        Time((Self::SECOND.0 as f64 / freq).round() as i128)
     }
 
     pub fn abs(self) -> Time {

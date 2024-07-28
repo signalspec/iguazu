@@ -10,15 +10,11 @@ version.workspace = true
 
 [dependencies]
 append-array = { path = "../append-array", version = "0.1.0" }
-num-rational.workspace = true
 num-traits.workspace = true
 num-complex.workspace = true
-indexmap.workspace = true
-vcd = {version = "0.7.0", optional = true}
-
-[features]
-vcd = ["dep:vcd"]
-default = ["vcd"]
+indexmap = { workspace = true, features = ["serde"] }
+serde_json = "1.0.120"
+serde = { version = "1.0.204", features = ["derive"] }
 
 [lib]
 path = "lib.rs"

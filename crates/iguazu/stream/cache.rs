@@ -3,19 +3,14 @@ use std::sync::Arc;
 
 use append_array::AppendArray;
 
-use crate::{Idx, IdxRange, Stream};
+use crate::{Idx, IdxRange, stream::{Stream, FieldVal}};
 
-mod int;
-pub use int::IntView;
-
-pub mod index;
-
-pub struct Cache<T> {
+pub struct Cache {
     /// Wrapped stream
-    stream: Arc<dyn Stream<T>>,
+    stream: Arc<dyn Stream>,
 
     /// Cached blocks
-    blocks: VecDeque<Arc<AppendArray<T>>>,
+    blocks: VecDeque<Arc<AppendArray<u8>>>,
 
     /// Block index of first block in `blocks`
     offset: u64,
@@ -24,8 +19,8 @@ pub struct Cache<T> {
     range: IdxRange,
 }
 
-impl<T: Copy + 'static> Cache<T> {
-    pub fn new(stream: Arc<dyn Stream<T>>) -> Self {
+impl Cache {
+    pub fn new(stream: Arc<dyn Stream>) -> Self {
         Cache {
             stream,
             blocks: VecDeque::new(),
@@ -38,9 +33,10 @@ impl<T: Copy + 'static> Cache<T> {
     }
 
     pub fn set_range(&mut self, range: IdxRange) {
-        let block_size = self.stream.block_size();
+        let desc = self.stream.desc();
+        let block_size = desc.block_size;
         let min_block = range.min / (block_size as u64);
-        let max_block = (range.max + block_size as u64 - 1) / (block_size as u64);
+        let max_block = range.max.div_ceil(block_size as u64);
 
         if max_block < self.offset || min_block >= self.offset + self.blocks.len() as u64 {
             // no overlap with existing range; start over
@@ -76,32 +72,33 @@ impl<T: Copy + 'static> Cache<T> {
         self.range = range;
     }
 
-    fn range(&self) -> IdxRange {
+    pub fn range(&self) -> IdxRange {
         self.range
     }
 
-    pub fn get(&self, idx: Idx) -> Option<T> {
-        let block_size = self.stream.block_size();
-        let block = idx / block_size as Idx;
-        let pos = idx % block_size as Idx;
+    pub fn get(&self, idx: Idx) -> Option<FieldVal> {
+        let desc = self.stream.desc();
+        let block = idx / desc.block_size as Idx;
+        let pos = idx % desc.block_size as Idx;
         let block = self.blocks.get(block.checked_sub(self.offset)? as usize)?;
-        block.get(pos as usize).copied()
+        block.get(pos as usize..pos as usize + desc.element_size).map(FieldVal::from_slice)
     }
 
-    pub fn for_each_elem(&self, mut f: impl FnMut(Idx, Option<T>)) {
-        let block_size = self.stream.block_size();
+    pub fn for_each_elem<'a>(&'a self, mut f: impl FnMut(Idx, Option<FieldVal<'a>>)) {
+        let desc = self.stream.desc();
+
         for (block_i, block) in self.blocks.iter().enumerate() {
-            let idx = (self.offset + block_i as u64) * block_size as u64;
+            let idx = (self.offset + block_i as u64) * desc.block_size as u64;
             let data = block.as_slice();
 
             let start = self.range.min.saturating_sub(idx).min(data.len() as u64) as usize;
             let end = self.range.max.saturating_sub(idx).min(data.len() as u64) as usize;
 
-            for (i, v) in data[start..end].iter().enumerate() {
-                f(idx + start as u64 + i as u64, Some(*v))
+            for (i, v) in data[start..end].chunks_exact(desc.element_size).enumerate() {
+                f(idx + start as u64 + i as u64, Some(FieldVal::from_slice(v)))
             }
 
-            for i in (idx + end as u64)..(self.range.max.min(idx + block_size as u64)) {
+            for i in (idx + end as u64)..(self.range.max.min(idx + desc.block_size as u64)) {
                 f(i, None)
             }
         }

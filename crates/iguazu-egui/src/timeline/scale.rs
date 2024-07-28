@@ -1,7 +1,5 @@
 use egui::{NumExt, Rangef};
 use iguazu::{ Idx, IdxRange };
-use num_rational::Ratio;
-
 use crate::time::{TimeRange, Time};
 
 #[cfg(test)]
@@ -83,8 +81,8 @@ impl Scale {
 
     /// Get an `IdxScale` mapping screen positions to ticks
     /// sampled at `frequency`.
-    pub fn idx_scale(&self, frequency: Ratio<u64>) -> IdxScale {
-        let period = Time::period(frequency);
+    pub fn idx_scale(&self, frequency: f64) -> IdxScale {
+        let period = Time::period_float(frequency);
         let t_range = self.clamped_visible();
         let visible = IdxRange {
             min: (t_range.min / period) as u64,
@@ -220,7 +218,7 @@ fn test_idx_scale() {
     assert_approx_eq!(t_visible.min, 9800 * Time::MILLISECOND, 1/10_000_000);
     assert_approx_eq!(t_visible.max, 20300 * Time::MILLISECOND, 1/10_000_000);
 
-    let idx_scale = scale.idx_scale(Ratio::new(1000, 1));
+    let idx_scale = scale.idx_scale(1000.0);
     assert_eq!(idx_scale.visible, IdxRange { min: 9800, max: 20300 });
 
     assert_approx_eq!(idx_scale.x_from_idx(9800), x1);

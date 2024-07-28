@@ -17,8 +17,8 @@ fn main() -> Result<(), eframe::Error> {
 
     let fname = std::env::args().nth(1).expect("filename passed as command line arg");
     let importer = iguazu::import::IMPORTERS.first_for_filename(&fname).expect("No importer for extension");
-    let mut file = File::open(fname).unwrap();
-    let entity = importer.import(&mut file).unwrap();
+    let file = File::open(fname).unwrap();
+    let entity = importer.import(file).unwrap();
 
     let app = App {
         time: None,
