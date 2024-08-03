@@ -33,7 +33,7 @@ pub trait Attribute: Clone + PartialEq + Serialize + DeserializeOwned {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum AccentColor {
     Red,
     Orange,
@@ -49,7 +49,7 @@ impl Attribute for AccentColor {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum TimelineRow {
     /// Children are displayed as separate timeline rows.
     Group,
@@ -87,6 +87,16 @@ impl Attribute for SampleRate {
     const NAME: &'static str = "sample_rate";
 }
 
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogicLevel {
+    Low,
+    High,
+}
+
+impl Attribute for LogicLevel {
+    const NAME: &'static str = "logic_level";
+}
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Text(pub String);

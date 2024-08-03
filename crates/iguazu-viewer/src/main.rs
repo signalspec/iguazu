@@ -1,10 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::fs::File;
-
 use eframe::egui;
 use egui::Frame;
 
+use iguazu::io::FsFile;
 use iguazu_egui::{timeline::TimePanel, TimeRange, Time, ViewerContext};
 
 fn main() -> Result<(), eframe::Error> {
@@ -17,7 +16,7 @@ fn main() -> Result<(), eframe::Error> {
 
     let fname = std::env::args().nth(1).expect("filename passed as command line arg");
     let importer = iguazu::import::IMPORTERS.first_for_filename(&fname).expect("No importer for extension");
-    let file = File::open(fname).unwrap();
+    let file = FsFile::new(fname.into()).unwrap();
     let entity = importer.import(file).unwrap();
 
     let app = App {

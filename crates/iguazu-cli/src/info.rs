@@ -1,7 +1,7 @@
-use std::{fs::File, io::Write, path::PathBuf};
+use std::{io::Write, path::PathBuf};
 
 use clap::Args;
-use iguazu::schema::{Entity, EntityKind, Field, NestedField};
+use iguazu::{io::{FsFile, ReadableFile}, schema::{Entity, EntityKind, Field, NestedField}};
 use owo_colors::OwoColorize;
 
 #[derive(Args)]
@@ -16,14 +16,14 @@ pub struct Cli {
 }
 
 pub fn main(args: &Cli) -> Result<(), String> {
-    let filename = args.file.file_name().map_or("".to_string(), |n| n.to_string_lossy().to_string());
+    let file = FsFile::new(args.file.clone()).map_err(|e| format!("Failed to open {}: {}", args.file.display(), e))?;
+    let filename = file.filename().unwrap_or("unknown").to_owned();
     let importer = if let Some(format) = &args.import_format {
         iguazu::import::IMPORTERS.by_name(format).ok_or_else(|| format!("No importer named `{}`", format))?
     } else {
         iguazu::import::IMPORTERS.first_for_filename(&filename).ok_or_else(|| format!("No importer matched filename `{}`", filename))?
     };
     
-    let file = File::open(&args.file).map_err(|e| format!("Failed to open {}: {}", args.file.display(), e))?;
     let entity = importer.import(file).map_err(|e| format!("Failed to import {}: {}", args.file.display(), e))?;
 
     info_tree(&mut std::io::stdout().lock(), &filename, &entity);

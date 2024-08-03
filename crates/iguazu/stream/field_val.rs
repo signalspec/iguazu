@@ -1,4 +1,5 @@
 
+#[derive(Clone, Copy)]
 pub struct FieldVal<'a> {
     offset: u16,
     width: u16,

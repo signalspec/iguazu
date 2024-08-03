@@ -1,11 +1,11 @@
-use std::{error::Error, fs::File};
+use std::error::Error;
 
-use crate::schema::{attribute::SampleRate, Entity};
+use crate::{io::FsFile, schema::{attribute::SampleRate, Entity}};
 
 pub struct Importer {
     pub name: &'static str,
     pub extensions: &'static [&'static str],
-    pub import: fn (File) -> Result<Entity, Box<dyn Error>>,
+    pub import: fn (FsFile) -> Result<Entity, Box<dyn Error>>,
 }
 
 impl Importer {
@@ -13,7 +13,7 @@ impl Importer {
         self.extensions.iter().any(|ext| name.ends_with(ext))
     }
 
-    pub fn import(&self, f: File) -> Result<Entity, Box<dyn Error>> {
+    pub fn import(&self, f: FsFile) -> Result<Entity, Box<dyn Error>> {
         (self.import)(f)
     }
 }
@@ -43,18 +43,24 @@ impl<'a, T> IntoIterator for &'a Importers<T> where T: AsRef<[Importer]> {
     }
 }
 
+pub const VIRTUAL: Importer = Importer {
+    name: "Iguazu Virtual",
+    extensions: &[".iguazu.json"],
+    import: |f| Ok(crate::storage::json_virtual::load(f)?),
+};
+
 pub const BIN: Importer = Importer {
     name: "bin",
     extensions: &[".bin"],
-    import: |f| Ok(crate::storage::binary_file(f)?),
+    import: |f| Ok(crate::storage::FlatFileStream::binary_file(f)?),
 };
 
 pub const LOGIC8: Importer = Importer {
     name: "8ch logic trace - raw binary",
     extensions: &[".logic8"],
-    import: |f| Ok(crate::storage::logic8(f, SampleRate(200.0))?),
+    import: |f| Ok(crate::storage::FlatFileStream::logic8(f, SampleRate(200.0))?),
 };
 
 pub const IMPORTERS: Importers<&'static [Importer]> = Importers(&[
-    BIN, LOGIC8
+    VIRTUAL, BIN, LOGIC8
 ]);

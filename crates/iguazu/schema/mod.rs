@@ -8,6 +8,9 @@ pub use attribute::Attributes;
 mod field;
 pub use field::{Field, NestedField};
 
+mod field_text;
+pub use field_text::{ TextFormat, FormatValue };
+
 use crate::stream::ArcStream;
 
 pub type Name = String;
@@ -54,16 +57,16 @@ impl<S> EntityKind<S> {
         self.attributes_mut().set(a)
     }
 
-    fn map_data<T>(&self, mut f: impl FnMut(&S) -> T) -> EntityKind<T> {
+    pub fn try_map_data<T, E>(&self, f: &mut impl FnMut(&S) -> Result<T, E>) -> Result<EntityKind<T>, E> {
         match self {
             EntityKind::Group { attributes, children } => {
                 let children = children.iter().map(|(k, v)| {
-                    (k.clone(), v.map_data(|x| f(x)))
-                }).collect();
-                EntityKind::Group { attributes: attributes.clone(), children }
+                    Ok((k.clone(), v.try_map_data(f)?))
+                }).collect::<Result<IndexMap<String, EntityKind<T>>, E>>()?;
+                Ok(EntityKind::Group { attributes: attributes.clone(), children })
             }
             EntityKind::Data { data, encoding } => {
-                EntityKind::Data { data: f(data), encoding: encoding.clone() }
+                Ok(EntityKind::Data { data: f(data)?, encoding: encoding.clone() })
             }
         }
     }

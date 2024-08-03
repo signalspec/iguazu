@@ -1,5 +1,5 @@
-use egui::{Stroke, Ui, Vec2};
-use iguazu::{schema::attribute::AccentColor, stream::{Cache, FieldVal}, IdxRange};
+use egui::{Align2, Color32, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
+use iguazu::{schema::{attribute::{AccentColor, LogicLevel}, Field, TextFormat}, stream::{Cache, FieldVal}, IdxRange};
 
 use crate::{color::named_color, ViewerContext};
 
@@ -32,10 +32,21 @@ pub(crate) fn render(
     let idx_scale = scale.idx_scale(sample_rate.0);
 
     let color = named_color(
-        entity
+        field
             .attribute::<AccentColor>()
             .unwrap_or(AccentColor::Green),
     );
+
+    let logic_levels = match field.kind {
+        Field::Tagged { tag_bits, ref values } if bit_width <= 64 && bit_width == tag_bits => {
+            values.values().map(|variant| variant.attribute::<LogicLevel>()).collect()
+        }
+        _ => Vec::new()
+    };
+
+    let text_format = TextFormat::new(0, field);
+    let font_id = egui::TextStyle::Small.resolve(ui.style());
+    let font_color = ui.style().visuals.text_color();
 
     let painter = ui.painter_at(rect);
     let stroke_width = 1.0;
@@ -48,38 +59,57 @@ pub(crate) fn render(
         max: idx_scale.visible.max.min(state.end),
     });
 
-    let mut prev_v = view.get(idx_scale.visible.min)
-        .unwrap_or(FieldVal::empty())
-        .field(bit_offset, bit_width);
+    let mut prev_v_opt: Option<FieldVal> = None;
     let mut x1 = idx_scale.x_offset;
 
     view.for_each_elem(|idx, value| {
         if let Some(value) = value {
-            let v = value.field(bit_offset, bit_width);
-    
-            if !prev_v.eq(&v) {
-                let x2: f32 = idx_scale.x_from_idx(idx);
-    
-                let y = if prev_v.as_u64() == 0 {
-                    padded_rect.bottom()
-                } else {
-                    padded_rect.top()
-                };
-    
-                painter.hline(x1..=x2, y, stroke);
-                painter.vline(x2, padded_rect.y_range(), stroke);
-    
-                prev_v = v;
-                x1 = x2;
+            let next_v = value.field(bit_offset, bit_width);
+
+            if let Some(prev_v) = prev_v_opt {
+                if !prev_v.eq(&next_v) {
+                    let x2: f32 = idx_scale.x_from_idx(idx);
+                    render_span(&painter, prev_v, padded_rect, x1, x2, stroke, &logic_levels, &text_format, &font_id, font_color);
+                    x1 = x2;
+                }
             }
+            
+            prev_v_opt = Some(next_v);
         }
     });
 
-    let x2 = idx_scale.x_from_idx(view.range().max);
-    let y = if prev_v.as_u64() == 0 {
-        padded_rect.bottom()
-    } else {
-        padded_rect.top()
-    };
-    painter.hline(x1..=x2, y, stroke);
+    if let Some(prev_v) = prev_v_opt {
+        let x2 = idx_scale.x_from_idx(view.range().max);
+        render_span(&painter, prev_v, padded_rect, x1, x2, stroke, &logic_levels, &text_format, &font_id, font_color);
+    }
+}
+
+fn render_span(painter: &Painter, value: FieldVal, padded_rect: Rect, x1: f32, x2: f32, stroke: Stroke, logic_levels: &[Option<LogicLevel>], text_format: &TextFormat, font_id: &egui::FontId, text_color: Color32) {
+    let logic_level = if !logic_levels.is_empty() {
+        logic_levels.get(value.as_u64() as usize).copied().unwrap_or(None)
+    } else { None };
+
+    
+    match logic_level {
+        Some(LogicLevel::Low) => {
+            painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+
+        }
+        Some(LogicLevel::High) => {
+            painter.hline(x1..=x2, padded_rect.top(), stroke);
+        }
+        None => {
+            let tx = x1.max(padded_rect.left()) + 5.0;
+            if x2 - tx > 10.0 {
+                let text = text_format.format(value).to_string();
+                painter.with_clip_rect(Rect::from_x_y_ranges(Rangef::new(tx, x2 - 5.0), padded_rect.y_range()))
+                    .text(Pos2::new(tx, padded_rect.y_range().center()), Align2::LEFT_CENTER, text, font_id.clone(), text_color);
+            }
+            painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+            painter.hline(x1..=x2, padded_rect.top(), stroke);
+        }
+    }
+
+    painter.vline(x2, padded_rect.y_range(), stroke);
+
 }

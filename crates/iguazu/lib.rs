@@ -2,6 +2,7 @@ pub mod stream;
 pub mod schema;
 pub mod import;
 pub mod storage;
+pub mod io;
 
 pub type Idx = u64;
 
