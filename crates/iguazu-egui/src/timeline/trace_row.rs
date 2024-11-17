@@ -100,10 +100,12 @@ fn render_span(painter: &Painter, value: FieldVal, padded_rect: Rect, x1: f32, x
         }
         None => {
             let tx = x1.max(padded_rect.left()) + 5.0;
-            if x2 - tx > 10.0 {
+            let text_min_width = 8.0;
+            if x2 - tx > text_min_width {
+                let opacity = ((x2 - tx - text_min_width) / 4.0).clamp(0.0, 1.0);
                 let text = text_format.format(value).to_string();
                 painter.with_clip_rect(Rect::from_x_y_ranges(Rangef::new(tx, x2 - 5.0), padded_rect.y_range()))
-                    .text(Pos2::new(tx, padded_rect.y_range().center()), Align2::LEFT_CENTER, text, font_id.clone(), text_color);
+                    .text(Pos2::new(tx, padded_rect.y_range().center()), Align2::LEFT_CENTER, text, font_id.clone(), text_color.gamma_multiply(opacity));
             }
             painter.hline(x1..=x2, padded_rect.bottom(), stroke);
             painter.hline(x1..=x2, padded_rect.top(), stroke);
