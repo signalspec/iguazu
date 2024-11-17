@@ -91,10 +91,10 @@ impl Cache {
             let idx = (self.offset + block_i as u64) * desc.block_size as u64;
             let data = block.as_slice();
 
-            let start = self.range.min.saturating_sub(idx).min(data.len() as u64) as usize;
-            let end = self.range.max.saturating_sub(idx).min(data.len() as u64) as usize;
+            let start = self.range.min.saturating_sub(idx).min((data.len() / desc.element_size) as u64) as usize;
+            let end = self.range.max.saturating_sub(idx).min((data.len() / desc.element_size) as u64) as usize;
 
-            for (i, v) in data[start..end].chunks_exact(desc.element_size).enumerate() {
+            for (i, v) in data[start * desc.element_size .. end * desc.element_size].chunks_exact(desc.element_size).enumerate() {
                 f(idx + start as u64 + i as u64, Some(FieldVal::from_slice(v)))
             }
 
