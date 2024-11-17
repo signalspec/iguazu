@@ -32,7 +32,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Iguazu Viewer",
         options,
-        Box::new(|_cc| Box::new(app)),
+        Box::new(|_cc| Ok(Box::new(app))),
     )
 }
 
