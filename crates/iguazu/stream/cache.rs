@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use append_array::AppendArray;
 
-use crate::{Idx, IdxRange, stream::{Stream, FieldVal}};
+use crate::{Idx, IdxRange, stream::Stream};
 
 pub struct Cache {
     /// Wrapped stream
@@ -76,15 +76,17 @@ impl Cache {
         self.range
     }
 
-    pub fn get(&self, idx: Idx) -> Option<FieldVal> {
+    pub fn get(&self, idx: Idx) -> Option<&[u8]> {
         let desc = self.stream.desc();
         let block = idx / desc.block_size as Idx;
         let pos = idx % desc.block_size as Idx;
         let block = self.blocks.get(block.checked_sub(self.offset)? as usize)?;
-        block.get(pos as usize..pos as usize + desc.element_size).map(FieldVal::from_slice)
+
+        let byte_pos = pos as usize * desc.element_size;
+        block.get( byte_pos .. byte_pos + desc.element_size)
     }
 
-    pub fn for_each_elem<'a>(&'a self, mut f: impl FnMut(Idx, Option<FieldVal<'a>>)) {
+    pub fn for_each_elem<'a>(&'a self, mut f: impl FnMut(Idx, Option<&'a [u8]>)) {
         let desc = self.stream.desc();
 
         for (block_i, block) in self.blocks.iter().enumerate() {
@@ -95,7 +97,7 @@ impl Cache {
             let end = self.range.max.saturating_sub(idx).min((data.len() / desc.element_size) as u64) as usize;
 
             for (i, v) in data[start * desc.element_size .. end * desc.element_size].chunks_exact(desc.element_size).enumerate() {
-                f(idx + start as u64 + i as u64, Some(FieldVal::from_slice(v)))
+                f(idx + start as u64 + i as u64, Some(v))
             }
 
             for i in (idx + end as u64)..(self.range.max.min(idx + desc.block_size as u64)) {

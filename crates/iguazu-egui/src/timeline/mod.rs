@@ -5,7 +5,7 @@ mod trace_row;
 mod events_row;
 
 use egui::{pos2, CursorIcon, NumExt, PointerButton, Rect, Vec2, Layout, Rangef};
-use iguazu::{schema::{attribute::{Attribute, SampleRate, TimelineRow}, Entity, EntityKind, Field, NestedField}, stream::ArcStream};
+use iguazu::schema::{attribute::TimelineRow, EntityStream};
 use crate::{ ViewerContext, time::TimeRange, egui_util:: shadow_line::draw_shadow_line };
 
 use scale::Scale;
@@ -15,7 +15,7 @@ pub struct TimePanel {
     pub col_width: f32,
 
     pub time_range: TimeRange,
-    pub entity: Entity,
+    pub entity: EntityStream,
 
     pub visible_range: Option<TimeRange>,
 }
@@ -101,7 +101,7 @@ impl TimePanel {
                 .drag_to_scroll(false)
                 .enable_scrolling(!streams_response.hovered())
                 .show(ui, |ui| {
-                    render_entity(ctx, ui, &scale, None, Ref::from_entity(&self.entity));
+                    render_entity(ctx, ui, &scale, None, &self.entity);
 
                     // measure sidebar width for next frame
                     self.col_width = ui.min_rect().width();
@@ -183,75 +183,27 @@ impl TimePanel {
     }
 }
 
-enum Ref<'a> {
-    Entity(&'a Entity),
-    Field {
-        data: &'a ArcStream,
-        field: &'a NestedField,
-        bit_offset: u16,
-        sample_rate: Option<SampleRate>,
-    }
-}
-
-impl<'a> Ref<'a> {
-    fn from_entity(e: &'a Entity) -> Self {
-        match e {
-            EntityKind::Data { encoding, data } => {
-                let sample_rate = e.attribute::<SampleRate>();
-                Ref::Field { data, field: encoding, bit_offset: 0, sample_rate }
-            }
-            e => Ref::Entity(e)
-        }
-    }
-
-    fn attribute<A: Attribute>(&self) -> Option<A> {
-        match *self {
-            Ref::Entity(e) => e.attribute::<A>(),
-            Ref::Field { field, .. } => field.attribute::<A>(),
-        }
-    }
-
-    fn each_child(&self, mut f: impl FnMut(&str, Ref)) {
-        match *self {
-            Ref::Entity(EntityKind::Group { children, .. }) => {
-                for (n, c) in children {
-                    f(n, Ref::from_entity(c))
-                }
-            }
-            Ref::Field { data, field, mut bit_offset, sample_rate } => {
-                match &field.kind {
-                    Field::Struct { children } => {
-                        for (n, c) in children {
-                            f(n, Ref::Field { data, field: c, bit_offset, sample_rate });
-                            bit_offset += c.kind.bit_width();
-                        }
-                    },
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
 fn render_entity(
     ctx: &mut ViewerContext<'_>,
     ui: &mut egui::Ui,
     scale: &Scale,
     label: Option<&str>,
-    entity: Ref,
+    entity: &EntityStream,
 ) {
     match entity.attribute::<TimelineRow>() {
         None | Some(TimelineRow::Group) => {
-            entity.each_child(|name, inner| {
-                render_entity(ctx, ui, scale, Some(name), inner);
-            });
+            for (name, child) in &entity.children {
+                render_entity(ctx, ui, scale, Some(name), child);
+            }
         }
         Some(TimelineRow::YAxis) => {
             analog_row::render(ctx, ui, scale, label, entity)
         }
         Some(TimelineRow::Trace) => {
             trace_row::render(ctx, ui, scale, label, entity)
+        }
+        Some(TimelineRow::Logic) => {
+            trace_row::render_logic(ctx, ui, scale, label, entity)
         }
         Some(TimelineRow::Events) => {
             events_row::render(ctx, ui, scale, label, entity)

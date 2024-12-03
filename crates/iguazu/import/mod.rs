@@ -1,11 +1,11 @@
 use std::error::Error;
 
-use crate::{io::FsFile, schema::{attribute::SampleRate, Entity}};
+use crate::{io::FsFile, schema::{attribute::SampleRate, EntityStream}};
 
 pub struct Importer {
     pub name: &'static str,
     pub extensions: &'static [&'static str],
-    pub import: fn (FsFile) -> Result<Entity, Box<dyn Error>>,
+    pub import: fn (FsFile) -> Result<EntityStream, Box<dyn Error>>,
 }
 
 impl Importer {
@@ -13,7 +13,7 @@ impl Importer {
         self.extensions.iter().any(|ext| name.ends_with(ext))
     }
 
-    pub fn import(&self, f: FsFile) -> Result<Entity, Box<dyn Error>> {
+    pub fn import(&self, f: FsFile) -> Result<EntityStream, Box<dyn Error>> {
         (self.import)(f)
     }
 }

@@ -2,7 +2,7 @@ use std::{fmt::Debug, io, sync::Arc};
 
 use append_array::AppendArray;
 
-use crate::{io::ReadableFile, schema::{attribute::SampleRate, Attributes, Entity, Field, NestedField}, stream::{Stream, StreamDesc, StreamState}};
+use crate::{io::ReadableFile, schema::{attribute::SampleRate, Attributes, Entity, EntityKind, Field}, stream::{ArcStream, Stream, StreamDesc, StreamState}};
 
 pub struct FlatFileStream<F> {
     file: F,
@@ -31,30 +31,25 @@ impl<F: ReadableFile + 'static> FlatFileStream<F> {
         FlatFileStream { file, offset, len, block_size, element_size }
     }
 
-    pub fn entity(file: F, encoding: NestedField) -> Result<Entity, io::Error> {
-        let element_size = encoding.kind.bit_width().div_ceil(8) as usize;
+    pub fn entity(file: F, encoding: EntityKind, attributes: Attributes) -> Result<Entity<ArcStream>, io::Error> {
+        let element_size = encoding.element_size();
         let data = Arc::new(Self::new(file, element_size)?);
-        Ok(Entity::Data { data, encoding })
+        Ok(Entity { data: data, kind: encoding, attributes, children: Default::default() })
     }
 
-    pub fn binary_file(file: F) -> Result<Entity, io::Error> {
-        let encoding = NestedField {
-            kind: Field::Bits { bits: 8 },
-            attributes: Attributes::default(),
-        };
-        FlatFileStream::entity(file, encoding)
+    pub fn binary_file(file: F) -> Result<Entity<ArcStream>, io::Error> {
+        let encoding = EntityKind::Bits { bits: 8 };
+        FlatFileStream::entity(file, encoding, Attributes::default())
     }
 
-    pub fn logic8(file: F, rate: SampleRate) -> Result<Entity, io::Error> {
+    pub fn logic8(file: F, rate: SampleRate) -> Result<Entity<ArcStream>, io::Error> {
         let mut attributes = Attributes::default();
         attributes.set(&rate);
-        let encoding = NestedField {
-            kind: Field::Struct { children: (0..8).map(|i| {
-                (i.to_string(), NestedField::new(Field::enum_named(1, &["l", "h"])))
-            }).collect()},
-            attributes,
-        };
-        FlatFileStream::entity(file, encoding)
+        let encoding = EntityKind::Logic { bits: (0..8).map(|b| Field {
+            name: format!("{b}"),
+            attributes: Default::default(),
+        }).collect() };
+        FlatFileStream::entity(file, encoding, attributes)
     }
 }
 

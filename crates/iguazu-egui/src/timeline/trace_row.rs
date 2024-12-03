@@ -1,16 +1,18 @@
+use std::path::Display;
+
 use egui::{Align2, Color32, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, LogicLevel}, Field, TextFormat}, stream::{Cache, FieldVal}, IdxRange};
+use iguazu::{schema::{attribute::{AccentColor, SampleRate}, EntityKind, EntityStream}, stream::Cache, IdxRange};
 
 use crate::{color::named_color, ViewerContext};
 
-use super::{fixed_height_header, scale::Scale, Ref};
+use super::{fixed_height_header, scale::{IdxScale, Scale}};
 
 pub(crate) fn render(
-    ctx: &mut ViewerContext,
+    _ctx: &mut ViewerContext,
     ui: &mut Ui,
     scale: &Scale,
     label: Option<&str>,
-    entity: Ref,
+    entity: &EntityStream,
 ) {
     let rect = fixed_height_header(ui, scale, label);
     let padded_rect = rect.shrink2(Vec2::new(0.0, 2.0));
@@ -18,33 +20,16 @@ pub(crate) fn render(
         return;
     }
 
-    let Ref::Field {
-        data,
-        field,
-        bit_offset,
-        sample_rate: Some(sample_rate),
-    } = entity else {
-        return;
-    };
-
-    let bit_width = field.kind.bit_width();
+    let Some(sample_rate) = entity.attribute::<SampleRate>() else { return };
 
     let idx_scale = scale.idx_scale(sample_rate.0);
 
     let color = named_color(
-        field
+        entity
             .attribute::<AccentColor>()
             .unwrap_or(AccentColor::Green),
     );
 
-    let logic_levels = match field.kind {
-        Field::Tagged { tag_bits, ref values } if bit_width <= 64 && bit_width == tag_bits => {
-            values.values().map(|variant| variant.attribute::<LogicLevel>()).collect()
-        }
-        _ => Vec::new()
-    };
-
-    let text_format = TextFormat::new(0, field);
     let font_id = egui::TextStyle::Small.resolve(ui.style());
     let font_color = ui.style().visuals.text_color();
 
@@ -52,66 +37,119 @@ pub(crate) fn render(
     let stroke_width = 1.0;
     let stroke = Stroke::new(stroke_width, color);
 
-    let state = data.state();
-    let mut view = Cache::new(data.clone());
+    let state = entity.data.state();
+    let mut view = Cache::new(entity.data.clone());
     view.set_range(IdxRange {
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
     });
 
-    let mut prev_v_opt: Option<FieldVal> = None;
+    scan(&idx_scale, &mut view, <[u8]>::eq, |x1, x2, val | {
+        let h_pad = 5.0;
+        let text_min_width = 8.0;
+        let tx = x1.max(padded_rect.left()) + h_pad;
+        if x2 - tx > text_min_width {
+            let opacity = ((x2 - tx - text_min_width) / 4.0).clamp(0.0, 1.0);
+            painter
+                .with_clip_rect(
+                    Rect::from_x_y_ranges(
+                        Rangef::new(tx, x2 - h_pad),
+                        padded_rect.y_range()
+                    )
+                )
+                .text(
+                    Pos2::new(tx, padded_rect.y_range().center()),
+                    Align2::LEFT_CENTER,
+                    entity.kind.format(val).to_string(),
+                    font_id.clone(), 
+                    font_color.gamma_multiply(opacity)
+                );
+        }
+        painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+        painter.hline(x1..=x2, padded_rect.top(), stroke);
+        painter.vline(x2, padded_rect.y_range(), stroke);
+    });
+}
+
+pub(crate) fn render_logic(
+    _ctx: &mut ViewerContext,
+    ui: &mut Ui,
+    scale: &Scale,
+    _label: Option<&str>,
+    entity: &EntityStream,
+) {
+    let EntityKind::Logic { ref bits } = entity.kind else { return };
+
+    let Some(sample_rate) = entity.attribute::<SampleRate>() else { return };
+    let idx_scale = scale.idx_scale(sample_rate.0);
+
+    let state = entity.data.state();
+    let mut view = Cache::new(entity.data.clone());
+    view.set_range(IdxRange {
+        min: idx_scale.visible.min,
+        max: idx_scale.visible.max.min(state.end),
+    });
+
+    for (bit, field) in bits.iter().enumerate() {
+        let rect = fixed_height_header(ui, scale, Some(&field.name));
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 2.0));
+        if !ui.is_rect_visible(padded_rect) {
+            continue;
+        }
+
+        let color = field.attribute::<AccentColor>()
+            .unwrap_or(AccentColor::Green);
+        let color = named_color(color);
+
+        let painter = ui.painter_at(rect);
+        let stroke_width = 1.0;
+        let stroke = Stroke::new(stroke_width, color);
+
+        let offset = (bit / 8) as usize;
+        let mask = 1 << (bit % 8);
+        let eq = |v1: &[u8], v2: &[u8]| {
+            v1[offset] & mask == v2[offset] & mask
+        };
+
+        scan(&idx_scale, &mut view, eq, |x1, x2, val | {
+            if val[offset] & mask != 0 {
+                painter.hline(x1..=x2, padded_rect.top(), stroke);
+            } else {
+                painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+            }
+
+            painter.vline(x2, padded_rect.y_range(), stroke);
+        });
+    }
+}
+
+fn scan(
+    idx_scale: &IdxScale,
+    view: &mut Cache,
+    eq: impl Fn(&'_ [u8], &'_ [u8]) -> bool,
+    mut render: impl FnMut(f32, f32, &'_ [u8])
+) {
+    let mut prev_v_opt: Option<&[u8]> = None;
     let mut x1 = idx_scale.x_offset;
 
     view.for_each_elem(|idx, value| {
         if let Some(value) = value {
-            let next_v = value.field(bit_offset, bit_width);
+            let next_v = value;
 
             if let Some(prev_v) = prev_v_opt {
-                if !prev_v.eq(&next_v) {
+                if !eq(prev_v, next_v) {
                     let x2: f32 = idx_scale.x_from_idx(idx);
-                    render_span(&painter, prev_v, padded_rect, x1, x2, stroke, &logic_levels, &text_format, &font_id, font_color);
+                    render(x1, x2, prev_v);
                     x1 = x2;
                 }
             }
-            
+        
             prev_v_opt = Some(next_v);
         }
     });
 
     if let Some(prev_v) = prev_v_opt {
         let x2 = idx_scale.x_from_idx(view.range().max);
-        render_span(&painter, prev_v, padded_rect, x1, x2, stroke, &logic_levels, &text_format, &font_id, font_color);
+        render(x1, x2, prev_v);
     }
-}
-
-fn render_span(painter: &Painter, value: FieldVal, padded_rect: Rect, x1: f32, x2: f32, stroke: Stroke, logic_levels: &[Option<LogicLevel>], text_format: &TextFormat, font_id: &egui::FontId, text_color: Color32) {
-    let logic_level = if !logic_levels.is_empty() {
-        logic_levels.get(value.as_u64() as usize).copied().unwrap_or(None)
-    } else { None };
-
-    
-    match logic_level {
-        Some(LogicLevel::Low) => {
-            painter.hline(x1..=x2, padded_rect.bottom(), stroke);
-
-        }
-        Some(LogicLevel::High) => {
-            painter.hline(x1..=x2, padded_rect.top(), stroke);
-        }
-        None => {
-            let tx = x1.max(padded_rect.left()) + 5.0;
-            let text_min_width = 8.0;
-            if x2 - tx > text_min_width {
-                let opacity = ((x2 - tx - text_min_width) / 4.0).clamp(0.0, 1.0);
-                let text = text_format.format(value).to_string();
-                painter.with_clip_rect(Rect::from_x_y_ranges(Rangef::new(tx, x2 - 5.0), padded_rect.y_range()))
-                    .text(Pos2::new(tx, padded_rect.y_range().center()), Align2::LEFT_CENTER, text, font_id.clone(), text_color.gamma_multiply(opacity));
-            }
-            painter.hline(x1..=x2, padded_rect.bottom(), stroke);
-            painter.hline(x1..=x2, padded_rect.top(), stroke);
-        }
-    }
-
-    painter.vline(x2, padded_rect.y_range(), stroke);
-
 }

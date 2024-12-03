@@ -5,9 +5,6 @@ use crate::Idx;
 mod cache;
 pub use cache::Cache;
 
-mod field_val;
-pub use field_val::FieldVal;
-
 pub trait Stream: Send + Sync + Debug {
     fn desc(&self) -> StreamDesc;
 

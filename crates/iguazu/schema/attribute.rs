@@ -2,9 +2,9 @@ use indexmap::IndexMap;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{EntityKind, Field, NestedField};
+use super::{Entity, EntityKind};
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Attributes {
     #[serde(flatten)]
     values: IndexMap<String, Value>,
@@ -18,16 +18,16 @@ impl Attributes {
     pub fn set<A: Attribute>(&mut self, val: &A) {
         self.values.insert(A::NAME.to_owned(), serde_json::value::to_value(val).unwrap());
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
 }
 
 pub trait Attribute: Clone + PartialEq + Serialize + DeserializeOwned {
     const NAME: &'static str;
 
-    fn entity_default<S>(_entity: &EntityKind<S>) -> Option<Self> {
-        None
-    }
-
-    fn field_default(_field: &NestedField) -> Option<Self> {
+    fn default<S>(_entity: &Entity<S>) -> Option<Self> {
         None
     }
 }
@@ -58,8 +58,11 @@ pub enum TimelineRow {
     /// the children are plotted on the same Y axis.
     YAxis,
 
-    /// A row showing changes in the value
+    /// A row showing changes in the value, displayed as text
     Trace,
+
+    /// Bits are shown as logic traces
+    Logic,
 
     /// Each value is displayed as a discrete event
     Events,
@@ -68,14 +71,17 @@ pub enum TimelineRow {
 impl Attribute for TimelineRow {
     const NAME: &'static str = "display:timeline_row";
     
-    fn entity_default<S>(_entity: &EntityKind<S>) -> Option<Self> {
-        None
-    }
-    
-    fn field_default(field: &NestedField) -> Option<Self> {
-        match field.kind {
-            Field::Struct { .. } => Some(TimelineRow::Group),
-            _ => Some(TimelineRow::Trace)
+    fn default<S>(entity: &Entity<S>) -> Option<Self> {
+        match entity.kind {
+            EntityKind::Group { .. }
+            | EntityKind::Record { .. } => Some(TimelineRow::Group),
+            EntityKind::Logic { .. } => Some(TimelineRow::Logic),
+            EntityKind::Signed { .. }
+            | EntityKind::Unsigned { .. }
+            | EntityKind::Float { .. } => Some(TimelineRow::YAxis),
+            EntityKind::Bits { .. }
+            | EntityKind::Enum { .. } => Some(TimelineRow::Trace),
+            _ => None,
         }
     }
 }
@@ -87,20 +93,11 @@ impl Attribute for SampleRate {
     const NAME: &'static str = "sample_rate";
 }
 
-#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LogicLevel {
-    Low,
-    High,
-}
-
-impl Attribute for LogicLevel {
-    const NAME: &'static str = "logic_level";
-}
-
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Text(pub String);
 
 impl Attribute for Text {
     const NAME: &'static str = "text";
 }
+
+

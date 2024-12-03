@@ -1,7 +1,7 @@
 use std::{io::Write, path::PathBuf};
 
 use clap::Args;
-use iguazu::{io::{FsFile, ReadableFile}, schema::{Entity, EntityKind, Field, NestedField}};
+use iguazu::{io::{FsFile, ReadableFile}, schema::{EntityKind, EntityStream}};
 use owo_colors::OwoColorize;
 
 #[derive(Args)]
@@ -31,51 +31,47 @@ pub fn main(args: &Cli) -> Result<(), String> {
     Ok(())
 }
 
-pub fn info_tree(w: &mut impl Write, root_name: &str, entity: &Entity) {
+pub fn info_tree(w: &mut impl Write, root_name: &str, entity: &EntityStream) {
     info_tree_inner(w, "", root_name, entity).unwrap()
 }
 
-fn info_tree_inner(w: &mut impl Write, prefix: &str, name: &str, entity: &Entity) -> std::io::Result<()> {
-    match &entity {
-        EntityKind::Group { children, .. } => {
+fn info_tree_inner(w: &mut impl Write, prefix: &str, name: &str, entity: &EntityStream) -> std::io::Result<()> {
+    match &entity.kind {
+        EntityKind::Group => {
             header_line(w, name, "Group")?;
-            print_children(w, prefix, children.iter(), info_tree_inner)
-        },
-        EntityKind::Data { encoding, .. } => {
-            info_tree_field(w, prefix, name, encoding)
+        }
+        EntityKind::Record => {
+            header_line(w, name, "Record")?;
+        }
+        EntityKind::Bits { .. } => {
+            header_line(w, name, "Bits")?;
+        }
+        EntityKind::Logic { .. } => {
+            header_line(w, name, "Logic")?;
+        }
+        EntityKind::Unsigned { .. } => {
+            header_line(w, name, "Unsigned Int")?;
+        }
+        EntityKind::Signed { .. } => {
+            header_line(w, name, "Signed Int")?;
+        }
+        EntityKind::Float { .. } => {
+            header_line(w, name, "Float")?;
+        }
+        EntityKind::Enum { .. } => {
+            header_line(w, name, "Enum")?;
+        }
+        EntityKind::FixedArray { .. } => {
+            header_line(w, name, "FixedArray")?;
+        }
+        EntityKind::Tuple { .. } => {
+            header_line(w, name, "Tuple")?;
+        }
+        EntityKind::VariableArray { .. } => {
+            header_line(w, name, "VariableArray")?;
         }
     }
-}
-
-fn info_tree_field(w: &mut impl Write, prefix: &str, name: &str, field: &NestedField) -> std::io::Result<()> {
-    match &field.kind {
-        Field::Null => {
-            header_line(w, name, "Null")
-        },
-        Field::Bits { .. } => {
-            header_line(w, name, "Bits")
-        }
-        Field::Unsigned { .. } => {
-            header_line(w, name, "Unsigned")
-        }
-        Field::Signed { .. } => {
-            header_line(w, name, "Signed")
-        }
-        Field::Timestamp { .. } => {
-            header_line(w, name, "Timestamp")
-        }
-        Field::Float32 => {
-            header_line(w, name, "Float32")
-        }
-        Field::Tagged { values, .. } => {
-            header_line(w, name, "Tagged")?;
-            print_children(w, prefix, values.iter(), info_tree_field)
-        }
-        Field::Struct { children } => {
-            header_line(w, name, "Struct")?;
-            print_children(w, prefix, children.iter(), info_tree_field)
-        },
-    }
+    print_children(w, prefix, entity.children.iter(), info_tree_inner)
 }
 
 fn print_children<T, W: Write>(
