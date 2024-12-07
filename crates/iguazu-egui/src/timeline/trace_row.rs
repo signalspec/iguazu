@@ -1,9 +1,7 @@
-use std::path::Display;
+use egui::{Align2, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
+use iguazu::{schema::{attribute::{AccentColor, SampleRate}, EntityKind, EntityStream}, view::{View, ViewManager}, IdxRange};
 
-use egui::{Align2, Color32, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, SampleRate}, EntityKind, EntityStream}, stream::Cache, IdxRange};
-
-use crate::{color::named_color, ViewerContext};
+use crate::{cache::ViewCache, color::named_color, ViewerContext};
 
 use super::{fixed_height_header, scale::{IdxScale, Scale}};
 
@@ -38,13 +36,13 @@ pub(crate) fn render(
     let stroke = Stroke::new(stroke_width, color);
 
     let state = entity.data.state();
-    let mut view = Cache::new(entity.data.clone());
-    view.set_range(IdxRange {
+    let range = IdxRange {
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
-    });
+    };
+    let view = ViewCache::with(ui).view(&entity.data, range);
 
-    scan(&idx_scale, &mut view, <[u8]>::eq, |x1, x2, val | {
+    scan(&idx_scale, &view, <[u8]>::eq, |x1, x2, val | {
         let h_pad = 5.0;
         let text_min_width = 8.0;
         let tx = x1.max(padded_rect.left()) + h_pad;
@@ -84,11 +82,12 @@ pub(crate) fn render_logic(
     let idx_scale = scale.idx_scale(sample_rate.0);
 
     let state = entity.data.state();
-    let mut view = Cache::new(entity.data.clone());
-    view.set_range(IdxRange {
+
+    let range = IdxRange {
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
-    });
+    };
+    let view = ViewCache::with(ui).view(&entity.data, range);
 
     for (bit, field) in bits.iter().enumerate() {
         let rect = fixed_height_header(ui, scale, Some(&field.name));
@@ -111,7 +110,7 @@ pub(crate) fn render_logic(
             v1[offset] & mask == v2[offset] & mask
         };
 
-        scan(&idx_scale, &mut view, eq, |x1, x2, val | {
+        scan(&idx_scale, &view, eq, |x1, x2, val | {
             if val[offset] & mask != 0 {
                 painter.hline(x1..=x2, padded_rect.top(), stroke);
             } else {
@@ -125,7 +124,7 @@ pub(crate) fn render_logic(
 
 fn scan(
     idx_scale: &IdxScale,
-    view: &mut Cache,
+    view: &View,
     eq: impl Fn(&'_ [u8], &'_ [u8]) -> bool,
     mut render: impl FnMut(f32, f32, &'_ [u8])
 ) {

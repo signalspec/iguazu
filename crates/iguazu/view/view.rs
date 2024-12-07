@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use append_array::AppendArray;
 
-use crate::{Idx, IdxRange, stream::Stream};
+use crate::{Idx, IdxRange, stream::{ Stream, ArcStream }};
 
-pub struct Cache {
+pub struct View {
     /// Wrapped stream
     stream: Arc<dyn Stream>,
 
@@ -19,9 +19,9 @@ pub struct Cache {
     range: IdxRange,
 }
 
-impl Cache {
+impl View {
     pub fn new(stream: Arc<dyn Stream>) -> Self {
-        Cache {
+        View {
             stream,
             blocks: VecDeque::new(),
             offset: 0,
@@ -72,6 +72,12 @@ impl Cache {
         self.range = range;
     }
 
+    #[inline]
+    pub fn stream(&self) -> &ArcStream {
+        &self.stream
+    }
+
+    #[inline]
     pub fn range(&self) -> IdxRange {
         self.range
     }

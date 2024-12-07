@@ -3,6 +3,7 @@ pub mod schema;
 pub mod import;
 pub mod storage;
 pub mod io;
+pub mod view;
 
 pub type Idx = u64;
 
@@ -16,6 +17,10 @@ pub struct IdxRange {
 impl IdxRange {
     pub fn len(&self) -> u64 {
         self.max - self.min
+    }
+    
+    pub fn contains(&self, other: IdxRange) -> bool {
+        self.min <= other.min && other.max <= self.max
     }
 }
 

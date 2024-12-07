@@ -16,5 +16,6 @@ num-traits.workspace = true
 indexmap.workspace = true
 hashbrown.workspace = true
 egui.workspace = true
+log.workspace = true
 serde = "1.0.160"
 time = { version = "0.3.20", features = ["serde", "macros", "formatting"] }

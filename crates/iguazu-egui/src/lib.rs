@@ -1,5 +1,6 @@
 mod time;
 mod util;
+mod cache;
 mod color;
 mod egui_util;
 pub mod timeline;

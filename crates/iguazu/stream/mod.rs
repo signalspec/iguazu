@@ -2,9 +2,6 @@ use append_array::AppendArray;
 use std::{fmt::Debug, sync::Arc};
 use crate::Idx;
 
-mod cache;
-pub use cache::Cache;
-
 pub trait Stream: Send + Sync + Debug {
     fn desc(&self) -> StreamDesc;
 

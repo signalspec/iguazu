@@ -12,6 +12,7 @@ version.workspace = true
 append-array = { path = "../append-array", version = "0.1.0" }
 num-traits.workspace = true
 num-complex.workspace = true
+log.workspace = true
 indexmap = { workspace = true, features = ["serde"] }
 serde_json = "1.0.120"
 serde = { version = "1.0.204", features = ["derive"] }

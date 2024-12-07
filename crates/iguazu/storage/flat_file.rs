@@ -1,6 +1,7 @@
 use std::{fmt::Debug, io, sync::Arc};
 
 use append_array::AppendArray;
+use log::debug;
 
 use crate::{io::ReadableFile, schema::{attribute::SampleRate, Attributes, Entity, EntityKind, Field}, stream::{ArcStream, Stream, StreamDesc, StreamState}};
 
@@ -70,6 +71,7 @@ impl<F: ReadableFile> Stream for FlatFileStream<F> {
 
     fn get_block(&self, block: u64) -> Option<Arc<AppendArray<u8>>> {
         let offset = self.offset + self.block_size as u64 * self.element_size as u64 * block;
+        debug!("Load block of {self:?} at {offset}");
         let len = self.block_size * self.element_size;
         let buf = self.file.read_at(offset, len).ok()?;
         Some(Arc::new(AppendArray::from(buf)))
