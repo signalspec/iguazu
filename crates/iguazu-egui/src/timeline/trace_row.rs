@@ -129,7 +129,7 @@ fn scan(
     mut render: impl FnMut(f32, f32, &'_ [u8])
 ) {
     let mut prev_v_opt: Option<&[u8]> = None;
-    let mut x1 = idx_scale.x_offset;
+    let mut x1 = idx_scale.x_from_idx(idx_scale.visible.min);
 
     view.for_each_elem(|idx, value| {
         if let Some(value) = value {

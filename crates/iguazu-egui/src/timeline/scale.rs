@@ -89,10 +89,11 @@ impl Scale {
             max: ((t_range.max + period - Time::UNIT) / period) as u64,
         };
 
-        let x_offset = self.x_from_t(visible.min as i128 * period);
+        let ref_idx = ((t_range.min + period / 2) / period) as u64;
+        let x_offset = self.x_from_t(ref_idx as i128 * period);
         let x_scale = self.points_from_time(period);
 
-        IdxScale { visible, x_offset, x_scale }
+        IdxScale { visible, ref_idx, x_offset, x_scale }
     }
 
     /// Map a timestamp to a screen position
@@ -134,7 +135,12 @@ pub struct IdxScale {
     /// The range of indexes that is at least partially visible
     pub visible: IdxRange,
 
-    /// The screen position in points of `visible.min`
+    /// An index near `visible.min` used as a reference point.
+    /// It may differ from `visible.min` to keep `x_offset` small for
+    /// floating point stability at extreme zoom.
+    pub ref_idx: Idx,
+
+    /// The screen position in points of `ref_idx`
     pub x_offset: f32,
 
     /// Points per index
@@ -144,7 +150,8 @@ pub struct IdxScale {
 impl IdxScale {
     /// Map an index to a screen position
     pub fn x_from_idx(&self, idx: Idx) -> f32 {
-        self.x_offset + ((idx as f64 - self.visible.min as f64) * (self.x_scale as f64)) as f32
+        self.x_offset + ((idx.wrapping_sub(self.ref_idx) as i64 as f32) * self.x_scale)
+    }
     }
 }
 
