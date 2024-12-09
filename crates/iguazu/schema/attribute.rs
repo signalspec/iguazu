@@ -100,4 +100,12 @@ impl Attribute for Text {
     const NAME: &'static str = "text";
 }
 
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct NumberRange {
+    pub min: f64,
+    pub max: f64,
+}
 
+impl Attribute for NumberRange {
+    const NAME: &'static str = "number:range";
+}

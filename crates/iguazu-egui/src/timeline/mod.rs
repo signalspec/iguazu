@@ -211,9 +211,10 @@ fn render_entity(
     }
 }
 
-fn fixed_height_header(ui: &mut egui::Ui, scale: &Scale, label: Option<&str>) -> Rect {
+fn fixed_height_header(ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, min_height: f32) -> Rect {
     let header_y_range = ui.horizontal(|ui| {
         ui.label(label.unwrap_or(""));
+        ui.set_min_height(min_height);
     }).response.rect.y_range();
 
     Rect::from_x_y_ranges(scale.x_range.clone(), header_y_range)

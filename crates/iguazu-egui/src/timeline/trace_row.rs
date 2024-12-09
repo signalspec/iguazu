@@ -12,7 +12,7 @@ pub(crate) fn render(
     label: Option<&str>,
     entity: &EntityStream,
 ) {
-    let rect = fixed_height_header(ui, scale, label);
+    let rect = fixed_height_header(ui, scale, label, 16.0);
     let padded_rect = rect.shrink2(Vec2::new(0.0, 2.0));
     if !ui.is_rect_visible(padded_rect) {
         return;
@@ -90,7 +90,7 @@ pub(crate) fn render_logic(
     let view = ViewCache::with(ui).view(&entity.data, range);
 
     for (bit, field) in bits.iter().enumerate() {
-        let rect = fixed_height_header(ui, scale, Some(&field.name));
+        let rect = fixed_height_header(ui, scale, Some(&field.name), 16.0);
         let padded_rect = rect.shrink2(Vec2::new(0.0, 2.0));
         if !ui.is_rect_visible(padded_rect) {
             continue;

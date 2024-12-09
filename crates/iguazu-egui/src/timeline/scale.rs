@@ -152,6 +152,9 @@ impl IdxScale {
     pub fn x_from_idx(&self, idx: Idx) -> f32 {
         self.x_offset + ((idx.wrapping_sub(self.ref_idx) as i64 as f32) * self.x_scale)
     }
+
+    pub fn points_per_index(&self) -> f32 {
+        self.x_scale
     }
 }
 
