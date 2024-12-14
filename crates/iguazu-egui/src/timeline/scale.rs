@@ -93,7 +93,7 @@ impl Scale {
         let x_offset = self.x_from_t(ref_idx as i128 * period);
         let x_scale = self.points_from_time(period);
 
-        IdxScale { visible, ref_idx, x_offset, x_scale }
+        IdxScale { visible, ref_idx, x_offset, x_scale, period }
     }
 
     /// Map a timestamp to a screen position
@@ -132,6 +132,9 @@ impl Scale {
 }
 
 pub struct IdxScale {
+    /// Sample rate
+    period: Time,
+
     /// The range of indexes that is at least partially visible
     pub visible: IdxRange,
 
@@ -155,6 +158,14 @@ impl IdxScale {
 
     pub fn points_per_index(&self) -> f32 {
         self.x_scale
+    }
+
+    pub fn t_from_idx(&self, idx: Idx) -> Time {
+        (idx as i128) * self.period
+    }
+    
+    pub(crate) fn sample_period(&self) -> Time {
+        self.period
     }
 }
 

@@ -45,6 +45,10 @@ impl Time {
         FormatRelative { time: *self, precision }
     }
 
+    pub fn format_period_as_freq(&self) -> FormatFreq {
+        FormatFreq { period: *self }
+    }
+
     pub fn format_fixed(&self, precision: Time) -> FormatFixed {
         FormatFixed { time: *self, precision }
     }
@@ -199,38 +203,38 @@ pub struct FormatRelative {
 impl Display for FormatRelative {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.precision >= Time::HOUR {
-            write!(f, "{:+} h", self.time / Time::HOUR)
+            write!(f, "{} h", self.time / Time::HOUR)
         } else if self.precision >= Time::MINUTE {
-            write!(f, "{:+} min", self.time / Time::MINUTE)
+            write!(f, "{} min", self.time / Time::MINUTE)
         } else if self.precision >= Time::SECOND {
-            write!(f, "{:+} s", self.time / Time::SECOND)
+            write!(f, "{} s", self.time / Time::SECOND)
         } else if self.precision >= Time::MILLISECOND {
-            write!(f, "{:+} ms", self.time / Time::MILLISECOND)
+            write!(f, "{} ms", self.time / Time::MILLISECOND)
         } else if self.precision >= Time::MICROSECOND {
-            write!(f, "{:+} μs", self.time / Time::MICROSECOND)
+            write!(f, "{} μs", self.time / Time::MICROSECOND)
         } else if self.precision >= Time::NANOSECOND {
-            write!(f, "{:+} ns", self.time / Time::NANOSECOND)
+            write!(f, "{} ns", self.time / Time::NANOSECOND)
         } else if self.precision >= Time::PICOSECOND {
-            write!(f, "{:+} ps", self.time / Time::PICOSECOND)
+            write!(f, "{} ps", self.time / Time::PICOSECOND)
         } else if self.precision >= Time::FEMTOSECOND {
-            write!(f, "{:+} fs", self.time / Time::FEMTOSECOND)
+            write!(f, "{} fs", self.time / Time::FEMTOSECOND)
         } else {
-            write!(f, "{:+} as", self.time / Time::ATTOSECOND)
+            write!(f, "{} as", self.time / Time::ATTOSECOND)
         }
     }
 }
 
 #[test]
 fn test_format_relative() {
-    assert_eq!(&format!("{}", (42 * Time::SECOND).format_relative(Time::SECOND)), "+42 s");
-    assert_eq!(&format!("{}", (42 * Time::MINUTE).format_relative(Time::MINUTE)), "+42 min");
-    assert_eq!(&format!("{}", (42 * Time::HOUR).format_relative(Time::HOUR)), "+42 h");
+    assert_eq!(&format!("{}", (42 * Time::SECOND).format_relative(Time::SECOND)), "42 s");
+    assert_eq!(&format!("{}", (42 * Time::MINUTE).format_relative(Time::MINUTE)), "42 min");
+    assert_eq!(&format!("{}", (42 * Time::HOUR).format_relative(Time::HOUR)), "42 h");
 
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::SECOND)), "+42 s");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::MILLISECOND)), "+42123 ms");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::MICROSECOND)), "+42123456 μs");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::NANOSECOND)), "+42123456789 ns");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::PICOSECOND)), "+42123456789000 ps");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::SECOND)), "42 s");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::MILLISECOND)), "42123 ms");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::MICROSECOND)), "42123456 μs");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::NANOSECOND)), "42123456789 ns");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::PICOSECOND)), "42123456789000 ps");
 
     assert_eq!(&format!("{}", (-70 * Time::NANOSECOND).format_relative(Time::NANOSECOND)), "-70 ns");
 }
@@ -293,6 +297,56 @@ fn test_format_fixed() {
     assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::NANOSECOND)), "42.123456789 s");
     assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::PICOSECOND)), "42.123456789000 s");
 }
+
+pub struct FormatFreq{
+    period: Time,
+}
+
+impl Display for FormatFreq {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn fp(f: &mut std::fmt::Formatter<'_>, time_unit: Time, period: Time, unit: &str) -> std::fmt::Result {
+            let val = u32::try_from(1000 * time_unit / period).unwrap();
+            if val % 1000 == 0 {
+                write!(f, "{} {}", val / 1000, unit)
+            } else {
+                write!(f, "{}.{} {}", val / 1000, val % 1000, unit)
+            }
+        }
+
+        if self.period >= Time::HOUR {
+            write!(f, "1 / {} h", self.period / Time::HOUR)
+        } else if self.period >= Time::MINUTE {
+            write!(f, "1 / {} min", self.period / Time::MINUTE)
+        } else if self.period > Time::SECOND {
+            write!(f, "1 / {} s", self.period / Time::SECOND)
+        } else if self.period > Time::MILLISECOND {
+            fp(f, Time::SECOND, self.period, "Hz")
+        } else if self.period > Time::MICROSECOND {
+            fp(f, Time::MILLISECOND, self.period, "kHz")
+        } else if self.period > Time::NANOSECOND {
+            fp(f, Time::MICROSECOND, self.period, "MHz")
+        } else if self.period > Time::PICOSECOND {
+            fp(f, Time::NANOSECOND, self.period, "GHz")
+        } else if self.period > Time::FEMTOSECOND {
+            fp(f, Time::PICOSECOND, self.period, "THz")
+        } else {
+            fp(f, Time::FEMTOSECOND, self.period, "PHz")
+        }
+    }
+}
+
+#[test]
+fn test_format_freq() {
+    assert_eq!(&format!("{}", (10 * Time::SECOND).format_period_as_freq()), "1 / 10 s");
+    assert_eq!(&format!("{}", (Time::SECOND).format_period_as_freq()), "1 Hz");
+    assert_eq!(&format!("{}", (500 * Time::MILLISECOND).format_period_as_freq()), "2 Hz");
+    assert_eq!(&format!("{}", (Time::MILLISECOND).format_period_as_freq()), "1 kHz");
+    assert_eq!(&format!("{}", (125 * Time::MICROSECOND).format_period_as_freq()), "8 kHz");
+    assert_eq!(&format!("{}", (Time::MICROSECOND).format_period_as_freq()), "1 MHz");
+    assert_eq!(&format!("{}", (Time::NANOSECOND).format_period_as_freq()), "1 GHz");
+    assert_eq!(&format!("{}", (408 * Time::PICOSECOND).format_period_as_freq()), "2.450 GHz");
+}
+
 
 /// Generate grid tick spacing for a time axis.
 ///

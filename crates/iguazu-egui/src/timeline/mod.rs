@@ -115,18 +115,20 @@ impl TimelineView {
                 &streams_rect,
             );
 
-            egui::ScrollArea::vertical()
+            let entity_response = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .drag_to_scroll(false)
                 .enable_scrolling(!streams_response.hovered())
                 .show(ui, |ui| {
-                    render_entity(vcx, ui, &scale, None, &entity);
+                    let entity_response = render_entity(vcx, ui, &scale, None, &entity);
 
                     // measure sidebar width for next frame
                     state.col_width = ui.min_rect().width();
-                });
+                    entity_response
+                }).inner;
+            
             {
-                // Paint a shadow between the stream names on the left
+                // Paint a shadow between the names on the left
                 // and the data on the right:
                 let shadow_width = 30.0;
                 let rect = egui::Rect::from_x_y_ranges(
@@ -137,10 +139,20 @@ impl TimelineView {
                 draw_shadow_line(ui, rect, egui::Direction::LeftToRight);
             }
 
-            cursor_ui(
-                ui,
-                &ui.painter().with_clip_rect(Rect::from_x_y_ranges(time_x_range_without_scrollbar.clone(), rect.y_range())),
-            );
+            let cursor_x = entity_response.snap_to_time.map(|snap_to_time| {
+                scale.x_from_t(snap_to_time)
+            }).or_else(|| {
+                ui.input(|i| i.pointer.hover_pos()).map(|pos| pos.x)
+            });
+
+            if let Some(cursor_x) = cursor_x {
+                cursor_ui(
+                    ui,
+                    &ui.painter().with_clip_rect(Rect::from_x_y_ranges(time_x_range_without_scrollbar.clone(), rect.y_range())),
+                    cursor_x,
+                );
+            }
+
         });
 
         ui.data_mut(|d| d.insert_temp(ui.id(), state));
@@ -199,18 +211,33 @@ impl TimelineView {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct TimelineResponse {
+    snap_to_time: Option<Time>,
+}
+
+impl TimelineResponse {
+    fn merge(self, r: TimelineResponse) -> TimelineResponse {
+        TimelineResponse {
+            snap_to_time: self.snap_to_time.or(r.snap_to_time)
+        }
+    }
+}
+
 fn render_entity(
     vcx: &mut ViewerContext,
     ui: &mut egui::Ui,
     scale: &Scale,
     label: Option<&str>,
     entity: &EntityStream,
-) {
+) -> TimelineResponse {
     match entity.attribute::<TimelineRow>() {
         None | Some(TimelineRow::Group) => {
+            let mut res = TimelineResponse::default();
             for (name, child) in &entity.children {
-                render_entity(vcx, ui, scale, Some(name), child);
+                res = res.merge(render_entity(vcx, ui, scale, Some(name), child));
             }
+            res
         }
         Some(TimelineRow::YAxis) => {
             analog_row::render(vcx, ui, scale, label, entity)
@@ -244,22 +271,18 @@ fn fixed_height_header(ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, he
 fn cursor_ui(
     ui: &mut egui::Ui,
     painter: &egui::Painter,
+    pointer_x: f32,
 ) {
-    let pointer_pos = ui.input(|i| i.pointer.hover_pos());
     let is_anything_being_dragged = ui.ctx().dragged_id().is_some();
 
-    if let Some(pointer_pos) = pointer_pos {
-        let is_pointer_in_timeline_rect = painter.clip_rect().contains(pointer_pos);
+    if !is_anything_being_dragged {
+        let mut stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+        stroke.color = stroke.color.gamma_multiply(0.5);
 
-        if is_pointer_in_timeline_rect && !is_anything_being_dragged {
-            let mut stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-            stroke.color = stroke.color.gamma_multiply(0.5);
-
-            painter.vline(
-                pointer_pos.x,
-                painter.clip_rect().y_range(),
-                stroke,
-            );
-        }
+        painter.vline(
+            pointer_x,
+            painter.clip_rect().y_range(),
+            stroke,
+        );
     }
 }

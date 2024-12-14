@@ -1,22 +1,25 @@
 use egui::{Pos2, Stroke, Vec2};
 use iguazu::{schema::{attribute::{AccentColor, NumberRange, SampleRate}, EntityStream}, view::ViewManager, IdxRange};
+use time::Time;
 
 use crate::{cache::ViewCache, color::named_color};
 
-use super::fixed_height_header;
+use super::{fixed_height_header, TimelineResponse};
 
-
-
-pub(crate) fn render(_vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &super::scale::Scale, label: Option<&str>, entity: &EntityStream) {
+pub(crate) fn render(_vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &super::scale::Scale, label: Option<&str>, entity: &EntityStream) -> TimelineResponse {
     let rect = fixed_height_header(ui, scale, label, 64.0);
     let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
     if !ui.is_rect_visible(padded_rect) {
-        return;
+        return TimelineResponse::default();
     }
 
-    let Some(sample_rate) = entity.attribute::<SampleRate>() else { return };
+    let Some(sample_rate) = entity.attribute::<SampleRate>() else {
+        return TimelineResponse::default()
+    };
 
-    let Some(number_range) = entity.attribute::<NumberRange>() else { return };
+    let Some(number_range) = entity.attribute::<NumberRange>() else {
+        return TimelineResponse::default()
+    };
 
     let idx_scale = scale.idx_scale(sample_rate.0);
 
@@ -66,4 +69,8 @@ pub(crate) fn render(_vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: 
         last = pos;
         last_idx = idx;
     });
+
+    TimelineResponse {
+        snap_to_time: None,
+    }
 }
