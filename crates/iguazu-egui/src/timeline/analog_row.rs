@@ -1,5 +1,3 @@
-use core::num;
-
 use egui::{Pos2, Stroke, Vec2};
 use iguazu::{schema::{attribute::{AccentColor, NumberRange, SampleRate}, EntityStream}, view::ViewManager, IdxRange};
 
@@ -9,7 +7,7 @@ use super::fixed_height_header;
 
 
 
-pub(crate) fn render(ctx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &super::scale::Scale, label: Option<&str>, entity: &EntityStream) {
+pub(crate) fn render(_vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &super::scale::Scale, label: Option<&str>, entity: &EntityStream) {
     let rect = fixed_height_header(ui, scale, label, 48.0);
     let padded_rect = rect.shrink2(Vec2::new(0.0, 2.0));
     if !ui.is_rect_visible(padded_rect) {

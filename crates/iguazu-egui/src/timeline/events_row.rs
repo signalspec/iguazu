@@ -1,6 +1,6 @@
 use iguazu::schema::EntityStream;
 
-pub(crate) fn render(ctx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &super::scale::Scale, label: Option<&str>, entity: &EntityStream) {
+pub(crate) fn render(_ctx: &mut crate::ViewerContext, _ui: &mut egui::Ui, _scale: &super::scale::Scale, _label: Option<&str>, _entity: &EntityStream) {
     todo!()
 }
 

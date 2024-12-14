@@ -4,23 +4,33 @@ mod analog_row;
 mod trace_row;
 mod events_row;
 
-use egui::{pos2, CursorIcon, NumExt, PointerButton, Rect, Vec2, Layout, Rangef};
+use egui::{CursorIcon, NumExt, PointerButton, Rect, Vec2, Layout, Rangef};
 use iguazu::schema::{attribute::TimelineRow, EntityStream};
-use crate::{ ViewerContext, time::TimeRange, egui_util:: shadow_line::draw_shadow_line };
+use crate::{ egui_util:: shadow_line::draw_shadow_line, time::TimeRange, Time, ViewerContext };
 
 use scale::Scale;
 
-pub struct TimePanel {
+pub struct TimelineView {}
+
+#[derive(Clone, Debug)]
+pub struct TimelineState {
     /// Width of the entity name columns previous frame.
     pub col_width: f32,
-
     pub time_range: TimeRange,
-    pub entity: EntityStream,
-
     pub visible_range: Option<TimeRange>,
 }
 
-impl TimePanel {
+impl Default for TimelineState {
+    fn default() -> Self {
+        Self {
+            col_width: 0.0,
+            time_range: TimeRange { min: Time::ZERO, max: Time::MINUTE },
+            visible_range: None,
+        }
+    }
+}
+
+impl TimelineState {
     fn set_visible_range(&mut self, range: TimeRange) {
         self.visible_range = Some(range);
     }
@@ -28,12 +38,21 @@ impl TimePanel {
     fn reset_visible_range(&mut self) {
         self.visible_range = None;
     }
+}
 
+impl TimelineView {
+    pub fn new() -> Self {
+        Self { }
+    }
+    
     pub fn show(
         &mut self,
-        ctx: &mut ViewerContext<'_>,
+        vcx: &mut ViewerContext,
         ui: &mut egui::Ui,
+        entity: &mut EntityStream,
     ) {
+        let mut state: TimelineState = ui.data_mut(|d| d.get_temp(ui.id())).unwrap_or_default();
+        
         //               |timeline            |
         // ------------------------------------
         // tree          |streams             |
@@ -44,7 +63,7 @@ impl TimePanel {
 
         // x position of split between sidebar and data
         let time_x_left =
-            (rect.left() + self.col_width + ui.spacing().item_spacing.x)
+            (rect.left() + state.col_width + ui.spacing().item_spacing.x)
                 .at_least(50.0)
                 .at_most(ui.max_rect().right() - 100.0);
 
@@ -60,8 +79,8 @@ impl TimePanel {
 
         let scale = Scale::new(
             time_x_range,
-            self.visible_range.unwrap_or(self.time_range),
-            self.time_range,
+            state.visible_range.unwrap_or(state.time_range),
+            state.time_range,
             x_margin,
             x_margin + scrollbar_width,
         );
@@ -89,9 +108,9 @@ impl TimePanel {
                 timeline_rect.bottom()..=rect.bottom(),
             );
 
-            let streams_response = self.interact_with_streams_rect(
+            let streams_response = self.interact(
+                &mut state,
                 &scale,
-                ctx,
                 ui,
                 &streams_rect,
             );
@@ -101,10 +120,10 @@ impl TimePanel {
                 .drag_to_scroll(false)
                 .enable_scrolling(!streams_response.hovered())
                 .show(ui, |ui| {
-                    render_entity(ctx, ui, &scale, None, &self.entity);
+                    render_entity(vcx, ui, &scale, None, &entity);
 
                     // measure sidebar width for next frame
-                    self.col_width = ui.min_rect().width();
+                    state.col_width = ui.min_rect().width();
                 });
             {
                 // Paint a shadow between the stream names on the left
@@ -118,23 +137,20 @@ impl TimePanel {
                 draw_shadow_line(ui, rect, egui::Direction::LeftToRight);
             }
 
-            let time_area_painter = ui.painter().with_clip_rect(Rect::from_x_y_ranges(time_x_range_without_scrollbar.clone(), rect.y_range()));
-
-            // Put time-marker on top and last, so that you can always drag it
-            time_marker_ui(
-                &scale,
-                ctx,
+            cursor_ui(
                 ui,
-                &time_area_painter,
-                &timeline_rect,
+                &ui.painter().with_clip_rect(Rect::from_x_y_ranges(time_x_range_without_scrollbar.clone(), rect.y_range())),
             );
         });
+
+        ui.data_mut(|d| d.insert_temp(ui.id(), state));
     }
 
-    fn interact_with_streams_rect(
+    /// Handle zoom / pan interactions
+    fn interact(
         &mut self,
+        state: &mut TimelineState,
         time_ranges_ui: &Scale,
-        _ctx: &mut ViewerContext<'_>,
         ui: &mut egui::Ui,
         streams_rect: &Rect,
     ) -> egui::Response {
@@ -166,17 +182,17 @@ impl TimePanel {
         }
 
         if delta_x != 0.0 {
-            self.set_visible_range(time_ranges_ui.pan(-delta_x));
+            state.set_visible_range(time_ranges_ui.pan(-delta_x));
         }
 
         if zoom_factor != 1.0 {
             if let Some(pointer_pos) = pointer_pos {
-                self.set_visible_range(time_ranges_ui.zoom_at(pointer_pos.x, zoom_factor));
+                state.set_visible_range(time_ranges_ui.zoom_at(pointer_pos.x, zoom_factor));
             }
         }
 
         if response.double_clicked() {
-            self.reset_visible_range();
+            state.reset_visible_range();
         }
 
         response
@@ -184,7 +200,7 @@ impl TimePanel {
 }
 
 fn render_entity(
-    ctx: &mut ViewerContext<'_>,
+    vcx: &mut ViewerContext,
     ui: &mut egui::Ui,
     scale: &Scale,
     label: Option<&str>,
@@ -193,20 +209,20 @@ fn render_entity(
     match entity.attribute::<TimelineRow>() {
         None | Some(TimelineRow::Group) => {
             for (name, child) in &entity.children {
-                render_entity(ctx, ui, scale, Some(name), child);
+                render_entity(vcx, ui, scale, Some(name), child);
             }
         }
         Some(TimelineRow::YAxis) => {
-            analog_row::render(ctx, ui, scale, label, entity)
+            analog_row::render(vcx, ui, scale, label, entity)
         }
         Some(TimelineRow::Trace) => {
-            trace_row::render(ctx, ui, scale, label, entity)
+            trace_row::render(vcx, ui, scale, label, entity)
         }
         Some(TimelineRow::Logic) => {
-            trace_row::render_logic(ctx, ui, scale, label, entity)
+            trace_row::render_logic(vcx, ui, scale, label, entity)
         }
         Some(TimelineRow::Events) => {
-            events_row::render(ctx, ui, scale, label, entity)
+            events_row::render(vcx, ui, scale, label, entity)
         }
     }
 }
@@ -221,115 +237,22 @@ fn fixed_height_header(ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, mi
 }
 
 /// A vertical line that shows the current time.
-fn time_marker_ui(
-    time_ranges_ui: &Scale,
-    ctx: &mut ViewerContext<'_>,
+fn cursor_ui(
     ui: &mut egui::Ui,
-    time_area_painter: &egui::Painter,
-    timeline_rect: &Rect,
+    painter: &egui::Painter,
 ) {
-    // timeline_rect: top part with the second ticks and time marker
-
     let pointer_pos = ui.input(|i| i.pointer.hover_pos());
-    let time_drag_id = ui.id().with("time_drag_id");
-    let timeline_cursor_icon = CursorIcon::ResizeHorizontal;
-    let is_hovering_the_loop_selection = ui.output(|o| o.cursor_icon) != CursorIcon::Default; // A kind of hacky proxy
-    let is_anything_being_dragged = ui.memory(|mem| mem.is_anything_being_dragged());
-    let interact_radius = ui.style().interaction.resize_grab_radius_side;
+    let is_anything_being_dragged = ui.ctx().dragged_id().is_some();
 
-    let mut is_hovering = false;
-
-    // show current time as a line:
-    if let Some(time) = ctx.time() {
-        let x= time_ranges_ui.x_from_t(time);
-        if timeline_rect.x_range().contains(x) {
-            let line_rect =
-                Rect::from_x_y_ranges(x..=x, timeline_rect.top()..=ui.max_rect().bottom())
-                    .expand(interact_radius);
-
-            let response = ui
-                .interact(line_rect, time_drag_id, egui::Sense::drag())
-                .on_hover_and_drag_cursor(timeline_cursor_icon);
-
-            is_hovering = !is_anything_being_dragged && response.hovered();
-
-            if response.dragged() {
-                if let Some(pointer_pos) = pointer_pos {
-                    let time = time_ranges_ui.t_from_x(pointer_pos.x);
-                    let time = time_ranges_ui.clamp_time(time);
-                    ctx.set_time(time);
-                }
-            }
-
-            let stroke = if response.dragged() {
-                ui.style().visuals.widgets.active.fg_stroke
-            } else if is_hovering {
-                ui.style().visuals.widgets.hovered.fg_stroke
-            } else {
-                ui.visuals().widgets.inactive.fg_stroke
-            };
-            paint_time_cursor(
-                time_area_painter,
-                x,
-                Rangef::new(timeline_rect.top(), ui.max_rect().bottom()),
-                stroke,
-            );
-        }
-    }
-
-    // "click here to view time here"
     if let Some(pointer_pos) = pointer_pos {
-        let is_pointer_in_timeline_rect = timeline_rect.contains(pointer_pos);
+        let is_pointer_in_timeline_rect = painter.clip_rect().contains(pointer_pos);
 
-        // Show preview?
-        if !is_hovering
-            && is_pointer_in_timeline_rect
-            && !is_anything_being_dragged
-            && !is_hovering_the_loop_selection
-        {
-            time_area_painter.vline(
+        if is_pointer_in_timeline_rect && !is_anything_being_dragged {
+            painter.vline(
                 pointer_pos.x,
-                timeline_rect.top()..=ui.max_rect().bottom(),
+                painter.clip_rect().y_range(),
                 ui.visuals().widgets.noninteractive.bg_stroke,
             );
-            ui.ctx().set_cursor_icon(timeline_cursor_icon); // preview!
-        }
-
-        // Click to move time here:
-        if ui.input(|i| i.pointer.primary_down())
-            && is_pointer_in_timeline_rect
-            && !is_anything_being_dragged
-            && !is_hovering_the_loop_selection
-        {
-            let time = time_ranges_ui.t_from_x(pointer_pos.x);
-            let time = time_ranges_ui.clamp_time(time);
-            ctx.set_time(time);
-            ui.memory_mut(|mem| mem.set_dragged_id(time_drag_id));
         }
     }
-}
-
-pub fn paint_time_cursor(
-    painter: &egui::Painter,
-    x: f32,
-    y: Rangef,
-    stroke: egui::Stroke,
-) {
-    let stroke = egui::Stroke {
-        width: 1.5 * stroke.width,
-        color: stroke.color,
-    };
-
-    let w = 10.0;
-    let triangle = vec![
-        pos2(x - 0.5 * w, y.min), // left top
-        pos2(x + 0.5 * w, y.min), // right top
-        pos2(x, y.min + w),       // bottom
-    ];
-    painter.add(egui::Shape::convex_polygon(
-        triangle,
-        stroke.color,
-        egui::Stroke::NONE,
-    ));
-    painter.vline(x, (y.min + w)..=y.max, stroke);
 }

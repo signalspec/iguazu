@@ -3,8 +3,8 @@
 use eframe::egui;
 use egui::Frame;
 
-use iguazu::io::FsFile;
-use iguazu_egui::{timeline::TimePanel, TimeRange, Time, ViewerContext};
+use iguazu::{io::FsFile, schema::EntityStream};
+use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
 
 fn main() -> Result<(), eframe::Error> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
@@ -20,13 +20,7 @@ fn main() -> Result<(), eframe::Error> {
     let entity = importer.import(file).unwrap();
 
     let app = App {
-        time: None,
-        time_panel: TimePanel {
-            col_width: 0.0,
-            time_range: TimeRange { min: Time::ZERO, max: Time::MINUTE },
-            visible_range: None,
-            entity
-        },
+        entity,
     };
 
     eframe::run_native(
@@ -37,10 +31,7 @@ fn main() -> Result<(), eframe::Error> {
 }
 
 struct App {
-    time_panel: TimePanel,
-
-    /// Selected time
-    time: Option<Time>,
+    entity: EntityStream,
 }
 
 impl eframe::App for App {
@@ -49,13 +40,10 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_pixels_per_point(2.0);
         let frame = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
-            let vctx = &mut ViewerContext {
-                time: &mut self.time,
-            };
-            self.time_panel.show(vctx, ui)
+            let vctx = &mut ViewerContext {};
+            TimelineView::new().show(vctx, ui, &mut self.entity);
         });
     }
 }
