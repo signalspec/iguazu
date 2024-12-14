@@ -20,7 +20,7 @@ fn paint_time_range_ticks(
     scale: &Scale,
     line_y_range: Rangef,
 ) -> Vec<Shape> {
-    let font_id = egui::TextStyle::Small.resolve(ui.style());
+    let font_id = egui::TextStyle::Body.resolve(ui.style());
 
      paint_ticks(
         ui.ctx(),

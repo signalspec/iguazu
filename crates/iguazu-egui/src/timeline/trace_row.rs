@@ -12,8 +12,8 @@ pub(crate) fn render(
     label: Option<&str>,
     entity: &EntityStream,
 ) {
-    let rect = fixed_height_header(ui, scale, label, 16.0);
-    let padded_rect = rect.shrink2(Vec2::new(0.0, 2.0));
+    let rect = fixed_height_header(ui, scale, label, 32.0);
+    let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
     if !ui.is_rect_visible(padded_rect) {
         return;
     }
@@ -28,7 +28,7 @@ pub(crate) fn render(
             .unwrap_or(AccentColor::Green),
     );
 
-    let font_id = egui::TextStyle::Small.resolve(ui.style());
+    let font_id = egui::TextStyle::Body.resolve(ui.style());
     let font_color = ui.style().visuals.text_color();
 
     let painter = ui.painter_at(rect);
@@ -90,8 +90,8 @@ pub(crate) fn render_logic(
     let view = ViewCache::with(ui).view(&entity.data, range);
 
     for (bit, field) in bits.iter().enumerate() {
-        let rect = fixed_height_header(ui, scale, Some(&field.name), 16.0);
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 2.0));
+        let rect = fixed_height_header(ui, scale, Some(&field.name), 32.0);
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
         if !ui.is_rect_visible(padded_rect) {
             continue;
         }

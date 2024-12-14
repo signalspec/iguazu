@@ -4,7 +4,7 @@ mod analog_row;
 mod trace_row;
 mod events_row;
 
-use egui::{CursorIcon, NumExt, PointerButton, Rect, Vec2, Layout, Rangef};
+use egui::{CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Vec2};
 use iguazu::schema::{attribute::TimelineRow, EntityStream};
 use crate::{ egui_util:: shadow_line::draw_shadow_line, time::TimeRange, Time, ViewerContext };
 
@@ -86,7 +86,7 @@ impl TimelineView {
         );
 
         ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
-            let (_, top_rect) = ui.allocate_space(Vec2::new(0.0, 28.0));
+            let (_, top_rect) = ui.allocate_space(Vec2::new(0.0, 36.0));
 
             let timeline_rect = Rect::from_x_y_ranges(time_x_range.clone(), top_rect.y_range());
 
@@ -227,10 +227,14 @@ fn render_entity(
     }
 }
 
-fn fixed_height_header(ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, min_height: f32) -> Rect {
+fn fixed_height_header(ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, height: f32) -> Rect {
     let header_y_range = ui.horizontal(|ui| {
-        ui.label(label.unwrap_or(""));
-        ui.set_min_height(min_height);
+        ui.set_height(height);
+        Frame::none()
+            .inner_margin(Margin::symmetric(6.0, 6.0))
+            .show(ui, |ui| {
+            ui.label(label.unwrap_or(""));
+        });
     }).response.rect.y_range();
 
     Rect::from_x_y_ranges(scale.x_range.clone(), header_y_range)
@@ -248,10 +252,13 @@ fn cursor_ui(
         let is_pointer_in_timeline_rect = painter.clip_rect().contains(pointer_pos);
 
         if is_pointer_in_timeline_rect && !is_anything_being_dragged {
+            let mut stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+            stroke.color = stroke.color.gamma_multiply(0.5);
+
             painter.vline(
                 pointer_pos.x,
                 painter.clip_rect().y_range(),
-                ui.visuals().widgets.noninteractive.bg_stroke,
+                stroke,
             );
         }
     }

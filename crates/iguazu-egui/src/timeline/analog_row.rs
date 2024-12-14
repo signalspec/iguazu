@@ -8,8 +8,8 @@ use super::fixed_height_header;
 
 
 pub(crate) fn render(_vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &super::scale::Scale, label: Option<&str>, entity: &EntityStream) {
-    let rect = fixed_height_header(ui, scale, label, 48.0);
-    let padded_rect = rect.shrink2(Vec2::new(0.0, 2.0));
+    let rect = fixed_height_header(ui, scale, label, 64.0);
+    let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
     if !ui.is_rect_visible(padded_rect) {
         return;
     }
