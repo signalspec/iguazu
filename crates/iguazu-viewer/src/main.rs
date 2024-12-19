@@ -3,7 +3,7 @@
 use eframe::egui;
 use egui::Frame;
 
-use iguazu::{io::FsFile, schema::EntityStream};
+use iguazu::{io::FsFile, schema::{attribute::DefaultView, EntityStream}};
 use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
 
 fn main() -> Result<(), eframe::Error> {
@@ -19,7 +19,10 @@ fn main() -> Result<(), eframe::Error> {
     let file = FsFile::new(fname.into()).unwrap();
     let entity = importer.import(file).unwrap();
 
+    let view = entity.attribute::<DefaultView>();
+
     let app = App {
+        view,
         entity,
     };
 
@@ -32,6 +35,7 @@ fn main() -> Result<(), eframe::Error> {
 
 struct App {
     entity: EntityStream,
+    view: Option<DefaultView>,
 }
 
 impl eframe::App for App {
@@ -43,7 +47,14 @@ impl eframe::App for App {
         let frame = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
             let vctx = &mut ViewerContext {};
-            TimelineView::new().show(vctx, ui, &mut self.entity);
+
+            match self.view {
+                Some(DefaultView::Table) => TableView::new().show(vctx, ui, &mut self.entity),
+                Some(DefaultView::Timeline) => TimelineView::new().show(vctx, ui, &mut self.entity),
+                None => {
+                    ui.label("unknown view");
+                }
+            }
         });
     }
 }

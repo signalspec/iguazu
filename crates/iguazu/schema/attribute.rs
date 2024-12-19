@@ -87,6 +87,27 @@ impl Attribute for TimelineRow {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(tag = "view", rename_all = "snake_case")]
+pub enum DefaultView {
+    Timeline,
+    Table,
+}
+
+impl Attribute for DefaultView {
+    const NAME: &'static str = "display:default";
+    
+    fn default<S>(entity: &Entity<S>) -> Option<Self> {
+        if entity.attribute::<SampleRate>().is_some() {
+            Some(DefaultView::Timeline)
+        } else if matches!(entity.kind, EntityKind::Record {..}) {
+            Some(DefaultView::Table)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct SampleRate(pub f64);
 
 impl Attribute for SampleRate {
@@ -109,3 +130,4 @@ pub struct NumberRange {
 impl Attribute for NumberRange {
     const NAME: &'static str = "number:range";
 }
+

@@ -1,4 +1,4 @@
-use egui::{util::cache::CacheTrait, Id, Ui};
+use egui::{util::cache::CacheTrait, Context, Id, Ui};
 use log::{debug, warn};
 use std::{
     collections::{btree_map::Entry, BTreeMap},
@@ -84,21 +84,22 @@ impl CacheTrait for ViewCacheMem {
     }
 }
 
-pub struct ViewCache<'a> {
-    ui: &'a Ui,
+pub struct ViewCache {
+    ctx: Context,
+    id: Id,
 }
 
-impl<'a> ViewCache<'a> {
-    pub fn with(ui: &'a Ui) -> ViewCache<'a> {
-        ViewCache { ui }
+impl ViewCache {
+    pub fn with(ui: &Ui) -> ViewCache {
+        ViewCache { ctx: ui.ctx().clone(), id: ui.id() }
     }
 }
 
-impl ViewManager for ViewCache<'_> {
+impl ViewManager for ViewCache {
     fn view(&mut self, stream: &ArcStream, range: IdxRange) -> Arc<View> {
-        self.ui.memory_mut(|mem| {
+        self.ctx.memory_mut(|mem| {
             let mem = mem.caches.cache::<ViewCacheMem>();
-            mem.get(self.ui.id(), stream, range)
+            mem.get(self.id, stream, range)
         })
     }
 }

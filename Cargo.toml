@@ -7,7 +7,7 @@ members = [
 [workspace.package]
 edition = "2021"
 version = "0.1.0"
-rust-version = "1.68"
+rust-version = "1.76"
 homepage = "https://github.com/signalspec/iguazu"
 authors = ["Kevin Mehall <km@kevinmehall.net>"]
 license = "MIT OR Apache-2.0"
