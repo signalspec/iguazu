@@ -1,0 +1,11 @@
+[package]
+name = "iguazu-egui-heatmap"
+description = "Iguazu UI components with egui"
+edition = "2021"
+version = "0.0.0"
+
+[dependencies]
+bytemuck = "1.14.0"
+eframe = { version = "0.30.0", default-features=false, features = ["accesskit", "default_fonts", "wgpu", "wayland"] }
+egui = { version = "0.30.0" }
+
