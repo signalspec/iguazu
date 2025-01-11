@@ -4,11 +4,9 @@ struct VertexOut {
 };
 
 struct Uniforms {
-    // Texture coordinate to display at top left
-    top_left: vec2<f32>,
-
-    // Texture coordinate to display at bottom right 
-    bottom_right: vec2<f32>,
+    matrix: mat3x3<f32>,
+    vmin: f32,
+    vmax: f32,
 };
 
 @group(0) @binding(0)
@@ -26,7 +24,7 @@ fn vs_main(@builtin(vertex_index) v_idx: u32) -> VertexOut {
     
     var out: VertexOut;
     out.position = vec4<f32>(-1.0 + 2.0 * coord.x, 1.0 - 2.0 * coord.y, 0.0, 1.0);
-    out.tex_coord = uniforms.top_left + coord * (uniforms.bottom_right - uniforms.top_left);
+    out.tex_coord = (uniforms.matrix * vec3f(coord, 1.0)).xy;
 
     return out;
 }
@@ -45,6 +43,7 @@ fn colormap_viridis_srgb(t: f32) -> vec3f {
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let val = textureSample(tex, samp, in.tex_coord).r;
-    let color = vec4f(colormap_viridis_srgb(val), 1.0);
+    let scaled_val = saturate((val - uniforms.vmin) / (uniforms.vmax - uniforms.vmin));
+    let color = vec4f(colormap_viridis_srgb(scaled_val), 1.0);
     return color;
 }

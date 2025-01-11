@@ -1,12 +1,15 @@
 use std::{num::NonZeroU64, sync::Arc};
 
+use bytemuck::{Zeroable, bytes_of};
 use eframe::egui_wgpu::{self, wgpu::{self, util::DeviceExt}, ScreenDescriptor};
-use egui::{PaintCallback, Rect};
+use egui::{PaintCallback, Rangef, Rect};
+
+mod transformation;
+pub use transformation::{Transformation,SampleOrder};
 
 pub struct Heatmap {
     width: u32,
     height: u32,
-    pub uniforms: Uniforms,
     state: Arc<HeatmapState>,
 }
 
@@ -35,17 +38,22 @@ impl Heatmap {
         );
     }
 
-    pub fn shape_at(&self, rect: Rect) -> PaintCallback {
+    pub fn shape_at(&self, rect: Rect, transformation: impl Into<Transformation>, range: Rangef) -> PaintCallback {
         egui_wgpu::Callback::new_paint_callback(
             rect,
-            HeatmapCallback { state: self.state.clone(), uniforms: self.uniforms.clone() },
+            HeatmapCallback {
+                state: self.state.clone(),
+                transformation: transformation.into(), 
+                range
+            },
         )
     }
 }
 
 struct HeatmapCallback {
     state: Arc<HeatmapState>,
-    uniforms: Uniforms,
+    transformation: Transformation,
+    range: Rangef,
 }
 
 impl egui_wgpu::CallbackTrait for HeatmapCallback {
@@ -60,7 +68,12 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
         queue.write_buffer(
             &self.state.uniform_buffer,
             0,
-            bytemuck::cast_slice(&[self.uniforms]),
+            bytes_of(&Uniforms {
+                matrix: self.transformation.wgpu_matrix(),
+                min: self.range.min,
+                max: self.range.max,
+                pad: Default::default(),
+            }),
         );
     
         Vec::new()
@@ -82,9 +95,11 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
-pub struct Uniforms {
-    pub top_left: [f32; 2],
-    pub bottom_right: [f32; 2],
+struct Uniforms {
+    matrix: [f32; 12], // 3x3 matrix with wgpu padding
+    min: f32,
+    max: f32,
+    pad: [f32; 2],
 }
 
 pub struct HeatmapRenderer {
@@ -116,11 +131,11 @@ impl HeatmapRenderer {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(16),
+                        min_binding_size: NonZeroU64::new(size_of::<Uniforms>() as u64),
                     },
                     count: None,
                 },
@@ -186,7 +201,7 @@ impl HeatmapRenderer {
     pub fn heatmap(self: &Arc<Self>, width: u32, height: u32) -> Heatmap {
         let uniform_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("heatmap"),
-            contents: bytemuck::cast_slice(&[0.0_f32; 4]), // 16 bytes aligned!
+            contents: bytes_of(&Uniforms::zeroed()),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
 
@@ -197,7 +212,7 @@ impl HeatmapRenderer {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
@@ -224,12 +239,7 @@ impl HeatmapRenderer {
 
         let state = Arc::new(HeatmapState { bind_group, uniform_buffer, texture, resources: self.clone() });
 
-        let uniforms = Uniforms {
-            top_left: [0.0, 0.0],
-            bottom_right: [1.0, 1.0],
-        };
-
-        Heatmap { width, height, state, uniforms }
+        Heatmap { width, height, state }
 
     }
 
