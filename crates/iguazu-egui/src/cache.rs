@@ -1,72 +1,53 @@
-use egui::{util::cache::CacheTrait, Context, Id, Ui};
-use log::{debug, warn};
-use std::{
-    collections::{btree_map::Entry, BTreeMap},
-    sync::Arc,
-};
+use egui::{util::cache::CacheTrait, Context, Ui};
+use fragile::Fragile;
+use hashbrown::HashMap;
+use log::debug;
+use std::{cell::{Cell, RefCell}, mem, rc::Rc, sync::Arc};
 
 use iguazu::{
-    stream::ArcStream,
-    view::{View, ViewManager},
-    IdxRange,
+    stream::{ArcStream, Block, Stream},
+    view::{StreamAccess, ViewManager},
 };
 
 #[derive(Default)]
 struct ViewCacheMem {
-    generation: u32,
-    cache: BTreeMap<(u64, usize), CacheEntry>,
+    cache: Fragile<HashMap<usize, Rc<CachedStream>>>,
 }
 
-struct CacheEntry {
-    view: Arc<View>,
-    generation: u32,
+struct CachedStream {
+    stream: Arc<dyn Stream>,
+    cached_blocks: RefCell<HashMap<u64, CachedBlock>>,
+    used: Cell<bool>,
 }
 
-fn key(id: Id, s: &ArcStream) -> (u64, usize) {
-    (id.value(), Arc::as_ptr(s) as *const () as usize)
+struct CachedBlock {
+    block: Option<Block>,
+    used: bool,
+}
+
+fn key(s: &ArcStream) -> usize {
+    Arc::as_ptr(s) as *const () as usize
 }
 
 impl ViewCacheMem {
     fn evict_cache(&mut self) {
-        let current_generation = self.generation;
-        self.cache.retain(|(id, _), cached| {
-            let keep = cached.generation == current_generation; // only keep those that were used this frame
-            if !keep {
-                debug!("evicting view of {:?} for {:04X}", cached.view.stream(), *id as u16);
+        self.cache.get_mut().retain(|_, cs| {
+            if cs.evict_cache() {
+                true
+            } else {
+                debug!("evicting view of {:?}", cs.stream);
+                false
             }
-            keep
         });
-        self.generation = self.generation.wrapping_add(1);
     }
-}
 
-impl ViewCacheMem {
-    pub fn get(&mut self, id: Id, stream: &ArcStream, range: IdxRange) -> Arc<View> {
-        let rc_view = match self.cache.entry(key(id, stream)) {
-            Entry::Occupied(entry) => {
-                let cached = entry.into_mut();
-                cached.generation = self.generation;
-                &mut cached.view
-            }
-            Entry::Vacant(entry) => {
-                debug!("creating view of {stream:?} for {id:?} ");
-                let view = Arc::new(View::new(stream.clone()));
-                &mut entry
-                    .insert(CacheEntry {
-                        view,
-                        generation: self.generation,
-                    })
-                    .view
-            }
-        };
-
-        if let Some(mut_view) = Arc::get_mut(rc_view) {
-            mut_view.set_range(range);
-        } else if !rc_view.range().contains(range) {
-            warn!("view for {id:?} {stream:?} requested range {range:?} but {existing_range:?} already in use", existing_range = rc_view.range());
-        }
-
-        rc_view.clone()
+    pub fn get(&mut self, stream: &ArcStream) -> Rc<CachedStream> {
+        let sc = self.cache.get_mut().entry(key(stream)).or_insert_with(|| {
+            debug!("creating view of {stream:?}");
+            Rc::new(CachedStream::new(stream.clone()))
+        });
+        sc.used.set(true);
+        sc.clone()
     }
 }
 
@@ -76,7 +57,7 @@ impl CacheTrait for ViewCacheMem {
     }
 
     fn len(&self) -> usize {
-        self.cache.len()
+        self.cache.get().len()
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
@@ -84,22 +65,55 @@ impl CacheTrait for ViewCacheMem {
     }
 }
 
+impl CachedStream {
+    fn new(stream: ArcStream) -> Self {
+        CachedStream {
+            stream,
+            cached_blocks: RefCell::new(HashMap::new()),
+            used: Cell::new(true),
+        }
+    }
+
+    fn evict_cache(&self) -> bool {
+        let mut cb = self.cached_blocks.borrow_mut();
+        cb.retain(|_, b| {
+            mem::replace(&mut b.used, false)
+        });
+        self.used.replace(false)
+    }
+}
+
+impl StreamAccess for CachedStream {
+    fn stream(&self) -> &Arc<dyn Stream> {
+        &self.stream
+    }
+
+    fn get_block(&self, block: u64) -> Option<Block> {
+        let mut cb = self.cached_blocks.borrow_mut();
+        let entry = cb.entry(block).or_insert_with(|| {
+            CachedBlock { block: self.stream.get_block(block), used: true }
+        });
+        entry.used = true;
+        entry.block.clone()
+    }
+}
+
+
 pub struct ViewCache {
     ctx: Context,
-    id: Id,
 }
 
 impl ViewCache {
     pub fn with(ui: &Ui) -> ViewCache {
-        ViewCache { ctx: ui.ctx().clone(), id: ui.id() }
+        ViewCache { ctx: ui.ctx().clone() }
     }
 }
 
 impl ViewManager for ViewCache {
-    fn view(&mut self, stream: &ArcStream, range: IdxRange) -> Arc<View> {
+    fn stream(&mut self, stream: &ArcStream) -> Rc<dyn StreamAccess> {
         self.ctx.memory_mut(|mem| {
             let mem = mem.caches.cache::<ViewCacheMem>();
-            mem.get(self.id, stream, range)
+            mem.get(stream)
         })
     }
 }

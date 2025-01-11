@@ -1,29 +1,19 @@
-use std::sync::Arc;
+use crate::{schema::EntityStream, Idx};
 
-use crate::{schema::EntityStream, Idx, IdxRange};
-
-use super::View;
+use super::{IntView, ViewManager};
 
 pub struct EnumView {
-    view: Arc<View>,
+    view: IntView,
 }
 
 impl EnumView {
-    pub fn new(entity: &EntityStream, view: Arc<View>) -> Self {
-        debug_assert!(Arc::ptr_eq(&entity.data, view.stream()));
+    pub fn new(vm: &mut impl ViewManager, entity: &EntityStream) -> Self {
+        let view = vm.int_view(&entity);
         EnumView { view }
-    }
-    
-    pub fn range(&self) -> IdxRange {
-        self.view.range()
     }
 
     pub fn get(&self, idx: Idx) -> Option<(usize, Idx)> {
-        let val = self.view.get(idx).filter(|b| b.len() <= 4).map(|b| {
-            let mut data = [0; 4];
-            data[..b.len()].copy_from_slice(b);
-            u32::from_le_bytes(data) as usize
-        })?;
+        let val = self.view.get_u64(idx)? as usize;
 
         // TODO: get child index
         Some((val, 0))

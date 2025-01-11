@@ -1,54 +1,51 @@
-use std::sync::Arc;
-
 use crate::{schema::{EntityKind, EntityStream}, Idx, IdxRange};
 
-use super::View;
+use super::{IntView, ViewManager};
 
 pub struct NumberView {
-    view: Arc<View>,
+    view: IntView,
     format: Format,
 }
 
 enum Format {
     None,
     UInt { scale: f64, offset: f64 },
-    SInt { scale: f64, offset: f64 },
+    SInt { shift: u8, scale: f64, offset: f64 },
     F32,
     F64,
 }
 
 impl Format {
-    fn decode(&self, v: &[u8]) -> f64 {
+    fn decode(&self, v: u64) -> f64 {
         match self {
-            Format::UInt { scale, offset } if v.len() <= 8 => {
-                let mut data = [0; 8];
-                data[..v.len()].copy_from_slice(v);
-                u64::from_le_bytes(data) as f64 * scale + offset
+            Format::UInt { scale, offset } => {
+                v as f64 * scale + offset
             },
-            Format::SInt { scale, offset } if v.len() <= 8 => {
-                let mut data = [0; 8];
-                data[..v.len()].copy_from_slice(v);
-                let shift = 8 * (data.len() - v.len());
-                ((u64::from_le_bytes(data) << shift) as i64 >> shift) as f64 * scale + offset
+            Format::SInt { shift, scale, offset } => {
+                ((v << shift) as i64 >> shift) as f64 * scale + offset
             }
-            Format::F32 if v.len() == 4 => {
-                f32::from_le_bytes(v.try_into().unwrap()) as f64
+            Format::F32 => {
+                f32::from_bits(v as u32) as f64
             }
-            Format::F64 if v.len() == 8 => {
-                f64::from_le_bytes(v.try_into().unwrap())
+            Format::F64 => {
+                f64::from_bits(v)
             }
-            _ => f64::NAN,
+            Format::None => f64::NAN
         }
     }
 }
 
 impl NumberView {
-    pub fn new(entity: &EntityStream, view: Arc<View>) -> Self {
-        debug_assert!(Arc::ptr_eq(&entity.data, view.stream()));
-
+    pub fn new(vm: &mut impl ViewManager, entity: &EntityStream) -> Self {
+        let view = vm.int_view(entity);
         let format = match entity.kind {
-            EntityKind::Signed { scale, offset, .. } => Format::SInt { scale, offset },
-            EntityKind::Unsigned { scale, offset, .. } => Format::UInt { scale, offset },
+            EntityKind::Signed { scale, offset, .. } => {
+                let shift = 64 - 8 * entity.data.desc().element_size as u8;
+                Format::SInt { scale, offset, shift  }
+            }
+            EntityKind::Unsigned { scale, offset, .. } => {
+                Format::UInt { scale, offset }
+            }
             EntityKind::Float { bits: 32 } => Format::F32,
             EntityKind::Float { bits: 64 } => Format::F64,
             _ => Format::None,
@@ -57,15 +54,17 @@ impl NumberView {
         NumberView { view, format }
     }
 
-    pub fn range(&self) -> IdxRange {
-        self.view.range()
-    }
-
     pub fn get(&self, idx: Idx) -> Option<f64> {
-        Some(self.format.decode(self.view.get(idx)?))
+        Some(self.format.decode(self.view.get_u64(idx)?))
     }
 
-    pub fn for_each_elem<'a>(&'a self, mut f: impl FnMut(Idx, Option<f64>)) {
-        self.view.for_each_elem(|i, v| f(i, v.map(|v| self.format.decode(v))))
+    pub fn for_each_elem<'a>(&'a self, range: IdxRange, mut f: impl FnMut(Idx, Option<f64>)) {
+        self.view.for_each_elem(range, |i, elem| {
+            let v = elem.map(|elem| {
+                self.format.decode(elem)
+            });
+            
+            f(i, v)
+        })
     }
 }

@@ -1,7 +1,7 @@
-use std::{collections::BTreeMap, ops::Range};
+use std::collections::BTreeMap;
 
 use egui::Margin;
-use iguazu::{schema::{Entity, EntityStream}, view::{NumberView, TextView, View, ViewManager}, IdxRange};
+use iguazu::{schema::EntityStream, view::{TextView, ViewManager}};
 use itertools::Itertools;
 
 use crate::{cache::ViewCache, ViewerContext};
@@ -20,64 +20,58 @@ impl TableView {
         ui: &mut egui::Ui,
         entity: &mut EntityStream,
     ) {
-        let view_manager = ViewCache::with(ui);
-        let mut delegate = Delegate::new(entity, view_manager);
+        let mut view_manager = ViewCache::with(ui);
+        let mut delegate = Delegate::new(entity, &mut view_manager);
         let table = delegate.table();
         table.show(ui, &mut delegate);
     }
 }
 
-enum ColumnEntity<'e> {
+enum Column {
     Index,
-    Entity(&'e EntityStream),
+    Text(TextView),
     //String(View, View),
     //Tiles
 }
 
-enum ColumnData{
-    Index,
-    Text(TextView)
-}
-
-struct Delegate<'e> {
-    view_manager: ViewCache,
-    columns: Vec<ColumnEntity<'e>>,
-    column_data: Vec<ColumnData>,
+struct Delegate {
+    columns: Vec<Column>,
     headers: BTreeMap<(usize, usize, usize), String>
 }
 
-impl<'e> Delegate<'e> {
-    fn new(entity: &'e mut EntityStream, view_manager: ViewCache) -> Self {
+impl Delegate {
+    fn new(entity: &mut EntityStream, view_manager: &mut ViewCache) -> Self {
         let mut columns = Vec::new();
         let mut headers = BTreeMap::new();
 
-        columns.push(ColumnEntity::Index);
+        columns.push(Column::Index);
     
-        fn inner<'e>(
+        fn inner(
+            vm: &mut ViewCache,
             depth: usize,
-            data: &mut Vec<ColumnEntity<'e>>,
+            data: &mut Vec<Column>,
             headers: &mut BTreeMap<(usize, usize, usize), String>,
-            entity: &'e EntityStream,
+            entity: &EntityStream,
         ) {
             match entity.kind {
                 iguazu::schema::EntityKind::Group => {}
                 iguazu::schema::EntityKind::Record => {
                     for (name, child) in &entity.children {
                         let start = data.len();
-                        inner(depth + 1, data, headers, child);
+                        inner(vm, depth + 1, data, headers, child);
                         let end = data.len();
                         headers.insert((depth, start, end), name.clone());
                     }
                 }
                 _ => {
-                    data.push(ColumnEntity::Entity(entity))
+                    data.push(Column::Text(vm.text_view(entity)))
                 }
             }
         }
     
-        inner(0, &mut columns, &mut headers, entity);
+        inner(view_manager, 0, &mut columns, &mut headers, entity);
     
-        Self { columns, headers, view_manager, column_data: Vec::new() }
+        Self { columns, headers }
     }
 
     fn table(&self) -> egui_table::Table {
@@ -104,7 +98,7 @@ impl<'e> Delegate<'e> {
     }
 }
 
-impl egui_table::TableDelegate for Delegate<'_> {
+impl egui_table::TableDelegate for Delegate {
     fn header_cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::HeaderCellInfo) {
         let egui_table::HeaderCellInfo {
             col_range,
@@ -121,27 +115,6 @@ impl egui_table::TableDelegate for Delegate<'_> {
             });
     }
 
-    fn prepare(&mut self, info: &egui_table::PrefetchInfo) {
-        let egui_table::PrefetchInfo {
-            visible_rows,
-            ..
-        } = info;
-
-        let range = IdxRange { min: visible_rows.start, max: visible_rows.end };
-
-        let column_data = self.columns.iter().map(|c| {
-            match c {
-                ColumnEntity::Index => ColumnData::Index,
-                ColumnEntity::Entity(e) => {
-                    ColumnData::Text(self.view_manager.text_view(e, range))
-                }
-            }
-
-        }).collect();
-
-        self.column_data = column_data;
-    }
-
     fn cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::CellInfo) {
         let egui_table::CellInfo { row_nr, col_nr, .. } = *cell;
 
@@ -150,16 +123,16 @@ impl egui_table::TableDelegate for Delegate<'_> {
                 .rect_filled(ui.max_rect(), 0.0, ui.visuals().faint_bg_color);
         }
 
-        let col = &self.column_data[col_nr];
+        let col = &self.columns[col_nr];
 
         egui::Frame::none()
             .inner_margin(Margin::symmetric(4.0, 0.0))
             .show(ui, |ui| {
                 match col {
-                    ColumnData::Index => {
+                    Column::Index => {
                         ui.label(format!("{row_nr}"));
                     }
-                    ColumnData::Text(ref v) => {
+                    Column::Text(ref v) => {
                         let v = v.format(row_nr).to_string();
                         ui.label(v);
                     }

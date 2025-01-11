@@ -1,15 +1,13 @@
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
+use append_array::AppendArray;
 
-use crate::{schema::EntityStream, stream::ArcStream, IdxRange};
-
-mod view;
-pub use view::View;
-
-mod number_view;
-pub use number_view::NumberView;
+use crate::{schema::EntityStream, stream::{ArcStream, Block, Stream}};
 
 mod int_view;
 pub use int_view::IntView;
+
+mod number_view;
+pub use number_view::NumberView;
 
 mod enum_view;
 pub use enum_view::EnumView;
@@ -17,36 +15,49 @@ pub use enum_view::EnumView;
 mod text_view;
 pub use text_view::TextView;
 
+pub trait StreamAccess {
+    fn stream(&self) -> &Arc<dyn Stream>;
+
+    fn get_block(&self, block: u64) -> Option<Block>;
+}
+
 pub trait ViewManager: Sized {
-    fn view(&mut self, stream: &ArcStream, range: IdxRange) -> Arc<View>;
-
-    fn number_view(&mut self, entity: &EntityStream, range: IdxRange) -> NumberView {
-        let view = self.view(&entity.data, range);
-        NumberView::new(entity, view)
+    fn stream(&mut self, stream: &ArcStream) -> Rc<dyn StreamAccess>;
+    
+    fn int_view(&mut self, entity: &EntityStream) -> IntView {
+        IntView::new(self, entity)
     }
 
-    fn int_view(&mut self, entity: &EntityStream, range: IdxRange) -> IntView {
-        let view = self.view(&entity.data, range);
-        IntView::new(entity, view)
+    fn number_view(&mut self, entity: &EntityStream) -> NumberView {
+        NumberView::new(self, entity)
     }
 
-    fn enum_view(&mut self, entity: &EntityStream, range: IdxRange) -> EnumView {
-        let view = self.view(&entity.data, range);
-        EnumView::new(entity, view)
+    fn enum_view(&mut self, entity: &EntityStream) -> EnumView {
+        EnumView::new(self, entity)
     }
 
-    fn text_view(&mut self, entity: &EntityStream, range: IdxRange) -> TextView {
-        TextView::new(self, entity, range)
+    fn text_view(&mut self, entity: &EntityStream) -> TextView {
+        TextView::new(self, entity)
     }
 }
 
 pub struct SimpleViewManager;
 
 impl ViewManager for SimpleViewManager {
-    fn view(&mut self, stream: &ArcStream, range: IdxRange) -> Arc<View> {
-        let mut v = View::new(stream.clone());
-        v.set_range(range);
-        Arc::new(v)
+    fn stream(&mut self, stream: &ArcStream) -> Rc<dyn StreamAccess> {
+        Rc::new(SimpleViewManagerAccess(stream.clone()))
+    }
+}
+
+struct SimpleViewManagerAccess(Arc<dyn Stream>);
+
+impl StreamAccess for SimpleViewManagerAccess {
+    fn stream(&self) -> &Arc<dyn Stream> {
+        &self.0
+    }
+
+    fn get_block(&self, block: u64) -> Option<Arc<AppendArray<u8>>> {
+        self.0.get_block(block)
     }
 }
 

@@ -1,5 +1,5 @@
 use egui::{Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, SampleRate}, EntityKind, EntityStream}, view::{View, ViewManager}, Idx, IdxRange};
+use iguazu::{schema::{attribute::{AccentColor, SampleRate}, EntityKind, EntityStream}, view::{IntView, ViewManager}, Idx, IdxRange};
 
 use crate::{cache::ViewCache, color::named_color, ViewerContext};
 
@@ -42,9 +42,9 @@ pub(crate) fn render(
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
     };
-    let view = ViewCache::with(ui).view(&entity.data, range);
+    let view = ViewCache::with(ui).int_view(&entity);
 
-    scan(&idx_scale, &view, <[u8]>::eq, |x1, x2, _idx1, _idx2, val | {
+    scan(&idx_scale, &view, range, |a, b| a==b, |x1, x2, _idx1, _idx2, val | {
         let h_pad = 5.0;
         let text_min_width = 8.0;
         let tx = x1.max(padded_rect.left()) + h_pad;
@@ -97,7 +97,7 @@ pub(crate) fn render_logic(
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
     };
-    let view = ViewCache::with(ui).view(&entity.data, range);
+    let view = ViewCache::with(ui).int_view(&entity);
 
     let font_id = egui::TextStyle::Body.resolve(ui.style());
     let font_color = ui.style().visuals.text_color();
@@ -120,10 +120,9 @@ pub(crate) fn render_logic(
         let stroke_width = 1.0;
         let stroke = Stroke::new(stroke_width, color);
 
-        let offset = (bit / 8) as usize;
-        let mask = 1 << (bit % 8);
-        let eq = |v1: &[u8], v2: &[u8]| {
-            v1[offset] & mask == v2[offset] & mask
+        let mask = 1 << bit;
+        let eq = |v1: u64, v2: u64| {
+            v1 & mask == v2 & mask
         };
 
         let hover_x = ui.input(|i| i.pointer.interact_pos())
@@ -132,8 +131,8 @@ pub(crate) fn render_logic(
 
         let mut prev_idx = None;
 
-        scan(&idx_scale, &view, eq, |x1, x2, idx1, idx2, val | {
-            if val[offset] & mask != 0 {
+        scan(&idx_scale, &view, range, eq, |x1, x2, idx1, idx2, val | {
+            if val & mask != 0 {
                 painter.hline(x1..=x2, padded_rect.top(), stroke);
             } else {
                 painter.hline(x1..=x2, padded_rect.bottom(), stroke);
@@ -190,15 +189,16 @@ pub(crate) fn render_logic(
 
 fn scan(
     idx_scale: &IdxScale,
-    view: &View,
-    eq: impl Fn(&'_ [u8], &'_ [u8]) -> bool,
-    mut render: impl FnMut(f32, f32, Option<Idx>, Option<Idx>, &'_ [u8])
+    view: &IntView,
+    range: IdxRange,
+    eq: impl Fn(u64, u64) -> bool,
+    mut render: impl FnMut(f32, f32, Option<Idx>, Option<Idx>, u64)
 ) {
-    let mut prev_v_opt: Option<&[u8]> = None;
+    let mut prev_v_opt: Option<u64> = None;
     let mut idx1 = None;
     let mut x1 = idx_scale.x_from_idx(idx_scale.visible.min);
 
-    view.for_each_elem(|idx, value| {
+    view.for_each_elem(range, |idx, value| {
         if let Some(value) = value {
             let next_v = value;
 
@@ -209,14 +209,13 @@ fn scan(
                     x1 = x2;
                     idx1 = Some(idx);
                 }
-            }
-        
-            prev_v_opt = Some(next_v);
+            }        
         }
+        prev_v_opt = value;
     });
 
     if let Some(prev_v) = prev_v_opt {
-        let x2 = idx_scale.x_from_idx(view.range().max);
+        let x2 = idx_scale.x_from_idx(range.max);
         render(x1, x2, idx1, None, prev_v);
     }
 }

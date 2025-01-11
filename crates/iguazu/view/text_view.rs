@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::{Formatter, Write};
 
-use crate::{schema::{attribute::Text, EntityKind, EntityStream}, Idx, IdxRange};
+use crate::{schema::{attribute::Text, EntityKind, EntityStream}, Idx};
 
 use super::{EnumView, IntView, NumberView, ViewManager};
 pub struct TextView(Vec<Element>);
@@ -19,16 +19,16 @@ impl TextView {
         TextView(vec![Element::Literal(v)])
     }
 
-    pub fn new(vm: &mut impl ViewManager, entity: &EntityStream, range: IdxRange) -> TextView {
-        fn inner(vm: &mut impl ViewManager, range: IdxRange, elements: &mut Vec<Element>, entity: &EntityStream) {
+    pub fn new(vm: &mut impl ViewManager, entity: &EntityStream) -> TextView {
+        fn inner(vm: &mut impl ViewManager, elements: &mut Vec<Element>, entity: &EntityStream) {
             if let Some(text) = entity.attribute::<Text>() {
-                parse(vm, range, elements, entity, &text.0)
+                parse(vm, elements, entity, &text.0)
             } else {
-                this(vm, range, elements, entity)
+                this(vm, elements, entity)
             }
         }
 
-        fn parse(vm: &mut impl ViewManager, range: IdxRange, elements: &mut Vec<Element>, entity: &EntityStream, mut text: &str) {
+        fn parse(vm: &mut impl ViewManager, elements: &mut Vec<Element>, entity: &EntityStream, mut text: &str) {
             while let Some((before, rest)) = text.split_once('{') {
                 if !before.is_empty() {
                     elements.push(Element::Literal(before.replace("}}", "}")));
@@ -39,9 +39,9 @@ impl TextView {
                     text = rest;
                 } else if let Some((key, rest)) = rest.split_once('}') {
                     if key.is_empty() {
-                        this(vm, range, elements, entity);
+                        this(vm, elements, entity);
                     } else if let Some(child) = entity.children.get(key) {
-                        inner(vm, range, elements, child);
+                        inner(vm, elements, child);
                     } else {
                         // unknown key
                         elements.push(Element::Literal("⌧".into()));
@@ -58,21 +58,21 @@ impl TextView {
             }
         }
 
-        fn this(vm: &mut impl ViewManager, range: IdxRange, elements: &mut Vec<Element>, entity: &EntityStream) {
+        fn this(vm: &mut impl ViewManager, elements: &mut Vec<Element>, entity: &EntityStream) {
             match entity.kind {
                 EntityKind::Group | EntityKind::Record => {}
                 EntityKind::Bits { bits } => {
                     if bits % 4 == 0 {
-                        elements.push(Element::Hex(vm.int_view(entity, range), bits / 4))
+                        elements.push(Element::Hex(vm.int_view(entity), bits / 4))
                     } else {
-                        elements.push(Element::Bin(vm.int_view(entity, range), bits))
+                        elements.push(Element::Bin(vm.int_view(entity), bits))
                     }
                 },
                 EntityKind::Logic { ref bits } => {
-                    elements.push(Element::Bin(vm.int_view(entity, range), bits.len() as u32))
+                    elements.push(Element::Bin(vm.int_view(entity), bits.len() as u32))
                 },
                 EntityKind::Signed { .. } | EntityKind::Unsigned {.. } | EntityKind::Float { .. } => {
-                    elements.push(Element::Num(vm.number_view(entity, range)))
+                    elements.push(Element::Num(vm.number_view(entity)))
                 }
                 EntityKind::Enum { bits, ref values } => {
                     // TODO: format inner
@@ -80,7 +80,7 @@ impl TextView {
                         .map(|variant| TextView::literal(variant.name.clone()))
                         .collect();
                     
-                    elements.push(Element::Enum(vm.enum_view(entity, range), inner))
+                    elements.push(Element::Enum(vm.enum_view(entity), inner))
                 }
                 EntityKind::FixedArray { elements } => {
                     // TODO
@@ -95,7 +95,7 @@ impl TextView {
         }
 
         let mut components = Vec::new();
-        inner(vm, range, &mut components, entity);
+        inner(vm, &mut components, entity);
         TextView(components)
     }
 
@@ -104,14 +104,14 @@ impl TextView {
             match *e {
                 Element::Literal(ref s) => write!(fmt, "{}", s)?,
                 Element::Bin(ref view, digits) => {
-                    if let Some(v) = view.get(idx) {
+                    if let Some(v) = view.get_u64(idx) {
                         write!(fmt, "{:0width$b}", v, width = digits as usize)?
                     } else {
                         write!(fmt, "…")?;
                     }
                 }
                 Element::Hex(ref view, digits) => {
-                    if let Some(v) = view.get(idx) {
+                    if let Some(v) = view.get_u64(idx) {
                         write!(fmt, "{:0width$x}", v, width = digits as usize)?
                     } else {
                         write!(fmt, "…")?;
@@ -186,29 +186,29 @@ fn test_textview() {
     );
     
     let literal_view = vm.text_view(
-        &bits.clone().with_attribute(&Text("test".into())), IdxRange { min: 0, max: 0 }
+        &bits.clone().with_attribute(&Text("test".into()))
     );
     assert_eq!(literal_view.format(0).to_string(), "test");
     assert_eq!(literal_view.format(100).to_string(), "test");
 
-    let bits_view = vm.text_view(&bits, IdxRange { min: 0, max: 16 });
+    let bits_view = vm.text_view(&bits);
     assert_eq!(bits_view.format(0).to_string(), "10");
     assert_eq!(bits_view.format(1).to_string(), "01");
     assert_eq!(bits_view.format(2).to_string(), "00");
     assert_eq!(bits_view.format(3).to_string(), "…");
 
-    let ints_view = vm.text_view(&ints, IdxRange { min: 0, max: 16 });
+    let ints_view = vm.text_view(&ints);
     assert_eq!(ints_view.format(3).to_string(), "123");
 
-    let scaled_ints_view = vm.text_view(&scaled_ints, IdxRange { min: 0, max: 16 });
+    let scaled_ints_view = vm.text_view(&scaled_ints);
     assert_eq!(scaled_ints_view.format(3).to_string(), "1.23");
 
-    let signed_ints_view = vm.text_view(&signed_ints, IdxRange { min: 0, max: 16 });
+    let signed_ints_view = vm.text_view(&signed_ints);
     assert_eq!(signed_ints_view.format(0).to_string(), "-10");
     assert_eq!(signed_ints_view.format(1).to_string(), "456");
     assert_eq!(signed_ints_view.format(2).to_string(), "-1280");
 
-    let floats_view = vm.text_view(&floats, IdxRange { min: 0, max: 16 });
+    let floats_view = vm.text_view(&floats);
     assert_eq!(floats_view.format(0).to_string(), "3333.25");
     assert_eq!(floats_view.format(2).to_string(), "0.5");
 
@@ -217,7 +217,7 @@ fn test_textview() {
         .with_child("b".into(), ints.clone())
         .with_attribute(&Text("test({b}, {a})".into()));
 
-    let record_view = vm.text_view(&record, IdxRange { min: 0, max: 16 });
+    let record_view = vm.text_view(&record);
     assert_eq!(record_view.format(0).to_string(), "test(1, 10)");
     assert_eq!(record_view.format(1).to_string(), "test(10, 01)");
     assert_eq!(record_view.format(2).to_string(), "test(99, 00)");

@@ -11,6 +11,7 @@ pub trait Stream: Send + Sync + Debug {
 }
 
 pub type ArcStream = Arc<dyn Stream>;
+pub type Block = Arc<AppendArray<u8>>;
 
 pub struct StreamDesc {
     pub element_size: usize,

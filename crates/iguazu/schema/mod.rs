@@ -158,7 +158,7 @@ impl EntityKind {
         }
     }
 
-    pub fn format<'a>(&'a self, value: &'a [u8]) -> EntityValueText<'a> {
+    pub fn format<'a>(&'a self, value: u64) -> EntityValueText<'a> {
         EntityValueText { value, kind: self }
     }
 }
