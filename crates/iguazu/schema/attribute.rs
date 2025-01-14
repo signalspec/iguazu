@@ -73,6 +73,7 @@ impl Attribute for TimelineRow {
     
     fn default<S>(entity: &Entity<S>) -> Option<Self> {
         match entity.kind {
+            EntityKind::Record { .. } if entity.attribute::<Time>().is_some() => Some(TimelineRow::Events),
             EntityKind::Group { .. }
             | EntityKind::Record { .. } => Some(TimelineRow::Group),
             EntityKind::Logic { .. } => Some(TimelineRow::Logic),
@@ -97,7 +98,7 @@ impl Attribute for DefaultView {
     const NAME: &'static str = "display:default";
     
     fn default<S>(entity: &Entity<S>) -> Option<Self> {
-        if entity.attribute::<SampleRate>().is_some() {
+        if entity.attribute::<SampleRate>().is_some() || entity.attribute::<Time>().is_some() {
             Some(DefaultView::Timeline)
         } else if matches!(entity.kind, EntityKind::Record {..}) {
             Some(DefaultView::Table)
@@ -112,6 +113,13 @@ pub struct SampleRate(pub f64);
 
 impl Attribute for SampleRate {
     const NAME: &'static str = "sample_rate";
+}
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct Time(pub String);
+
+impl Attribute for Time {
+    const NAME: &'static str = "time";
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]

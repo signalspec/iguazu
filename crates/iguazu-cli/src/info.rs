@@ -58,6 +58,9 @@ fn info_tree_inner(w: &mut impl Write, prefix: &str, name: &str, entity: &Entity
         EntityKind::Float { .. } => {
             header_line(w, name, "Float")?;
         }
+        EntityKind::Timestamp { .. } => {
+            header_line(w, name, "Timestamp")?;
+        }
         EntityKind::Enum { .. } => {
             header_line(w, name, "Enum")?;
         }

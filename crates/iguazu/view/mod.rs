@@ -12,6 +12,9 @@ pub use number_view::NumberView;
 mod enum_view;
 pub use enum_view::EnumView;
 
+mod event_view;
+pub use event_view::{ EventView, EventViewIter, Event };
+
 mod text_view;
 pub use text_view::TextView;
 
@@ -38,6 +41,10 @@ pub trait ViewManager: Sized {
 
     fn text_view(&mut self, entity: &EntityStream) -> TextView {
         TextView::new(self, entity)
+    }
+
+    fn event_view(&mut self, entity: &EntityStream) -> Option<EventView> {
+        EventView::new(self, entity)
     }
 }
 

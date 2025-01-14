@@ -16,6 +16,7 @@ log.workspace = true
 indexmap = { workspace = true, features = ["serde"] }
 serde_json = "1.0.120"
 serde = { version = "1.0.204", features = ["derive"] }
+bytemuck.workspace = true
 
 [lib]
 path = "lib.rs"

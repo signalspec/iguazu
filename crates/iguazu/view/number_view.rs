@@ -48,6 +48,9 @@ impl NumberView {
             }
             EntityKind::Float { bits: 32 } => Format::F32,
             EntityKind::Float { bits: 64 } => Format::F64,
+            EntityKind::Timestamp { sample_rate } => {
+                Format::UInt { scale: 1.0 / sample_rate, offset: 0.0 }
+            }
             _ => Format::None,
         };
 

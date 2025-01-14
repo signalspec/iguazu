@@ -39,6 +39,9 @@ pub enum EntityKind {
     Logic {
         bits: Vec<Field>,
     },
+    Timestamp {
+        sample_rate: f64,
+    },
     Unsigned {
         bits: u32,
         #[serde(default = "One::one", skip_serializing_if = "One::is_one")]
@@ -141,6 +144,10 @@ impl Entity<ArcStream> {
     pub fn group() -> Self {
         Self::new(EntityKind::Group, MemoryStream::new(1, &[]))
     }
+
+    pub fn tuple(fields: Vec<Field>) -> Self {
+        Self::new(EntityKind::Tuple { fields }, MemoryStream::new(1, &[]))
+    }
 }
 
 impl EntityKind {
@@ -150,6 +157,7 @@ impl EntityKind {
             EntityKind::Bits { bits }
             | EntityKind::Signed { bits, .. }
             | EntityKind::Unsigned { bits, .. } => bits.div_ceil(8) as usize,
+            EntityKind::Timestamp { .. } => 8,
             EntityKind::Logic { bits } => bits.len().div_ceil(8) as usize,
             EntityKind::Float { bits } => bits.div_ceil(8) as usize,
             EntityKind::Enum { bits, .. } => bits.div_ceil(8) as usize,

@@ -1,15 +1,13 @@
-use std::{cell::RefCell, rc::Rc, sync::Arc, u64};
+use std::{cell::RefCell, rc::Rc, u64};
 
-use append_array::AppendArray;
-
-use crate::{schema::EntityStream, stream::StreamDesc, Idx, IdxRange};
+use crate::{schema::EntityStream, stream::{Block, StreamDesc, StreamState}, Idx, IdxRange};
 
 use super::{StreamAccess, ViewManager};
 
 pub struct IntView {
     view: Rc<dyn StreamAccess>,
     desc: StreamDesc,
-    cache: RefCell<(u64, Option<Arc<AppendArray<u8>>>)>,
+    cache: RefCell<(u64, Option<Block>)>,
 }
 
 impl IntView {
@@ -18,6 +16,18 @@ impl IntView {
         let desc = view.stream().desc();
         let cache = RefCell::new((u64::MAX, None));
         IntView { view, desc, cache }
+    }
+
+    pub fn desc(&self) -> &StreamDesc {
+        &self.desc
+    }
+
+    pub fn state(&self) -> StreamState {
+        self.view.stream().state()
+    }
+
+    pub fn bounds(&self) -> IdxRange {
+        IdxRange { min: 0, max: self.state().end }
     }
 
     pub fn get_u64(&self, idx: Idx) -> Option<u64> {

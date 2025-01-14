@@ -71,7 +71,7 @@ impl TextView {
                 EntityKind::Logic { ref bits } => {
                     elements.push(Element::Bin(vm.int_view(entity), bits.len() as u32))
                 },
-                EntityKind::Signed { .. } | EntityKind::Unsigned {.. } | EntityKind::Float { .. } => {
+                EntityKind::Signed { .. } | EntityKind::Unsigned {.. } | EntityKind::Float { .. } | EntityKind::Timestamp { .. } => {
                     elements.push(Element::Num(vm.number_view(entity)))
                 }
                 EntityKind::Enum { bits, ref values } => {

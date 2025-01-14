@@ -167,6 +167,10 @@ impl IdxScale {
     pub(crate) fn sample_period(&self) -> Time {
         self.period
     }
+    
+    pub(crate) fn min_visible_width(&self) -> u64 {
+        (2.0 / self.x_scale).ceil() as u64
+    }
 }
 
 #[test]
