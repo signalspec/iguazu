@@ -108,8 +108,8 @@ impl egui_table::TableDelegate for Delegate {
 
         let label = self.headers.get(&(*row_nr, col_range.start, col_range.end)).unwrap();
 
-        egui::Frame::none()
-            .inner_margin(Margin::symmetric(4.0, 0.0))
+        egui::Frame::new()
+            .inner_margin(Margin::symmetric(4, 0))
             .show(ui, |ui| {
                 ui.heading(label.to_owned());
             });
@@ -125,8 +125,8 @@ impl egui_table::TableDelegate for Delegate {
 
         let col = &self.columns[col_nr];
 
-        egui::Frame::none()
-            .inner_margin(Margin::symmetric(4.0, 0.0))
+        egui::Frame::new()
+            .inner_margin(Margin::symmetric(4, 0))
             .show(ui, |ui| {
                 match col {
                     Column::Index => {

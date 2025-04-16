@@ -49,7 +49,7 @@ pub(crate) fn render(_ctx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: 
             iguazu::view::Event::Event(t_range, idx) => {
                 let r = evt_rect(t_range);
                 painter.rect_filled(r, 4.0, color.gamma_multiply(0.3));
-                painter.rect_stroke(r, 4.0, Stroke::new(2.0, color));
+                painter.rect_stroke(r, 4.0, Stroke::new(2.0, color), egui::StrokeKind::Inside);
 
                 let text_rect = r.shrink2(Vec2::new(5.0, 0.0));
                 let text_min_width = 8.0;

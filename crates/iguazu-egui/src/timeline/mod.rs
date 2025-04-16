@@ -257,8 +257,8 @@ fn render_entity(
 fn fixed_height_header(ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, height: f32) -> Rect {
     let header_y_range = ui.horizontal(|ui| {
         ui.set_height(height);
-        Frame::none()
-            .inner_margin(Margin::symmetric(6.0, 6.0))
+        Frame::new()
+            .inner_margin(Margin::symmetric(6, 6))
             .show(ui, |ui| {
             ui.label(label.unwrap_or(""));
         });
