@@ -132,7 +132,7 @@ impl egui_table::TableDelegate for Delegate {
                     Column::Index => {
                         ui.label(format!("{row_nr}"));
                     }
-                    Column::Text(ref v) => {
+                    Column::Text(v) => {
                         let v = v.format(row_nr).to_string();
                         ui.label(v);
                     }
