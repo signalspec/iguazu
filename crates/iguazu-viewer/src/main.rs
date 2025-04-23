@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+use std::sync::Arc;
+
 use eframe::egui;
 use egui::Frame;
 
+use futures_lite::future::block_on;
 use iguazu::{io::FsFile, schema::{attribute::DefaultView, EntityStream}};
 use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
 
@@ -16,8 +19,9 @@ fn main() -> Result<(), eframe::Error> {
 
     let fname = std::env::args().nth(1).expect("filename passed as command line arg");
     let importer = iguazu::import::IMPORTERS.first_for_filename(&fname).expect("No importer for extension");
-    let file = FsFile::new(fname.into()).unwrap();
-    let entity = importer.import(file).unwrap();
+    let file = Arc::new(FsFile::new(fname.into()).unwrap());
+    let importer = importer.import(file);
+    let entity = block_on(importer.import(None)).expect("Failed to load file");
 
     let view = entity.attribute::<DefaultView>();
 

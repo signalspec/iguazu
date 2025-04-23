@@ -3,17 +3,35 @@ use std::{fmt::Debug, io, sync::Arc};
 use append_array::AppendArray;
 use log::debug;
 
-use crate::{io::ReadableFile, schema::{attribute::SampleRate, Attributes, Entity, EntityKind, Field}, stream::{ArcStream, Stream, StreamDesc, StreamState}};
+use crate::{import::ImportError, io::ReadableFile, schema::{Entity, EntitySchema, EntityStream}, stream::{ArcStream, Stream, StreamDesc, StreamState}};
 
-pub struct FlatFileStream<F> {
-    file: F,
+pub struct FlatFileOpts {
+    pub offset: u64,
+    pub count: Option<u64>,
+    pub block_size: usize,
+    pub element_size: Option<usize>,
+}
+
+impl Default for FlatFileOpts {
+    fn default() -> Self {
+        FlatFileOpts {
+            offset: 0,
+            count: None,
+            block_size: 1 << 20,
+            element_size: None,
+        }
+    }
+}
+
+pub struct FlatFileStream {
+    file: Arc<dyn ReadableFile>,
     offset: u64,
-    len: u64,
+    count: u64,
     block_size: usize,
     element_size: usize,
 }
 
-impl<F: ReadableFile> Debug for FlatFileStream<F> {
+impl Debug for FlatFileStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("FlatFileStream")
             .field(&self.file.filename().unwrap_or("<unknown>"))
@@ -21,40 +39,28 @@ impl<F: ReadableFile> Debug for FlatFileStream<F> {
     }
 }
 
-impl<F: ReadableFile + 'static> FlatFileStream<F> {
-    pub fn new(file: F, element_size: usize) -> Result<Self, io::Error> {
+impl FlatFileStream {
+    pub fn new(file: Arc<dyn ReadableFile>, opts: FlatFileOpts) -> Result<Self, io::Error> {
         let file_len = file.get_len()?;
-        let block_size = 1 << 20;
-        Ok(Self::range(file, 0, file_len, block_size, element_size))
+        
+        let offset = opts.offset;
+        let element_size = opts.element_size.unwrap_or(1);
+        let count = opts.count.unwrap_or(file_len / element_size as u64);
+        let block_size = opts.block_size;
+
+        Ok(FlatFileStream { file, offset, count, block_size, element_size })
     }
 
-    pub fn range(file: F, offset: u64, len: u64, block_size: usize, element_size: usize) -> Self {
-        FlatFileStream { file, offset, len, block_size, element_size }
-    }
-
-    pub fn entity(file: F, encoding: EntityKind, attributes: Attributes) -> Result<Entity<ArcStream>, io::Error> {
-        let element_size = encoding.element_size();
-        let data = Arc::new(Self::new(file, element_size)?);
-        Ok(Entity { data: data, kind: encoding, attributes, children: Default::default() })
-    }
-
-    pub fn binary_file(file: F) -> Result<Entity<ArcStream>, io::Error> {
-        let encoding = EntityKind::Bits { bits: 8 };
-        FlatFileStream::entity(file, encoding, Attributes::default())
-    }
-
-    pub fn logic8(file: F, rate: SampleRate) -> Result<Entity<ArcStream>, io::Error> {
-        let mut attributes = Attributes::default();
-        attributes.set(&rate);
-        let encoding = EntityKind::Logic { bits: (0..8).map(|b| Field {
-            name: format!("{b}"),
-            attributes: Default::default(),
-        }).collect() };
-        FlatFileStream::entity(file, encoding, attributes)
+    pub fn entity(file: Arc<dyn ReadableFile>, schema: EntitySchema, mut opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
+        let (kind, _stride) = schema.single_stream()
+            .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
+        opts.element_size.get_or_insert(kind.element_size());
+        let stream = Self::new(file, opts).map_err(ImportError::Io)?;
+        Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 }
 
-impl<F: ReadableFile> Stream for FlatFileStream<F> {
+impl Stream for FlatFileStream {
     fn desc(&self) -> StreamDesc {
         StreamDesc {
             element_size: self.element_size,
@@ -65,7 +71,7 @@ impl<F: ReadableFile> Stream for FlatFileStream<F> {
     fn state(&self) -> StreamState {
         StreamState {
             streaming: false,
-            end: self.len / self.element_size as u64,
+            end: self.count,
         }
     }
 

@@ -17,6 +17,7 @@ indexmap = { workspace = true, features = ["serde"] }
 serde_json = "1.0.120"
 serde = { version = "1.0.204", features = ["derive"] }
 bytemuck.workspace = true
+thiserror = "2.0.12"
 
 [lib]
 path = "lib.rs"

@@ -1,3 +1,5 @@
+use std::{convert::Infallible, sync::Arc};
+
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -12,6 +14,7 @@ use crate::{storage::MemoryStream, stream::ArcStream};
 pub type Name = String;
 pub type Path = String;
 
+pub type EntitySchema = Entity<()>;
 pub type EntityStream = Entity<ArcStream>;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -98,10 +101,6 @@ impl Field {
 }
 
 impl<S> Entity<S> {
-    pub fn new(kind: EntityKind, data: S) -> Self {
-        Self { kind, attributes: Default::default(), children: Default::default(), data }
-    }
-
     pub fn with_attribute<A: Attribute>(mut self, a: &A) -> Self {
         self.set_attribute(a);
         self
@@ -134,19 +133,17 @@ impl<S> Entity<S> {
 
         Ok(Entity { data, kind, attributes, children })
     }
-}
 
-impl Entity<ArcStream> {
-    pub fn record() -> Self {
-        Self::new(EntityKind::Record, MemoryStream::new(1, &[]))
+    pub fn only_child(&self) -> Option<&Entity<S>> {
+        if self.children.len() == 1 {
+            self.children.values().next()
+        } else {
+            None
+        }
     }
 
-    pub fn group() -> Self {
-        Self::new(EntityKind::Group, MemoryStream::new(1, &[]))
-    }
-
-    pub fn tuple(fields: Vec<Field>) -> Self {
-        Self::new(EntityKind::Tuple { fields }, MemoryStream::new(1, &[]))
+    pub fn schema(&self) -> EntitySchema {
+        self.try_map_data(&mut |_| Ok::<(), Infallible>(())).unwrap()
     }
 }
 
@@ -168,6 +165,78 @@ impl EntityKind {
 
     pub fn format<'a>(&'a self, value: u64) -> EntityValueText<'a> {
         EntityValueText { value, kind: self }
+    }
+}
+
+impl EntityStream {
+    pub fn new(kind: EntityKind, data: ArcStream) -> Self {
+        Self { kind, attributes: Default::default(), children: Default::default(), data }
+    }
+
+    pub fn record() -> Self {
+        Self::new(EntityKind::Record, MemoryStream::new(1, &[]))
+    }
+
+    pub fn group() -> Self {
+        Self::new(EntityKind::Group, MemoryStream::new(1, &[]))
+    }
+
+    pub fn tuple(fields: Vec<Field>) -> Self {
+        Self::new(EntityKind::Tuple { fields }, MemoryStream::new(1, &[]))
+    }
+}
+
+impl EntitySchema {
+    pub fn new(kind: EntityKind) -> Self {
+        Self { kind, attributes: Default::default(), children: Default::default(), data: () }
+    }
+
+    pub fn group() -> Self {
+        Self::new(EntityKind::Group)
+    }
+
+    pub fn record() -> Self {
+        Self::new(EntityKind::Record)
+    }
+
+    pub fn bytes() -> Self {
+        EntitySchema::new(EntityKind::Bits { bits: 8 })
+    }
+
+    pub fn logic8() -> Self {
+        Self::new(EntityKind::Logic { bits: (0..8).map(|b| Field { name: format!("{b}"), attributes: Default::default() }).collect() })
+    }
+
+    pub fn single_stream(&self) -> Option<(&EntityKind, usize)> {
+        match self.kind {
+            EntityKind::Group | EntityKind::Record | EntityKind::VariableArray { .. } => None,
+            EntityKind::Bits { .. } | EntityKind::Signed { .. } | EntityKind::Unsigned { .. } | EntityKind::Timestamp { .. } | EntityKind::Logic { .. } | EntityKind::Float { .. } | EntityKind::Enum { .. } => {
+                Some((&self.kind, 1))
+            }
+            EntityKind::FixedArray { elements } => {
+                let (kind, stride) = self.only_child()?.single_stream()?;
+                Some((kind, stride * elements as usize))
+            }
+            EntityKind::Tuple { ref fields } => {
+                let (kind, stride) = self.only_child()?.single_stream()?;
+                Some((kind, stride * fields.len()))
+            }
+        }
+    }
+
+    pub fn wrap_single(&self, data: ArcStream) -> Option<EntityStream> {
+        match self.kind {
+            EntityKind::Group | EntityKind::Record | EntityKind::VariableArray { .. } => None,
+            EntityKind::Bits { .. } | EntityKind::Signed { .. } | EntityKind::Unsigned { .. } | EntityKind::Timestamp { .. } | EntityKind::Logic { .. } | EntityKind::Float { .. } | EntityKind::Enum { .. } => {
+                Some(Entity { data, kind: self.kind.clone(), attributes: self.attributes.clone(), children: IndexMap::new() })
+            }
+            EntityKind::FixedArray { .. } | EntityKind::Tuple { .. } => {
+                let child = self.only_child()?.wrap_single(data)?;
+                let child_name = self.children.iter().next().unwrap().0.clone();
+                Some(Entity { data: MemoryStream::new(0, &[]) as ArcStream, kind: self.kind.clone(), attributes: self.attributes.clone(), children: IndexMap::new() }.with_child(child_name, child))
+
+            }
+        }
     }
 }
 

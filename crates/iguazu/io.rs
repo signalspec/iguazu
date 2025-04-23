@@ -1,4 +1,4 @@
-use std::{ffi::OsStr, fs::File, io, ops::Deref, os::unix::fs::FileExt, path::{Path, PathBuf}};
+use std::{ffi::OsStr, fs::File, io, ops::Deref, os::unix::fs::FileExt, path::{Path, PathBuf}, sync::Arc};
 
 use serde::{de::{Error as _, Unexpected}, Deserialize, Deserializer, Serialize, Serializer};
 
@@ -60,7 +60,7 @@ pub trait ReadableFile: Send + Sync + 'static {
     fn filename(&self) -> Option<&str>;
 
     /// Open a file adjacent to this one
-    fn relative(&self, path: &RelativePath) -> Result<Self, io::Error> where Self: Sized;
+    fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error>;
 
     /// Get the length of the file
     fn get_len(&self) -> Result<u64, io::Error>;
@@ -106,8 +106,8 @@ impl ReadableFile for FsFile {
         Ok(buf)
     }
     
-    fn relative(&self, path: &RelativePath) -> Result<Self, io::Error> {
-        Self::new(self.path.with_file_name(path))
+    fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error> {
+        Ok(Arc::new(Self::new(self.path.with_file_name(path))?))
     }
 }
 

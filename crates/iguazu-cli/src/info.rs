@@ -1,8 +1,9 @@
-use std::{io::Write, path::PathBuf};
+use std::{io::Write, path::PathBuf, sync::Arc};
 
 use clap::Args;
-use iguazu::{io::{FsFile, ReadableFile}, schema::{EntityKind, EntityStream}};
+use iguazu::{io::{FsFile, ReadableFile}, schema::{Entity, EntityKind, EntitySchema, EntityStream}};
 use owo_colors::OwoColorize;
+use futures_lite::future::block_on;
 
 #[derive(Args)]
 #[command(about = "Describe the entities in the file")]
@@ -16,7 +17,7 @@ pub struct Cli {
 }
 
 pub fn main(args: &Cli) -> Result<(), String> {
-    let file = FsFile::new(args.file.clone()).map_err(|e| format!("Failed to open {}: {}", args.file.display(), e))?;
+    let file = Arc::new(FsFile::new(args.file.clone()).map_err(|e| format!("Failed to open {}: {}", args.file.display(), e))?);
     let filename = file.filename().unwrap_or("unknown").to_owned();
     let importer = if let Some(format) = &args.import_format {
         iguazu::import::IMPORTERS.by_name(format).ok_or_else(|| format!("No importer named `{}`", format))?
@@ -24,18 +25,19 @@ pub fn main(args: &Cli) -> Result<(), String> {
         iguazu::import::IMPORTERS.first_for_filename(&filename).ok_or_else(|| format!("No importer matched filename `{}`", filename))?
     };
     
-    let entity = importer.import(file).map_err(|e| format!("Failed to import {}: {}", args.file.display(), e))?;
+    let mut importer = importer.import(file);
+    let schema = block_on(importer.load_schema()).map_err(|e| format!("Failed to import {}: {}", args.file.display(), e))?;
 
-    info_tree(&mut std::io::stdout().lock(), &filename, &entity);
+    info_tree(&mut std::io::stdout().lock(), &filename, &schema);
 
     Ok(())
 }
 
-pub fn info_tree(w: &mut impl Write, root_name: &str, entity: &EntityStream) {
+pub fn info_tree<D>(w: &mut impl Write, root_name: &str, entity: &Entity<D>) {
     info_tree_inner(w, "", root_name, entity).unwrap()
 }
 
-fn info_tree_inner(w: &mut impl Write, prefix: &str, name: &str, entity: &EntityStream) -> std::io::Result<()> {
+fn info_tree_inner<D>(w: &mut impl Write, prefix: &str, name: &str, entity: &Entity<D>) -> std::io::Result<()> {
     match &entity.kind {
         EntityKind::Group => {
             header_line(w, name, "Group")?;
