@@ -1,5 +1,7 @@
 mod flat_file;
 mod json_virtual;
+#[cfg(feature = "csv")]
+mod csv;
 
 use std::{pin::Pin, sync::Arc};
 
@@ -22,7 +24,7 @@ pub enum ImportError {
 pub trait Importer {
     fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>>;
 
-    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<EntityStream, ImportError>> + Send>>;
+    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>>;
 }
 
 pub struct ImportFormat {
@@ -84,6 +86,23 @@ pub const LOGIC8: ImportFormat = ImportFormat {
     import: flat_file::logic8,
 };
 
+#[cfg(feature = "csv")]
+pub const CSV: ImportFormat = ImportFormat {
+    name: "csv",
+    extensions: &[".csv"],
+    import: csv::csv
+};
+
+#[cfg(feature = "csv")]
+pub const TSV: ImportFormat = ImportFormat {
+    name: "tsv",
+    extensions: &[".tsv"],
+    import: csv::tsv
+};
+
 pub const IMPORTERS: ImportFormats<&'static [ImportFormat]> = ImportFormats(&[
-    VIRTUAL, BIN, LOGIC8
+    VIRTUAL,
+    BIN, LOGIC8,
+    #[cfg(feature = "csv")] CSV,
+    #[cfg(feature = "csv")] TSV,
 ]);

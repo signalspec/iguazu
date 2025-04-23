@@ -18,6 +18,13 @@ impl MemoryStream {
         writer.extend_from_slice(data);
         writer.stream
     }
+
+    pub fn null() -> Arc<Self> {
+        Arc::new(MemoryStream {
+            element_size: ElementSize::Null,
+            blocks: FrozenVec::new(),
+        })
+    }
 }
 
 impl Debug for MemoryStream {

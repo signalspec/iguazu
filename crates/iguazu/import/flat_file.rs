@@ -1,9 +1,10 @@
 use std::{pin::Pin, sync::Arc};
 use std::future;
 
+use crate::schema::EntityStream;
 use crate::{io::ReadableFile, schema::EntitySchema, storage::{FlatFileOpts, FlatFileStream}};
 
-use super::Importer;
+use super::{ImportError, Importer};
 
 
 pub struct FlatFileImporter {
@@ -23,13 +24,14 @@ impl FlatFileImporter {
 }
 
 impl Importer for FlatFileImporter {
-    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send>> {
+    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send>> {
         Box::pin(future::ready(Ok(self.schema.clone())))
     }
 
-    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<crate::schema::EntityStream, super::ImportError>> + Send>> {
+    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
         Box::pin(async {
-            FlatFileStream::entity(self.file, schema.unwrap_or(self.schema), self.opts).await
+            let entity = FlatFileStream::entity(self.file, schema.unwrap_or(self.schema), self.opts).await?;
+            Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }
 }

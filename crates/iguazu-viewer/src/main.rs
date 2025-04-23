@@ -21,7 +21,8 @@ fn main() -> Result<(), eframe::Error> {
     let importer = iguazu::import::IMPORTERS.first_for_filename(&fname).expect("No importer for extension");
     let file = Arc::new(block_on(FsFile::new(fname.into())).expect("Failed to open file"));
     let importer = importer.import(file);
-    let entity = block_on(importer.import(None)).expect("Failed to load file");
+    let (entity, completion) = block_on(importer.import(None)).expect("Failed to load file");
+    block_on(completion).expect("Failed to complete import");
 
     let view = entity.attribute::<DefaultView>();
 
