@@ -1,7 +1,7 @@
 use std::{num::NonZeroU64, sync::Arc};
 
 use bytemuck::{Zeroable, bytes_of};
-use eframe::egui_wgpu::{self, wgpu::{self, util::DeviceExt}, ScreenDescriptor};
+use egui_wgpu::{self, wgpu::{self, util::DeviceExt}, ScreenDescriptor};
 use egui::{PaintCallback, Rangef, Rect};
 
 mod transformation;
@@ -22,14 +22,14 @@ impl Heatmap {
         };
 
         self.state.resources.queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.state.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &data,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(self.width),
                 rows_per_image: Some(self.height),
@@ -103,8 +103,8 @@ struct Uniforms {
 }
 
 pub struct HeatmapRenderer {
-    device: Arc<wgpu::Device>,
-    queue: Arc<wgpu::Queue>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
     bind_group_layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
 }
