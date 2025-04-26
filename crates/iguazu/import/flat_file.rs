@@ -23,13 +23,13 @@ impl FlatFileImporter {
 }
 
 impl Importer for FlatFileImporter {
-    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + Sync>> {
+    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send>> {
         Box::pin(future::ready(Ok(self.schema.clone())))
     }
 
-    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<crate::schema::EntityStream, super::ImportError>> + Send + Sync>> {
+    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<crate::schema::EntityStream, super::ImportError>> + Send>> {
         Box::pin(async {
-            FlatFileStream::entity(self.file, schema.unwrap_or(self.schema), self.opts)
+            FlatFileStream::entity(self.file, schema.unwrap_or(self.schema), self.opts).await
         })
     }
 }

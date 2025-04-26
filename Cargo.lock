@@ -1634,12 +1634,17 @@ name = "iguazu"
 version = "0.1.0"
 dependencies = [
  "append-array",
+ "async-executor",
+ "async-trait",
+ "blocking",
  "bytemuck",
  "elsa",
+ "futures-lite",
  "indexmap",
  "log",
  "num-complex",
  "num-traits",
+ "once_cell",
  "serde",
  "serde_json",
  "thiserror 2.0.12",

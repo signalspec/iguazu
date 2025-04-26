@@ -17,7 +17,7 @@ pub struct Cli {
 }
 
 pub fn main(args: &Cli) -> Result<(), String> {
-    let file = Arc::new(FsFile::new(args.file.clone()).map_err(|e| format!("Failed to open {}: {}", args.file.display(), e))?);
+    let file = Arc::new(FsFile::new(args.file.clone()));
     let filename = file.filename().unwrap_or("unknown").to_owned();
     let importer = if let Some(format) = &args.import_format {
         iguazu::import::IMPORTERS.by_name(format).ok_or_else(|| format!("No importer named `{}`", format))?

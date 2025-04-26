@@ -1,5 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 
+use async_executor::{ Executor, Task };
+use futures_lite::{stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use num_traits::Zero;
 
@@ -20,56 +22,67 @@ enum StreamRef {
     }
 }
 
-impl StreamRef {
-    fn create(&self, src_file: &Arc<dyn ReadableFile>) -> Result<ArcStream, ImportError> {
-        match *self {
-            StreamRef::FlatFile { ref file_name, element_size, offset } => {
-                let file = src_file.relative(file_name)?;
-                let mut opts = FlatFileOpts::default();
-                opts.element_size = element_size;
-                opts.offset = offset;
-                Ok(Arc::new(FlatFileStream::new(file, opts)?))
-            }
-        }
-    }
-}
-
 pub struct VirtualImporter {
     file: Arc<dyn ReadableFile>,
     schema: Option<Entity<Option<StreamRef>>>,
 }
 
 impl VirtualImporter {
-    fn load(&mut self) -> Result<&mut Entity<Option<StreamRef>>, ImportError> {
+    async fn load(&mut self) -> Result<&mut Entity<Option<StreamRef>>, ImportError> {
         if let Some(ref mut schema) = self.schema {
             return Ok(schema);
         }
 
-        let data = self.file.read_at(0, 1<<20).map_err(ImportError::Io)?;
+        let data = self.file.read_at(0, 1<<20).await.map_err(ImportError::Io)?;
         let schema = serde_json::from_slice::<Entity<Option<StreamRef>>>(&data).map_err(|e| ImportError::InvalidFile(e.to_string()))?;
         Ok(self.schema.insert(schema))
     }
 }
 
 impl Importer for VirtualImporter {
-    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + Sync + '_>> {
+    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {
         Box::pin(async move {
-            self.load().map(|schema| schema.schema())
+            self.load().await.map(|schema| schema.schema())
         })
     }
 
-    fn import(mut self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<EntityStream, super::ImportError>> + Send + Sync>> {
+    fn import(mut self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<EntityStream, ImportError>> + Send>> {
         Box::pin(async move {
-            self.load()?;
+            self.load().await?;
             let file = self.file;
             let schema = self.schema.unwrap();
-            
-            schema.try_map_data(&mut |s| {
-                match s {
-                    Some(s) => s.create(&file),
-                    None => Ok(MemoryStream::new(ElementSize::Null, &[]))
+
+            let executor = Arc::new(Executor::new());
+
+            fn create(ex: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, schema: Entity<Option<StreamRef>>) -> impl Future<Output = Result<EntityStream, ImportError>> + Send {
+                async move {
+                    let data: ArcStream = match schema.data {
+                        Some(StreamRef::FlatFile { ref file_name, element_size, offset }) => {
+                            let file = src_file.relative(file_name);
+                            let mut opts = FlatFileOpts::default();
+                            opts.element_size = element_size;
+                            opts.offset = offset;
+                            Arc::new(FlatFileStream::new(file, opts).await?)
+                        }
+                        None => MemoryStream::new(ElementSize::Null, &[])
+                    };
+
+                    let child_tasks: Vec<(String, Task<_>)> = schema.children.into_iter().map(|(k, v)| {
+                        (k, ex.spawn(create(ex.clone(), src_file.clone(), v)))
+                    }).collect();
+
+                    let children = stream::iter(child_tasks)
+                        .then(|(k, f_v)| async move { Ok::<_, ImportError>((k, f_v.await?)) })
+                        .try_collect().await?;
+
+                    let kind = schema.kind;
+                    let attributes = schema.attributes;
+
+                    Ok(Entity { data, kind, attributes, children })
                 }
-            })
+            }
+
+            executor.run(create(executor.clone(), file, schema)).await
         })
     }
 }

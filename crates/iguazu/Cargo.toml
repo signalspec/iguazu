@@ -19,6 +19,11 @@ serde = { version = "1.0.204", features = ["derive"] }
 bytemuck.workspace = true
 thiserror = "2.0.12"
 elsa = "1.11.2"
+blocking = "1.6.1"
+once_cell = "1.21.3"
+async-executor = "1.13.1"
+futures-lite = "2.6.0"
+async-trait = "0.1.88"
 
 [lib]
 path = "lib.rs"

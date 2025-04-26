@@ -1,6 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, fmt::Debug, io, mem, sync::Arc};
 
 use elsa::FrozenMap;
+use futures_lite::future::block_on;
 use log::{debug, error};
 
 use crate::{import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{ElementSize, Stream, StreamAccess, StreamDesc, StreamState}};
@@ -41,8 +42,8 @@ impl Debug for FlatFileStream {
 }
 
 impl FlatFileStream {
-    pub fn new(file: Arc<dyn ReadableFile>, opts: FlatFileOpts) -> Result<Self, io::Error> {
-        let file_len = file.get_len()?;
+    pub async fn new(file: Arc<dyn ReadableFile>, opts: FlatFileOpts) -> Result<Self, io::Error> {
+        let file_len = file.get_len().await?;
         
         let offset = opts.offset;
         let element_size = opts.element_size;
@@ -53,10 +54,10 @@ impl FlatFileStream {
         Ok(FlatFileStream { file, offset, count, block_size, block_size_bytes, element_size })
     }
 
-    pub fn entity(file: Arc<dyn ReadableFile>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
+    pub async fn entity(file: Arc<dyn ReadableFile>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
         let _ = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
-        let stream = Self::new(file, opts).map_err(ImportError::Io)?;
+        let stream = Self::new(file, opts).await.map_err(ImportError::Io)?;
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 
@@ -64,10 +65,10 @@ impl FlatFileStream {
         self.offset.saturating_add((self.block_size_bytes as u64).saturating_mul(block))
     }
 
-    fn load_block(&self, block: u64) -> Result<Vec<u8>, io::Error> {
+    async fn load_block(&self, block: u64) -> Result<Vec<u8>, io::Error> {
         let offset = self.block_offset(block);
         debug!("Loading block of {self:?} at {offset}");
-        self.file.read_at(offset, self.block_size_bytes).inspect_err(|e| {
+        self.file.read_at(offset, self.block_size_bytes).await.inspect_err(|e| {
             error!("Failed to read block of {:?} at {offset}: {e}", self);
         })
     }
@@ -107,7 +108,7 @@ impl StreamAccess for FileStreamAccess {
 
         let buf = if let Some(buf) = self.prev_blocks.borrow_mut().remove(&block) {
             buf
-        } else if let Ok(buf) = self.stream.load_block(block) {
+        } else if let Ok(buf) = block_on(self.stream.load_block(block)) {
             buf
         } else {
             return &[];

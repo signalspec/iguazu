@@ -20,9 +20,9 @@ pub enum ImportError {
 }
 
 pub trait Importer {
-    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + Sync + '_>>;
+    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>>;
 
-    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<EntityStream, ImportError>> + Send + Sync>>;
+    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<EntityStream, ImportError>> + Send>>;
 }
 
 pub struct ImportFormat {
