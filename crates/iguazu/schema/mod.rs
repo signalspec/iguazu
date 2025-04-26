@@ -1,4 +1,4 @@
-use std::{convert::Infallible, sync::Arc};
+use std::convert::Infallible;
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,7 @@ pub use attribute::{ Attributes, Attribute };
 mod fmt;
 pub use fmt::EntityValueText;
 
-use crate::{storage::MemoryStream, stream::ArcStream};
+use crate::{storage::MemoryStream, stream::{ArcStream, ElementSize}};
 
 pub type Name = String;
 pub type Path = String;
@@ -36,9 +36,7 @@ pub struct Entity<S> {
 pub enum EntityKind {
     Group,
     Record,
-    Bits {
-        bits: u32,
-    },
+    Bits { bits: u32 },
     Logic {
         bits: Vec<Field>,
     },
@@ -63,7 +61,6 @@ pub enum EntityKind {
         bits: u32,
     },
     Enum {
-        bits: u32,
         values: Vec<Field>,
     },
     FixedArray {
@@ -148,21 +145,6 @@ impl<S> Entity<S> {
 }
 
 impl EntityKind {
-    pub fn element_size(&self) -> usize {
-        match self {
-            EntityKind::Group | EntityKind::Record => 0,
-            EntityKind::Bits { bits }
-            | EntityKind::Signed { bits, .. }
-            | EntityKind::Unsigned { bits, .. } => bits.div_ceil(8) as usize,
-            EntityKind::Timestamp { .. } => 8,
-            EntityKind::Logic { bits } => bits.len().div_ceil(8) as usize,
-            EntityKind::Float { bits } => bits.div_ceil(8) as usize,
-            EntityKind::Enum { bits, .. } => bits.div_ceil(8) as usize,
-            EntityKind::FixedArray { .. } | EntityKind::Tuple { .. } => 0,
-            EntityKind::VariableArray { bits } => bits.div_ceil(8) as usize,
-        }
-    }
-
     pub fn format<'a>(&'a self, value: u64) -> EntityValueText<'a> {
         EntityValueText { value, kind: self }
     }
@@ -174,15 +156,15 @@ impl EntityStream {
     }
 
     pub fn record() -> Self {
-        Self::new(EntityKind::Record, MemoryStream::new(1, &[]))
+        Self::new(EntityKind::Record, MemoryStream::new(ElementSize::Null, &[]))
     }
 
     pub fn group() -> Self {
-        Self::new(EntityKind::Group, MemoryStream::new(1, &[]))
+        Self::new(EntityKind::Group, MemoryStream::new(ElementSize::Null, &[]))
     }
 
     pub fn tuple(fields: Vec<Field>) -> Self {
-        Self::new(EntityKind::Tuple { fields }, MemoryStream::new(1, &[]))
+        Self::new(EntityKind::Tuple { fields }, MemoryStream::new(ElementSize::Null, &[]))
     }
 }
 
@@ -233,7 +215,7 @@ impl EntitySchema {
             EntityKind::FixedArray { .. } | EntityKind::Tuple { .. } => {
                 let child = self.only_child()?.wrap_single(data)?;
                 let child_name = self.children.iter().next().unwrap().0.clone();
-                Some(Entity { data: MemoryStream::new(0, &[]) as ArcStream, kind: self.kind.clone(), attributes: self.attributes.clone(), children: IndexMap::new() }.with_child(child_name, child))
+                Some(Entity { data: MemoryStream::new(ElementSize::Null, &[]) as ArcStream, kind: self.kind.clone(), attributes: self.attributes.clone(), children: IndexMap::new() }.with_child(child_name, child))
 
             }
         }

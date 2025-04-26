@@ -72,7 +72,7 @@ fn test_format() {
     assert_eq!(EntityKind::Unsigned { bits: 8, scale: 0.25, offset: -0.5 }.format(5).to_string(), "0.75");
     assert_eq!(EntityKind::Unsigned { bits: 32, scale: 1.0, offset: 0.0 }.format(0x0505).to_string(), "1285");
 
-    assert_eq!(EntityKind::Enum { bits: 8, values: vec![
+    assert_eq!(EntityKind::Enum { values: vec![
         Field { name: "a".into(), attributes: Default::default()},
         Field { name: "b".into(), attributes: Default::default()},
     ]}.format(1).to_string(), "b");

@@ -74,7 +74,7 @@ impl TextView {
                 EntityKind::Signed { .. } | EntityKind::Unsigned {.. } | EntityKind::Float { .. } | EntityKind::Timestamp { .. } => {
                     elements.push(Element::Num(vm.number_view(entity)))
                 }
-                EntityKind::Enum { bits, ref values } => {
+                EntityKind::Enum { ref values } => {
                     // TODO: format inner
                     let inner = values.iter()
                         .map(|variant| TextView::literal(variant.name.clone()))
@@ -157,32 +157,33 @@ impl std::fmt::Display for FormatValue<'_> {
 #[test]
 fn test_textview() {
     use crate::storage::MemoryStream;
+    use crate::stream::ElementSize;
 
     let mut vm = super::SimpleViewManager;
 
     let bits = EntityStream::new(
         EntityKind::Bits { bits: 2 },
-        MemoryStream::new(1, &[0b10, 0b01, 0b00])
+        MemoryStream::new(ElementSize::U8, &[0b10, 0b01, 0b00])
     );
 
     let ints = EntityStream::new(
         EntityKind::Unsigned { bits: 8, scale: 1.0, offset: 0.0 },
-        MemoryStream::new(1, &[1, 10, 99, 123])
+        MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])
     );
 
     let scaled_ints = EntityStream::new(
         EntityKind::Unsigned { bits: 8, scale: 0.01, offset: 0.0 },
-        MemoryStream::new(1, &[1, 10, 99, 123])
+        MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])
     );
 
     let signed_ints = EntityStream::new(
         EntityKind::Signed { bits: 16, scale: 1.0, offset: 0.0 },
-        MemoryStream::new(2, &[-10, 456, -1280, 9999].into_iter().flat_map(i16::to_le_bytes).collect::<Vec<u8>>())
+        MemoryStream::new(ElementSize::U16, &[-10, 456, -1280, 9999].into_iter().flat_map(i16::to_le_bytes).collect::<Vec<u8>>())
     );
 
     let floats = EntityStream::new(
         EntityKind::Float { bits: 32 },
-        MemoryStream::new(4, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())
+        MemoryStream::new(ElementSize::U32, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())
     );
     
     let literal_view = vm.text_view(

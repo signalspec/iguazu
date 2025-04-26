@@ -1,8 +1,9 @@
-use std::{io, pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc};
 
 use serde::{Deserialize, Serialize};
+use num_traits::Zero;
 
-use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream }, stream::ArcStream};
+use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream }, stream::{ArcStream, ElementSize}};
 
 use super::{ImportError, Importer};
 
@@ -12,17 +13,21 @@ use super::{ImportError, Importer};
 enum StreamRef {
     FlatFile {
         file_name: RelativePath,
-        element_size: usize,
+        element_size: ElementSize,
+
+        #[serde(default = "u64::zero", skip_serializing_if = "u64::is_zero")]
+        offset: u64,
     }
 }
 
 impl StreamRef {
     fn create(&self, src_file: &Arc<dyn ReadableFile>) -> Result<ArcStream, ImportError> {
         match *self {
-            StreamRef::FlatFile { ref file_name, element_size } => {
+            StreamRef::FlatFile { ref file_name, element_size, offset } => {
                 let file = src_file.relative(file_name)?;
                 let mut opts = FlatFileOpts::default();
-                opts.element_size = Some(element_size);
+                opts.element_size = element_size;
+                opts.offset = offset;
                 Ok(Arc::new(FlatFileStream::new(file, opts)?))
             }
         }
@@ -62,7 +67,7 @@ impl Importer for VirtualImporter {
             schema.try_map_data(&mut |s| {
                 match s {
                     Some(s) => s.create(&file),
-                    None => Ok(MemoryStream::new(1, &[]))
+                    None => Ok(MemoryStream::new(ElementSize::Null, &[]))
                 }
             })
         })

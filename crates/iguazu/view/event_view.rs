@@ -1,5 +1,5 @@
 use std::mem;
-use crate::{schema::{attribute::Time, EntityKind, EntityStream, Field}, Idx, IdxRange};
+use crate::{schema::{attribute::Time, EntityKind, EntityStream}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
@@ -142,13 +142,14 @@ impl Iterator for EventViewIter<'_> {
 #[test]
 fn test_event_view() {
     use crate::storage::MemoryStream;
-    use crate::schema::EntityKind;
+    use crate::schema::{ EntityKind, Field };
+    use crate::stream::ElementSize;
 
     let mut vm = super::SimpleViewManager;
 
     let ts = EntityStream::new(
         EntityKind::Timestamp { sample_rate: 1e6 },
-        MemoryStream::new(8, bytemuck::cast_slice(&[
+        MemoryStream::new(ElementSize::U64, bytemuck::cast_slice(&[
             1000u64, 1010,
             1010, 1020,
             1030, 1040,
