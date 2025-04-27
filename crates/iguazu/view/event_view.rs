@@ -59,7 +59,7 @@ impl EventView {
 
     fn get_pair(&self, idx: Idx) -> Option<IdxRange> {
         let min = self.view.get_u64(idx * 2)?;
-        let max = self.view.get_u64(idx * 2 + 1)?;
+        let max = self.view.get_u64(idx * 2 + 1)?.max(min);
         Some(IdxRange { min, max })
     }
 
