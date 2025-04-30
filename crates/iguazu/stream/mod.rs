@@ -1,4 +1,3 @@
-use append_array::AppendArray;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Debug, sync::Arc};
 use crate::Idx;
@@ -8,11 +7,18 @@ pub trait Stream: Send + Sync + Debug {
 
     fn state(&self) -> StreamState;
 
-    fn get_block(&self, block: u64) -> Option<Arc<AppendArray<u8>>>;
+    fn access(self: Arc<Self>) -> Box<dyn StreamAccess>;
 }
 
 pub type ArcStream = Arc<dyn Stream>;
-pub type Block = Arc<AppendArray<u8>>;
+
+pub trait StreamAccess: Send  {
+    fn get_block(&self, block: u64) -> &[u8];
+
+    fn state(&self) -> StreamState;
+
+    fn reset(&mut self);
+}
 
 pub struct StreamDesc {
     pub element_size: ElementSize,

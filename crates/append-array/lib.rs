@@ -3,6 +3,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{Ordering, AtomicUsize};
 
+use stable_deref_trait::StableDeref;
+
 /// Append-only fixed capacity vector.
 pub struct AppendArray<T> {
     // safety invariants:
@@ -74,6 +76,8 @@ impl<T> Deref for AppendArray<T> {
         self.as_slice()
     }
 }
+
+unsafe impl<T> StableDeref for AppendArray<T> {}
 
 impl<T> From<Vec<T>> for AppendArray<T> {
     fn from(mut val: Vec<T>) -> Self {

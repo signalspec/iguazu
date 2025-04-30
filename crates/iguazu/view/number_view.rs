@@ -2,8 +2,8 @@ use crate::{schema::{EntityKind, EntityStream}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
-pub struct NumberView {
-    view: IntView,
+pub struct NumberView<'a> {
+    view: IntView<'a>,
     format: Format,
 }
 
@@ -35,8 +35,8 @@ impl Format {
     }
 }
 
-impl NumberView {
-    pub fn new(vm: &mut impl ViewManager, entity: &EntityStream) -> Self {
+impl<'a> NumberView<'a> {
+    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Self {
         let view = vm.int_view(entity);
         let format = match entity.kind {
             EntityKind::Signed { scale, offset, .. } => {
@@ -61,7 +61,7 @@ impl NumberView {
         Some(self.format.decode(self.view.get_u64(idx)?))
     }
 
-    pub fn for_each_elem<'a>(&'a self, range: IdxRange, mut f: impl FnMut(Idx, Option<f64>)) {
+    pub fn for_each_elem(&'a self, range: IdxRange, mut f: impl FnMut(Idx, Option<f64>)) {
         self.view.for_each_elem(range, |i, elem| {
             let v = elem.map(|elem| {
                 self.format.decode(elem)

@@ -18,6 +18,7 @@ serde_json = "1.0.120"
 serde = { version = "1.0.204", features = ["derive"] }
 bytemuck.workspace = true
 thiserror = "2.0.12"
+elsa = "1.11.2"
 
 [lib]
 path = "lib.rs"

@@ -1,25 +1,23 @@
 use egui::{Align2, Color32, Rect, Stroke, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, Time}, EntityStream}, view::{EventView, ViewManager}, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, EntityStream}, IdxRange};
 
-use crate::{cache::ViewCache, color::named_color};
+use crate::color::named_color;
 
 use super::{fixed_height_header, scale::Scale, TimelineResponse};
 
 
-pub(crate) fn render(_ctx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, entity: &EntityStream) -> TimelineResponse {
+pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, entity: &EntityStream) -> TimelineResponse {
     let rect = fixed_height_header(ui, scale, label, 32.0);
     let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
     if !ui.is_rect_visible(padded_rect) {
         return TimelineResponse::default();
     }
 
-    let mut vm = ViewCache::with(ui);
-
-    let Some(event_view) = vm.event_view(entity) else {
+    let Some(event_view) = vcx.view_manager.event_view(entity) else {
         return TimelineResponse::default();
     };
 
-    let text_view = vm.text_view(entity);
+    let text_view = vcx.view_manager.text_view(entity);
 
     let idx_scale = scale.idx_scale(event_view.sample_rate());
 

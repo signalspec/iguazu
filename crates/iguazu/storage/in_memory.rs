@@ -1,14 +1,15 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::fmt::Debug;
 
 use append_array::{AppendArrayWriter, AppendArray};
-use crate::stream::{ElementSize, Stream, StreamDesc, StreamState};
+use elsa::sync::FrozenVec;
+use crate::stream::{ElementSize, Stream, StreamAccess, StreamDesc, StreamState};
 
 const BLOCK_SIZE: usize = 1<<16;
 
 pub struct MemoryStream {
     element_size: ElementSize,
-    chunks: RwLock<Vec<Arc<AppendArray<u8>>>>,
+    blocks: FrozenVec<Arc<AppendArray<u8>>>,
 }
 
 impl MemoryStream {
@@ -34,20 +35,37 @@ impl Stream for MemoryStream {
     }
 
     fn state(&self) -> StreamState {
-        let blocks = self.chunks.read().unwrap();
-        let last_block = blocks.last().unwrap().len() / self.element_size.bytes();
-        let end = ((blocks.len() - 1) * BLOCK_SIZE + last_block) as u64;
+        let n_blocks = self.blocks.len();
+        let last_block = self.blocks.get(n_blocks - 1).unwrap().len() / self.element_size.bytes();
+        let end = ((n_blocks - 1) * BLOCK_SIZE + last_block) as u64;
 
         StreamState {
             streaming: true,
             end,
         }
     }
-
-    fn get_block(&self, block: u64) -> Option<Arc<AppendArray<u8>>> {
-        let chunks = self.chunks.read().unwrap();
-        chunks.get(block as usize).cloned()
+    
+    fn access(self: Arc<Self>) -> Box<dyn StreamAccess> {
+        Box::new(MemoryStreamAccess { stream: self })
     }
+}
+
+pub struct MemoryStreamAccess {
+    stream: Arc<MemoryStream>,
+}
+
+impl StreamAccess for MemoryStreamAccess {
+    fn get_block(&self, block: u64) -> &[u8] {
+        block.try_into().ok()
+            .and_then(|block| self.stream.blocks.get(block))
+            .map_or(&[] as &[u8], |block| block.as_ref())
+    }
+
+    fn state(&self) -> StreamState {
+        self.stream.state()
+    }
+
+    fn reset(&mut self) {}
 }
 
 pub struct MemoryStreamWriter {
@@ -58,8 +76,9 @@ pub struct MemoryStreamWriter {
 impl MemoryStreamWriter {
     pub fn new(element_size: ElementSize) -> MemoryStreamWriter {
         let writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * element_size.bytes());
-        let chunks = RwLock::new(vec![writer.reader()]);
-        let stream = Arc::new(MemoryStream { chunks, element_size });
+        let blocks = FrozenVec::new();
+        blocks.push(writer.reader());
+        let stream = Arc::new(MemoryStream { blocks, element_size });
         MemoryStreamWriter { stream, writer }
     }
 
@@ -71,9 +90,8 @@ impl MemoryStreamWriter {
         loop {
             data = self.writer.extend_from_slice(data);
             if data.is_empty() { break }
-            let mut chunks = self.stream.chunks.write().unwrap();
             self.writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * self.stream.element_size.bytes());
-            chunks.push(self.writer.reader());
+            self.stream.blocks.push(self.writer.reader());
         }
     }
 }

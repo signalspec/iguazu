@@ -1,9 +1,9 @@
-use std::{fmt::Debug, io, sync::Arc};
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, io, mem, sync::Arc};
 
-use append_array::AppendArray;
-use log::debug;
+use elsa::FrozenMap;
+use log::{debug, error};
 
-use crate::{import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{ElementSize, Stream, StreamDesc, StreamState}};
+use crate::{import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{ElementSize, Stream, StreamAccess, StreamDesc, StreamState}};
 
 pub struct FlatFileOpts {
     pub offset: u64,
@@ -28,6 +28,7 @@ pub struct FlatFileStream {
     offset: u64,
     count: u64,
     block_size: usize,
+    block_size_bytes: usize,
     element_size: ElementSize,
 }
 
@@ -47,8 +48,9 @@ impl FlatFileStream {
         let element_size = opts.element_size;
         let count = opts.count.or(file_len.checked_div(element_size.bytes() as u64)).unwrap_or(0);
         let block_size = opts.block_size;
+        let block_size_bytes = block_size.saturating_mul(element_size.bytes() as usize);
 
-        Ok(FlatFileStream { file, offset, count, block_size, element_size })
+        Ok(FlatFileStream { file, offset, count, block_size, block_size_bytes, element_size })
     }
 
     pub fn entity(file: Arc<dyn ReadableFile>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
@@ -56,6 +58,18 @@ impl FlatFileStream {
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
         let stream = Self::new(file, opts).map_err(ImportError::Io)?;
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
+    }
+
+    fn block_offset(&self, block: u64) -> u64 {
+        self.offset.saturating_add((self.block_size_bytes as u64).saturating_mul(block))
+    }
+
+    fn load_block(&self, block: u64) -> Result<Vec<u8>, io::Error> {
+        let offset = self.block_offset(block);
+        debug!("Loading block of {self:?} at {offset}");
+        self.file.read_at(offset, self.block_size_bytes).inspect_err(|e| {
+            error!("Failed to read block of {:?} at {offset}: {e}", self);
+        })
     }
 }
 
@@ -73,12 +87,43 @@ impl Stream for FlatFileStream {
             end: self.count,
         }
     }
+    
+    fn access(self: Arc<Self>) -> Box<dyn crate::stream::StreamAccess> {
+        Box::new(FileStreamAccess { stream: self, blocks: FrozenMap::new(), prev_blocks: RefCell::new(HashMap::new()) })
+    }
+}
 
-    fn get_block(&self, block: u64) -> Option<Arc<AppendArray<u8>>> {
-        let offset = self.offset + self.block_size as u64 * self.element_size as u64 * block;
-        debug!("Load block of {self:?} at {offset}");
-        let len = self.block_size * self.element_size.bytes();
-        let buf = self.file.read_at(offset, len).ok()?;
-        Some(Arc::new(AppendArray::from(buf)))
+struct FileStreamAccess {
+    stream: Arc<FlatFileStream>,
+    prev_blocks: RefCell<HashMap<u64, Vec<u8>>>,
+    blocks: FrozenMap<u64, Vec<u8>>,
+}
+
+impl StreamAccess for FileStreamAccess {
+    fn get_block(&self, block: u64) -> &[u8] {
+        if let Some(buf) = self.blocks.get(&block) {
+            return buf;
+        }
+
+        let buf = if let Some(buf) = self.prev_blocks.borrow_mut().remove(&block) {
+            buf
+        } else if let Ok(buf) = self.stream.load_block(block) {
+            buf
+        } else {
+            return &[];
+        };
+
+        self.blocks.insert(block, buf)
+    }
+
+    fn state(&self) -> StreamState {
+        self.stream.state()
+    }
+
+    fn reset(&mut self) {
+        let blocks = mem::take(&mut self.blocks).into_map();
+        let mut next_blocks = self.prev_blocks.replace(blocks);
+        next_blocks.clear();
+        self.blocks = FrozenMap::from(next_blocks);
     }
 }

@@ -2,12 +2,12 @@ use crate::{schema::EntityStream, Idx};
 
 use super::{IntView, ViewManager};
 
-pub struct EnumView {
-    view: IntView,
+pub struct EnumView<'a> {
+    view: IntView<'a>,
 }
 
-impl EnumView {
-    pub fn new(vm: &mut impl ViewManager, entity: &EntityStream) -> Self {
+impl<'a> EnumView<'a> {
+    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Self {
         let view = vm.int_view(&entity);
         EnumView { view }
     }

@@ -4,23 +4,23 @@ use std::fmt::{Formatter, Write};
 use crate::{schema::{attribute::Text, EntityKind, EntityStream}, Idx};
 
 use super::{EnumView, IntView, NumberView, ViewManager};
-pub struct TextView(Vec<Element>);
+pub struct TextView<'a>(Vec<Element<'a>>);
 
-enum Element {
+enum Element<'a> {
     Literal(String),
-    Bin(IntView, u32),
-    Hex(IntView, u32),
-    Num(NumberView),
-    Enum(EnumView, Vec<TextView>),
+    Bin(IntView<'a>, u32),
+    Hex(IntView<'a>, u32),
+    Num(NumberView<'a>),
+    Enum(EnumView<'a>, Vec<TextView<'a>>),
 }
 
-impl TextView {
-    pub fn literal(v: String) -> TextView {
+impl<'a> TextView<'a> {
+    pub fn literal(v: String) -> TextView<'a> {
         TextView(vec![Element::Literal(v)])
     }
 
-    pub fn new(vm: &mut impl ViewManager, entity: &EntityStream) -> TextView {
-        fn inner(vm: &mut impl ViewManager, elements: &mut Vec<Element>, entity: &EntityStream) {
+    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> TextView<'a> {
+        fn inner<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream) {
             if let Some(text) = entity.attribute::<Text>() {
                 parse(vm, elements, entity, &text.0)
             } else {
@@ -28,7 +28,7 @@ impl TextView {
             }
         }
 
-        fn parse(vm: &mut impl ViewManager, elements: &mut Vec<Element>, entity: &EntityStream, mut text: &str) {
+        fn parse<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream, mut text: &str) {
             while let Some((before, rest)) = text.split_once('{') {
                 if !before.is_empty() {
                     elements.push(Element::Literal(before.replace("}}", "}")));
@@ -58,7 +58,7 @@ impl TextView {
             }
         }
 
-        fn this(vm: &mut impl ViewManager, elements: &mut Vec<Element>, entity: &EntityStream) {
+        fn this<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream) {
             match entity.kind {
                 EntityKind::Group | EntityKind::Record => {}
                 EntityKind::Bits { bits } => {
@@ -141,14 +141,14 @@ impl TextView {
         Ok(())
     }
 
-    pub fn format<'a>(&'a self, idx: Idx) -> FormatValue<'a> {
+    pub fn format<'b>(&'b self, idx: Idx) -> FormatValue<'a, 'b> {
         FormatValue(self, idx)
     }
 }
 
-pub struct FormatValue<'a>(pub &'a TextView, pub Idx);
+pub struct FormatValue<'a, 'b>(pub &'b TextView<'a>, pub Idx);
 
-impl std::fmt::Display for FormatValue<'_> {
+impl std::fmt::Display for FormatValue<'_, '_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.0.write(f, self.1)
     }
@@ -159,7 +159,7 @@ fn test_textview() {
     use crate::storage::MemoryStream;
     use crate::stream::ElementSize;
 
-    let mut vm = super::SimpleViewManager;
+    let vm = super::ViewManager::new();
 
     let bits = EntityStream::new(
         EntityKind::Bits { bits: 2 },
@@ -186,9 +186,8 @@ fn test_textview() {
         MemoryStream::new(ElementSize::U32, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())
     );
     
-    let literal_view = vm.text_view(
-        &bits.clone().with_attribute(&Text("test".into()))
-    );
+    let literal = bits.clone().with_attribute(&Text("test".into()));
+    let literal_view = vm.text_view(&literal);
     assert_eq!(literal_view.format(0).to_string(), "test");
     assert_eq!(literal_view.format(100).to_string(), "test");
 

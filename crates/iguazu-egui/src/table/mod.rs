@@ -4,7 +4,7 @@ use egui::Margin;
 use iguazu::{schema::EntityStream, view::{TextView, ViewManager}};
 use itertools::Itertools;
 
-use crate::{cache::ViewCache, ViewerContext};
+use crate::ViewerContext;
 
 pub struct TableView {
 }
@@ -16,40 +16,39 @@ impl TableView {
     
     pub fn show(
         &mut self,
-        _vcx: &mut ViewerContext,
+        vcx: &mut ViewerContext,
         ui: &mut egui::Ui,
         entity: &mut EntityStream,
     ) {
-        let mut view_manager = ViewCache::with(ui);
-        let mut delegate = Delegate::new(entity, &mut view_manager);
+        let mut delegate = Delegate::new(entity, &vcx.view_manager);
         let table = delegate.table();
         table.show(ui, &mut delegate);
     }
 }
 
-enum Column {
+enum Column<'a> {
     Index,
-    Text(TextView),
+    Text(TextView<'a>),
     //String(View, View),
     //Tiles
 }
 
-struct Delegate {
-    columns: Vec<Column>,
+struct Delegate<'a> {
+    columns: Vec<Column<'a>>,
     headers: BTreeMap<(usize, usize, usize), String>
 }
 
-impl Delegate {
-    fn new(entity: &mut EntityStream, view_manager: &mut ViewCache) -> Self {
+impl<'a> Delegate<'a> {
+    fn new(entity: &mut EntityStream, view_manager: &'a ViewManager) -> Self {
         let mut columns = Vec::new();
         let mut headers = BTreeMap::new();
 
         columns.push(Column::Index);
     
-        fn inner(
-            vm: &mut ViewCache,
+        fn inner<'a>(
+            vm: &'a ViewManager,
             depth: usize,
-            data: &mut Vec<Column>,
+            data: &mut Vec<Column<'a>>,
             headers: &mut BTreeMap<(usize, usize, usize), String>,
             entity: &EntityStream,
         ) {
@@ -98,7 +97,7 @@ impl Delegate {
     }
 }
 
-impl egui_table::TableDelegate for Delegate {
+impl<'a> egui_table::TableDelegate for Delegate<'a> {
     fn header_cell_ui(&mut self, ui: &mut egui::Ui, cell: &egui_table::HeaderCellInfo) {
         let egui_table::HeaderCellInfo {
             col_range,

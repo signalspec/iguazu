@@ -28,6 +28,7 @@ fn main() -> Result<(), eframe::Error> {
     let app = App {
         view,
         entity,
+        vctx: ViewerContext::new(),
     };
 
     eframe::run_native(
@@ -40,6 +41,7 @@ fn main() -> Result<(), eframe::Error> {
 struct App {
     entity: EntityStream,
     view: Option<DefaultView>,
+    vctx: ViewerContext,
 }
 
 impl eframe::App for App {
@@ -50,15 +52,15 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let frame = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
-            let vctx = &mut ViewerContext {};
-
             match self.view {
-                Some(DefaultView::Table) => TableView::new().show(vctx, ui, &mut self.entity),
-                Some(DefaultView::Timeline) => TimelineView::new().show(vctx, ui, &mut self.entity),
+                Some(DefaultView::Table) => TableView::new().show(&mut self.vctx, ui, &mut self.entity),
+                Some(DefaultView::Timeline) => TimelineView::new().show(&mut self.vctx, ui, &mut self.entity),
                 None => {
                     ui.label("unknown view");
                 }
             }
         });
+
+        self.vctx.update();
     }
 }

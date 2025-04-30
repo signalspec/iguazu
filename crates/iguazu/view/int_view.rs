@@ -1,20 +1,20 @@
-use std::{cell::RefCell, rc::Rc, u64};
+use std::{cell::RefCell, u64};
 
-use crate::{schema::EntityStream, stream::{Block, StreamDesc, StreamState}, Idx, IdxRange};
+use crate::{schema::EntityStream, stream::{StreamAccess, StreamDesc, StreamState}, Idx, IdxRange};
 
-use super::{StreamAccess, ViewManager};
+use super::ViewManager;
 
-pub struct IntView {
-    view: Rc<dyn StreamAccess>,
+pub struct IntView<'a> {
+    view: &'a dyn StreamAccess,
     desc: StreamDesc,
-    cache: RefCell<(u64, Option<Block>)>,
+    cache: RefCell<(u64, &'a [u8])>,
 }
 
-impl IntView {
-    pub fn new(vm: &mut impl ViewManager, entity: &EntityStream) -> Self {
+impl<'a> IntView<'a> {
+    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Self {
         let view = vm.stream(&entity.data);
-        let desc = view.stream().desc();
-        let cache = RefCell::new((u64::MAX, None));
+        let desc = entity.data.desc();
+        let cache = RefCell::new((u64::MAX, &[][..]));
         IntView { view, desc, cache }
     }
 
@@ -23,7 +23,7 @@ impl IntView {
     }
 
     pub fn state(&self) -> StreamState {
-        self.view.stream().state()
+        self.view.state()
     }
 
     pub fn bounds(&self) -> IdxRange {
@@ -42,13 +42,13 @@ impl IntView {
             cache.1 = self.view.get_block(block);
         }
 
-        let elem = cache.1.as_ref()?.get(byte_pos .. byte_pos + self.desc.element_size.bytes())?;
+        let elem = cache.1.get(byte_pos .. byte_pos + self.desc.element_size.bytes())?;
         let mut data = [0; 8];
         data[..elem.len()].copy_from_slice(elem);
         Some(u64::from_le_bytes(data))
     }
 
-    pub fn for_each_elem<'a>(&'a self, range: IdxRange, mut f: impl FnMut(Idx, Option<u64>)) {
+    pub fn for_each_elem(&self, range: IdxRange, mut f: impl FnMut(Idx, Option<u64>)) {
         let min_block = range.min / self.desc.block_size as Idx;
         let max_block  = range.max.div_ceil(self.desc.block_size as Idx);
 
@@ -56,12 +56,10 @@ impl IntView {
             let block = self.view.get_block(block_i);
             let idx = (block_i as u64) * self.desc.block_size as u64;
 
-            let data = block.as_ref().map_or(&[] as &[u8], |x| x.as_slice());
+            let start = range.min.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
+            let end = range.max.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
 
-            let start = range.min.saturating_sub(idx).min((data.len() / self.desc.element_size.bytes()) as u64) as usize;
-            let end = range.max.saturating_sub(idx).min((data.len() / self.desc.element_size.bytes()) as u64) as usize;
-
-            for (i, v) in data[start * self.desc.element_size.bytes() .. end * self.desc.element_size.bytes()].chunks_exact(self.desc.element_size.bytes()).enumerate() {
+            for (i, v) in block[start * self.desc.element_size.bytes() .. end * self.desc.element_size.bytes()].chunks_exact(self.desc.element_size.bytes()).enumerate() {
                 let mut data = [0; 8];
                 data[..v.len()].copy_from_slice(v);
                 f(idx + start as u64 + i as u64, Some(u64::from_le_bytes(data)))

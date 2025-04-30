@@ -1,9 +1,9 @@
-use std::{rc::Rc, sync::Arc};
-use append_array::AppendArray;
+use std::{mem, sync::Arc};
 
-use crate::{schema::EntityStream, stream::{ArcStream, Block, Stream}};
+use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess}};
 
 mod int_view;
+use elsa::FrozenMap;
 pub use int_view::IntView;
 
 mod number_view;
@@ -18,53 +18,60 @@ pub use event_view::{ EventView, EventViewIter, Event };
 mod text_view;
 pub use text_view::TextView;
 
-pub trait StreamAccess {
-    fn stream(&self) -> &Arc<dyn Stream>;
-
-    fn get_block(&self, block: u64) -> Option<Block>;
+#[derive(Default)]
+pub struct ViewManager {
+    streams: FrozenMap<usize, Box<dyn StreamAccess>>,
 }
 
-pub trait ViewManager: Sized {
-    fn stream(&mut self, stream: &ArcStream) -> Rc<dyn StreamAccess>;
+impl ViewManager {
+    pub fn new() -> Self {
+        ViewManager {
+            streams: FrozenMap::default(),
+        }
+    }
+
+    pub fn update(&mut self) {
+        let mut streams = mem::take(&mut self.streams).into_map();
+        for (_, stream) in streams.iter_mut() {
+            stream.reset();
+        }
+        // TODO: clear stale streams
+        self.streams = streams.into();
+    }
+}
+
+fn key(s: &ArcStream) -> usize {
+    Arc::as_ptr(s) as *const () as usize
+}
+
+impl ViewManager {
+    pub fn stream<'a>(&'a self, stream: &ArcStream) -> &'a dyn StreamAccess {
+        if let Some(s) = self.streams.get(&key(stream)) {
+            return s;
+        } else {
+            self.streams.insert(key(stream), stream.clone().access())
+        }
+    }
     
-    fn int_view(&mut self, entity: &EntityStream) -> IntView {
+    pub fn int_view<'a>(&'a self, entity: &EntityStream) -> IntView<'a> {
         IntView::new(self, entity)
     }
 
-    fn number_view(&mut self, entity: &EntityStream) -> NumberView {
+    pub fn number_view<'a>(&'a self, entity: &EntityStream) -> NumberView<'a> {
         NumberView::new(self, entity)
     }
 
-    fn enum_view(&mut self, entity: &EntityStream) -> EnumView {
+    pub fn enum_view<'a>(&'a self, entity: &EntityStream) -> EnumView<'a> {
         EnumView::new(self, entity)
     }
 
-    fn text_view(&mut self, entity: &EntityStream) -> TextView {
+    pub fn text_view<'a>(&'a self, entity: &EntityStream) -> TextView<'a> {
         TextView::new(self, entity)
     }
 
-    fn event_view(&mut self, entity: &EntityStream) -> Option<EventView> {
+    pub fn event_view<'a>(&'a self, entity: &EntityStream) -> Option<EventView<'a>> {
         EventView::new(self, entity)
     }
 }
 
-pub struct SimpleViewManager;
-
-impl ViewManager for SimpleViewManager {
-    fn stream(&mut self, stream: &ArcStream) -> Rc<dyn StreamAccess> {
-        Rc::new(SimpleViewManagerAccess(stream.clone()))
-    }
-}
-
-struct SimpleViewManagerAccess(Arc<dyn Stream>);
-
-impl StreamAccess for SimpleViewManagerAccess {
-    fn stream(&self) -> &Arc<dyn Stream> {
-        &self.0
-    }
-
-    fn get_block(&self, block: u64) -> Option<Arc<AppendArray<u8>>> {
-        self.0.get_block(block)
-    }
-}
 

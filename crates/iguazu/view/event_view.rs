@@ -3,13 +3,13 @@ use crate::{schema::{attribute::Time, EntityKind, EntityStream}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
-pub struct EventView {
-    view: IntView,
+pub struct EventView<'a> {
+    view: IntView<'a>,
     sample_rate: f64,
 }
 
-impl EventView {
-    pub fn new(vm: &mut impl ViewManager, mut entity: &EntityStream) -> Option<Self> {
+impl<'a> EventView<'a> {
+    pub fn new(vm: &'a ViewManager, mut entity: &EntityStream) -> Option<Self> {
         while let Some(time_field) = entity.attribute::<Time>() {
             entity = entity.children.get(&time_field.0)?;
         };
@@ -63,7 +63,7 @@ impl EventView {
         Some(IdxRange { min, max })
     }
 
-    pub fn range(&self, val_range: IdxRange, min_width: u64) -> EventViewIter<'_> {
+    pub fn range(&'a self, val_range: IdxRange, min_width: u64) -> EventViewIter<'a> {
         let idx_range = self.binary_search_bounds(val_range)
             .map(|r| r.divide(2));
         EventViewIter {
@@ -76,7 +76,7 @@ impl EventView {
 }
 
 pub struct EventViewIter<'a> {
-    view: &'a EventView,
+    view: &'a EventView<'a>,
     val_range: IdxRange,
     idx_range: Option<IdxRange>,
     min_width: u64,
@@ -145,7 +145,7 @@ fn test_event_view() {
     use crate::schema::{ EntityKind, Field };
     use crate::stream::ElementSize;
 
-    let mut vm = super::SimpleViewManager;
+    let mut vm = super::ViewManager::new();
 
     let ts = EntityStream::new(
         EntityKind::Timestamp { sample_rate: 1e6 },

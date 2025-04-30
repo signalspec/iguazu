@@ -1,12 +1,12 @@
 use egui::{Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, SampleRate}, EntityKind, EntityStream}, view::{IntView, ViewManager}, Idx, IdxRange};
+use iguazu::{schema::{attribute::{AccentColor, SampleRate}, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
 
-use crate::{cache::ViewCache, color::named_color, ViewerContext};
+use crate::{color::named_color, ViewerContext};
 
 use super::{fixed_height_header, scale::{IdxScale, Scale}, TimelineResponse};
 
 pub(crate) fn render(
-    _ctx: &mut ViewerContext,
+    vcx: &mut ViewerContext,
     ui: &mut Ui,
     scale: &Scale,
     label: Option<&str>,
@@ -42,7 +42,7 @@ pub(crate) fn render(
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
     };
-    let view = ViewCache::with(ui).int_view(&entity);
+    let view = vcx.view_manager.int_view(&entity);
 
     scan(&idx_scale, &view, range, |a, b| a==b, |x1, x2, _idx1, _idx2, val | {
         let h_pad = 5.0;
@@ -76,7 +76,7 @@ pub(crate) fn render(
 }
 
 pub(crate) fn render_logic(
-    _ctx: &mut ViewerContext,
+    vcx: &mut ViewerContext,
     ui: &mut Ui,
     scale: &Scale,
     _label: Option<&str>,
@@ -97,7 +97,7 @@ pub(crate) fn render_logic(
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
     };
-    let view = ViewCache::with(ui).int_view(&entity);
+    let view = vcx.view_manager.int_view(&entity);
 
     let font_id = egui::TextStyle::Body.resolve(ui.style());
     let font_color = ui.style().visuals.text_color();
