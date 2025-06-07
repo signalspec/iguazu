@@ -1,7 +1,6 @@
 use std::{ffi::OsStr, fs::File, io, ops::Deref, os::unix::fs::FileExt, path::{Path, PathBuf}, sync::Arc};
 
 use async_trait::async_trait;
-use once_cell::sync::OnceCell;
 use serde::{de::{Error as _, Unexpected}, Deserialize, Deserializer, Serialize, Serializer};
 
 
@@ -64,58 +63,46 @@ pub trait ReadableFile: Send + Sync + 'static {
     fn filename(&self) -> Option<&str>;
 
     /// Open a file adjacent to this one
-    fn relative(&self, path: &RelativePath) -> Arc<dyn ReadableFile>;
+    async fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error>;
 
     /// Get the length of the file
-    async fn get_len(&self) -> Result<u64, io::Error>;
+    async fn get_len(self: Arc<Self>) -> Result<u64, io::Error>;
 
     /// Read a chunk of the file
-    async fn read_at(&self, offset: u64, len: usize) -> Result<Vec<u8>, io::Error>;
+    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, io::Error>;
 }
 
 pub struct FsFile {
-    inner: Arc<FileInner>,
-}
-
-struct FileInner {
     path: PathBuf,
-    file: OnceCell<File>,
+    file: File,
 }
 
 impl FsFile {
-    pub fn new(path: PathBuf) -> FsFile {
-        FsFile { inner: Arc::new(FileInner { path, file: OnceCell::new() }) }
-    }
-}
-
-impl FileInner {
-    fn file(&self) -> Result<&File, io::Error> {
-        self.file.get_or_try_init(|| {
-            File::open(&self.path)
-        })
+    pub async fn new(path: PathBuf) -> Result<FsFile, io::Error> {
+        blocking::unblock(move || {
+            let file = File::open(&path)?;
+            Ok(FsFile { path, file })
+        }).await
     }
 }
 
 #[async_trait]
 impl ReadableFile for FsFile {
     fn filename(&self) -> Option<&str> {
-        self.inner.path.file_name().and_then(OsStr::to_str)
+        self.path.file_name().and_then(OsStr::to_str)
     }
 
-    async fn get_len(&self) -> Result<u64, std::io::Error> {
-        let inner = self.inner.clone();
-        blocking::unblock(move || { Ok(inner.file()?.metadata()?.len()) }).await
+    async fn get_len(self: Arc<Self>) -> Result<u64, std::io::Error> {
+        blocking::unblock(move || { Ok(self.file.metadata()?.len()) }).await
     }
 
-    async fn read_at(&self, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
-        let inner = self.inner.clone();
+    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
         blocking::unblock(move || {
-            let file = inner.file()?;
             let mut buf = vec![0; len];
             let mut pos = 0;
 
             while pos < len {
-                let bytes_read = file.read_at(&mut buf, offset + pos as u64)?;
+                let bytes_read = self.file.read_at(&mut buf, offset + pos as u64)?;
                 if bytes_read == 0 {
                     buf.truncate(pos);
                     break;
@@ -127,8 +114,8 @@ impl ReadableFile for FsFile {
         }).await
     }
     
-    fn relative(&self, path: &RelativePath) -> Arc<dyn ReadableFile> {
-        Arc::new(Self::new(self.inner.path.with_file_name(path)))
+    async fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, std::io::Error> {
+        Ok(Arc::new(Self::new(self.path.with_file_name(path)).await?))
     }
 }
 

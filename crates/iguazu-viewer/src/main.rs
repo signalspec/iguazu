@@ -19,7 +19,7 @@ fn main() -> Result<(), eframe::Error> {
 
     let fname = std::env::args().nth(1).expect("filename passed as command line arg");
     let importer = iguazu::import::IMPORTERS.first_for_filename(&fname).expect("No importer for extension");
-    let file = Arc::new(FsFile::new(fname.into()));
+    let file = Arc::new(block_on(FsFile::new(fname.into())).expect("Failed to open file"));
     let importer = importer.import(file);
     let entity = block_on(importer.import(None)).expect("Failed to load file");
 

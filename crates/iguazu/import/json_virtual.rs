@@ -33,7 +33,7 @@ impl VirtualImporter {
             return Ok(schema);
         }
 
-        let data = self.file.read_at(0, 1<<20).await.map_err(ImportError::Io)?;
+        let data = self.file.clone().read_at(0, 1<<20).await.map_err(ImportError::Io)?;
         let schema = serde_json::from_slice::<Entity<Option<StreamRef>>>(&data).map_err(|e| ImportError::InvalidFile(e.to_string()))?;
         Ok(self.schema.insert(schema))
     }
@@ -58,7 +58,7 @@ impl Importer for VirtualImporter {
                 async move {
                     let data: ArcStream = match schema.data {
                         Some(StreamRef::FlatFile { ref file_name, element_size, offset }) => {
-                            let file = src_file.relative(file_name);
+                            let file = src_file.relative(file_name).await?;
                             let mut opts = FlatFileOpts::default();
                             opts.element_size = element_size;
                             opts.offset = offset;

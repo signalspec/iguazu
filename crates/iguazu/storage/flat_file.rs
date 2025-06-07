@@ -43,7 +43,7 @@ impl Debug for FlatFileStream {
 
 impl FlatFileStream {
     pub async fn new(file: Arc<dyn ReadableFile>, opts: FlatFileOpts) -> Result<Self, io::Error> {
-        let file_len = file.get_len().await?;
+        let file_len = file.clone().get_len().await?;
         
         let offset = opts.offset;
         let element_size = opts.element_size;
@@ -68,7 +68,7 @@ impl FlatFileStream {
     async fn load_block(&self, block: u64) -> Result<Vec<u8>, io::Error> {
         let offset = self.block_offset(block);
         debug!("Loading block of {self:?} at {offset}");
-        self.file.read_at(offset, self.block_size_bytes).await.inspect_err(|e| {
+        self.file.clone().read_at(offset, self.block_size_bytes).await.inspect_err(|e| {
             error!("Failed to read block of {:?} at {offset}: {e}", self);
         })
     }

@@ -17,20 +17,21 @@ pub struct Cli {
 }
 
 pub fn main(args: &Cli) -> Result<(), String> {
-    let file = Arc::new(FsFile::new(args.file.clone()));
-    let filename = file.filename().unwrap_or("unknown").to_owned();
-    let importer = if let Some(format) = &args.import_format {
-        iguazu::import::IMPORTERS.by_name(format).ok_or_else(|| format!("No importer named `{}`", format))?
-    } else {
-        iguazu::import::IMPORTERS.first_for_filename(&filename).ok_or_else(|| format!("No importer matched filename `{}`", filename))?
-    };
-    
-    let mut importer = importer.import(file);
-    let schema = block_on(importer.load_schema()).map_err(|e| format!("Failed to import {}: {}", args.file.display(), e))?;
+    block_on(async {
+        let file = Arc::new(FsFile::new(args.file.clone()).await.map_err(|e| format!("Failed to open file {}: {}", args.file.display(), e))?);
+        let filename = file.filename().unwrap_or("unknown").to_owned();
+        let importer = if let Some(format) = &args.import_format {
+            iguazu::import::IMPORTERS.by_name(format).ok_or_else(|| format!("No importer named `{}`", format))?
+        } else {
+            iguazu::import::IMPORTERS.first_for_filename(&filename).ok_or_else(|| format!("No importer matched filename `{}`", filename))?
+        };
+        
+        let mut importer = importer.import(file);
+        let schema = block_on(importer.load_schema()).map_err(|e| format!("Failed to import {}: {}", args.file.display(), e))?;
 
-    info_tree(&mut std::io::stdout().lock(), &filename, &schema);
-
-    Ok(())
+        info_tree(&mut std::io::stdout().lock(), &filename, &schema);
+        Ok(())
+    })
 }
 
 pub fn info_tree<D>(w: &mut impl Write, root_name: &str, entity: &Entity<D>) {
