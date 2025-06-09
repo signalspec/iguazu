@@ -1689,6 +1689,7 @@ dependencies = [
 name = "iguazu-egui"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "egui",
  "egui_table",
  "fragile",
@@ -1707,6 +1708,7 @@ dependencies = [
 name = "iguazu-viewer"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "eframe",
  "egui",
  "futures-lite",

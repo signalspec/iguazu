@@ -5,6 +5,9 @@ pub mod storage;
 pub mod io;
 pub mod view;
 
+#[cfg(feature = "clap")]
+pub mod cli;
+
 pub type Idx = u64;
 
 /// End-exclusive range of indexes

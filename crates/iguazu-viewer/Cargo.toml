@@ -9,9 +9,10 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-iguazu.workspace = true
+iguazu = { workspace = true, features = ["clap"] }
 iguazu-egui.workspace = true
 egui.workspace = true
 tracing-subscriber = "0.3.16"
 eframe = { version = "0.31.1", default-features=false, features = ["accesskit", "default_fonts", "wgpu", "wayland"] }
 futures-lite = "2.6.0"
+clap = { workspace = true, features = ["derive"] }

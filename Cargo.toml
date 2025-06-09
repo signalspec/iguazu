@@ -26,6 +26,7 @@ indexmap = "2"
 hashbrown = "0.15.1"
 log = "0.4.22"
 bytemuck = "1.21.0"
+clap = { version = "4.5.39", features = ["derive"] }
 
 [profile.release]
 panic = "abort"

@@ -17,6 +17,7 @@ indexmap.workspace = true
 hashbrown.workspace = true
 egui.workspace = true
 log.workspace = true
+clap.workspace = true
 serde = "1.0.160"
 time = { version = "0.3.20", features = ["serde", "macros", "formatting"] }
 egui_table = "0.3.0"

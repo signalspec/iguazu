@@ -1,33 +1,27 @@
-use std::{io::Write, path::PathBuf, sync::Arc};
+use std::io::Write;
 
 use clap::Args;
-use iguazu::{io::{FsFile, ReadableFile}, schema::{Entity, EntityKind, EntitySchema, EntityStream}};
+use iguazu::{cli::ImportOpts, import::IMPORTERS, schema::{Entity, EntityKind}};
 use owo_colors::OwoColorize;
 use futures_lite::future::block_on;
 
 #[derive(Args)]
 #[command(about = "Describe the entities in the file")]
 pub struct Cli {
-    /// Filename
-    file: PathBuf,
-
-    /// Override format for import (inferred by extension by default)
-    #[arg(short='I', long)]
-    import_format: Option<String>,
+    #[clap(flatten)]
+    import: ImportOpts,
 }
 
 pub fn main(args: &Cli) -> Result<(), String> {
     block_on(async {
-        let file = Arc::new(FsFile::new(args.file.clone()).await.map_err(|e| format!("Failed to open file {}: {}", args.file.display(), e))?);
-        let filename = file.filename().unwrap_or("unknown").to_owned();
-        let importer = if let Some(format) = &args.import_format {
-            iguazu::import::IMPORTERS.by_name(format).ok_or_else(|| format!("No importer named `{}`", format))?
+        let filename = args.import.filename.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
+        let mut importer = args.import.importer(IMPORTERS).await?;
+
+        let schema = if let Some(schema) = args.import.schema().await? {
+            schema
         } else {
-            iguazu::import::IMPORTERS.first_for_filename(&filename).ok_or_else(|| format!("No importer matched filename `{}`", filename))?
+            importer.load_schema().await.map_err(|e| e.to_string())?
         };
-        
-        let mut importer = importer.import(file);
-        let schema = block_on(importer.load_schema()).map_err(|e| format!("Failed to import {}: {}", args.file.display(), e))?;
 
         info_tree(&mut std::io::stdout().lock(), &filename, &schema);
         Ok(())

@@ -2,26 +2,28 @@
 
 use std::sync::Arc;
 
+use clap::Parser;
 use eframe::egui;
 use egui::Frame;
 
 use futures_lite::future::block_on;
-use iguazu::{io::FsFile, schema::{attribute::DefaultView, EntityStream}};
+use iguazu::{cli::ImportOpts, import::IMPORTERS, io::FsFile, schema::{attribute::DefaultView, EntityStream}};
 use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[clap(flatten)]
+    import: ImportOpts,
+}
 
 fn main() -> Result<(), eframe::Error> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     tracing_subscriber::fmt::init();
 
-    let options = eframe::NativeOptions {
-        ..Default::default()
-    };
+    let cli = Cli::parse();
 
-    let fname = std::env::args().nth(1).expect("filename passed as command line arg");
-    let importer = iguazu::import::IMPORTERS.first_for_filename(&fname).expect("No importer for extension");
-    let file = Arc::new(block_on(FsFile::new(fname.into())).expect("Failed to open file"));
-    let importer = importer.import(file);
-    let (entity, completion) = block_on(importer.import(None)).expect("Failed to load file");
+    let (entity, completion) = block_on(cli.import.import(IMPORTERS)).expect("Failed to load file");
     block_on(completion).expect("Failed to complete import");
 
     let view = entity.attribute::<DefaultView>();
@@ -30,6 +32,10 @@ fn main() -> Result<(), eframe::Error> {
         view,
         entity,
         vctx: ViewerContext::new(),
+    };
+
+    let options = eframe::NativeOptions {
+        ..Default::default()
     };
 
     eframe::run_native(

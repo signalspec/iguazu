@@ -29,6 +29,7 @@ pub trait Importer {
 
 pub struct ImportFormat {
     pub name: &'static str,
+    pub description: &'static str,
     pub extensions: &'static [&'static str],
     pub import: fn (Arc<dyn ReadableFile>) -> Box<dyn Importer>,
 }
@@ -43,15 +44,15 @@ impl ImportFormat {
     }
 }
 
-pub struct ImportFormats<T>(pub T);
+pub struct ImportFormats<'a>(&'a [ImportFormat]);
 
-impl<T> ImportFormats<T> where T: AsRef<[ImportFormat]> {
+impl ImportFormats<'_> {
     pub fn iter(&self) -> std::slice::Iter<ImportFormat> {
         self.0.as_ref().iter()
     }
 
     pub fn by_name(&self, name: &str) -> Option<&ImportFormat> {
-        self.iter().find(|imp| imp.name == name)
+        self.iter().find(|imp| imp.name.eq_ignore_ascii_case(name))
     }
 
     pub fn first_for_filename(&self, fname: &str) -> Option<&ImportFormat> {
@@ -59,7 +60,7 @@ impl<T> ImportFormats<T> where T: AsRef<[ImportFormat]> {
     }
 }
 
-impl<'a, T> IntoIterator for &'a ImportFormats<T> where T: AsRef<[ImportFormat]> {
+impl<'a> IntoIterator for &'a ImportFormats<'a> {
     type Item = &'a ImportFormat;
     type IntoIter = std::slice::Iter<'a, ImportFormat>;
 
@@ -69,19 +70,22 @@ impl<'a, T> IntoIterator for &'a ImportFormats<T> where T: AsRef<[ImportFormat]>
 }
 
 pub const VIRTUAL: ImportFormat = ImportFormat {
-    name: "Iguazu Virtual",
+    name: "virtual",
+    description: "Iguazu Virtual JSON",
     extensions: &[".iguazu.json"],
     import: json_virtual::importer,
 };
 
 pub const BIN: ImportFormat = ImportFormat {
     name: "bin",
+    description: "Raw binary",
     extensions: &[".bin"],
     import: flat_file::binary,
 };
 
 pub const LOGIC8: ImportFormat = ImportFormat {
-    name: "8ch logic trace - raw binary",
+    name: "logic8",
+    description: "Raw binary (8 bit logic trace)",
     extensions: &[".logic8"],
     import: flat_file::logic8,
 };
@@ -89,6 +93,7 @@ pub const LOGIC8: ImportFormat = ImportFormat {
 #[cfg(feature = "csv")]
 pub const CSV: ImportFormat = ImportFormat {
     name: "csv",
+    description: "Comma-separated values",
     extensions: &[".csv"],
     import: csv::csv
 };
@@ -96,11 +101,12 @@ pub const CSV: ImportFormat = ImportFormat {
 #[cfg(feature = "csv")]
 pub const TSV: ImportFormat = ImportFormat {
     name: "tsv",
+    description: "Tab-separated values",
     extensions: &[".tsv"],
     import: csv::tsv
 };
 
-pub const IMPORTERS: ImportFormats<&'static [ImportFormat]> = ImportFormats(&[
+pub const IMPORTERS: ImportFormats<'static> = ImportFormats(&[
     VIRTUAL,
     BIN, LOGIC8,
     #[cfg(feature = "csv")] CSV,

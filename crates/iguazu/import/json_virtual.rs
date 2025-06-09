@@ -32,7 +32,7 @@ impl VirtualImporter {
             return Ok(schema);
         }
 
-        let data = self.file.clone().read_at(0, 1<<20).await.map_err(ImportError::Io)?;
+        let data = self.file.clone().read_all(1024 * 1024 * 16).await?;
         let schema = serde_json::from_slice::<Entity<Option<StreamRef>>>(&data).map_err(|e| ImportError::InvalidFile(e.to_string()))?;
         Ok(self.schema.insert(schema))
     }

@@ -2,7 +2,7 @@ use std::{ffi::OsStr, fs::File, future::poll_fn, io, ops::Deref, os::unix::fs::F
 
 use async_trait::async_trait;
 use blocking::Task;
-use futures_lite::{AsyncBufRead, AsyncRead, FutureExt};
+use futures_lite::{AsyncBufRead, AsyncRead, FutureExt, AsyncReadExt};
 use serde::{de::{Error as _, Unexpected}, Deserialize, Deserializer, Serialize, Serializer};
 
 
@@ -72,6 +72,19 @@ pub trait ReadableFile: Send + Sync + 'static {
 
     /// Read a chunk of the file
     async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, io::Error>;
+
+    /// Read the entire file into a `Vec<u8>`
+    async fn read_all(self: Arc<Self>, limit: usize) -> Result<Vec<u8>, io::Error> {
+        let mut take = self.stream().take(limit as u64);
+        let mut buf = Vec::new();
+        take.read_to_end(&mut buf).await?;
+
+        if take.limit() == 0 {
+            return Err(io::Error::new(io::ErrorKind::FileTooLarge, "File too large"));
+        }
+
+        Ok(buf)
+    }
 
     /// Create a stream for reading the file
     fn stream(self: Arc<Self>) -> Pin<Box<dyn AsyncBufRead + Send + Sync>>;

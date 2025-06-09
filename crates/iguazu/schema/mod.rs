@@ -14,7 +14,23 @@ use crate::{storage::MemoryStream, stream::{ArcStream, ElementSize}};
 pub type Name = String;
 pub type Path = String;
 
-pub type EntitySchema = Entity<()>;
+#[derive(Debug, Default, Clone)]
+pub struct Ignored;
+
+impl<'de> serde::Deserialize<'de> for Ignored {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_option(serde::de::IgnoredAny)?;
+        Ok(Ignored)
+    }
+}
+
+impl serde::Serialize for Ignored {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_none()
+    }
+}
+
+pub type EntitySchema = Entity<Ignored>;
 pub type EntityStream = Entity<ArcStream>;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -140,7 +156,7 @@ impl<S> Entity<S> {
     }
 
     pub fn schema(&self) -> EntitySchema {
-        self.try_map_data(&mut |_| Ok::<(), Infallible>(())).unwrap()
+        self.try_map_data(&mut |_| Ok::<Ignored, Infallible>(Ignored)).unwrap()
     }
 }
 
@@ -170,7 +186,7 @@ impl EntityStream {
 
 impl EntitySchema {
     pub fn new(kind: EntityKind) -> Self {
-        Self { kind, attributes: Default::default(), children: Default::default(), data: () }
+        Self { kind, attributes: Default::default(), children: Default::default(), data: Ignored }
     }
 
     pub fn group() -> Self {

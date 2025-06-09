@@ -125,8 +125,8 @@ fn column_parsers(schema: &EntitySchema, parsers: &mut Vec<ColumnParser>) -> Res
             }
         }
 
-        _ => {
-            return Err(ImportError::SchemaMismatch("Field type not supported in CSV".into()));
+        ref k => {
+            return Err(ImportError::SchemaMismatch(format!("Field type {:?} not supported in CSV", k)));
         }
     })
 }
