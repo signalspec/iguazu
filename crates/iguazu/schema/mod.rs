@@ -134,12 +134,16 @@ impl<S> Entity<S> {
         self.attributes.set(a)
     }
 
+    pub fn try_map_children<T, E>(&self, mut f: impl FnMut(&str, &Entity<S>) -> Result<T, E>) -> Result<IndexMap<String, T>, E> {
+        self.children.iter().map(|(k, v)| {
+            Ok((k.clone(), f(k, v)?))
+        }).collect()
+    }
+
     pub fn try_map_data<T, E>(&self, f: &mut impl FnMut(&S) -> Result<T, E>) -> Result<Entity<T>, E> {
         let data = f(&self.data)?;
 
-        let children = self.children.iter().map(|(k, v)| {
-            Ok((k.clone(), v.try_map_data(f)?))
-        }).collect::<Result<IndexMap<String, _>, E>>()?;
+        let children = self.try_map_children(|_, c| c.try_map_data(f))?;
 
         let kind = self.kind.clone();
         let attributes = self.attributes.clone();

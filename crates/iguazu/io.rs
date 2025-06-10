@@ -188,7 +188,10 @@ impl AsyncBufRead for FsFileStream {
         let this = Pin::into_inner(self);
         let buf = ready!(Pin::new(&mut this.reader).poll_fill_buf(cx))?;
         if buf.is_empty() {
-            this.task.poll(cx).map_ok(|()| &[][..])
+            if !this.task.is_finished() {
+                ready!(this.task.poll(cx))?;
+            }
+            return Poll::Ready(Ok(&[][..]));
         } else {
             Poll::Ready(Ok(buf))
         }
