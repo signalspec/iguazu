@@ -43,11 +43,12 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
     let v_scale = -1.0 * (rect.height() - v_margin * 2.0) as f64 / (number_range.max - number_range.min);
     let v_offset = rect.bottom() - v_margin - (number_range.min * v_scale) as f32;
 
-    let mut last = None;
-    let mut last_idx = 0;
+    let mut last: Option<Pos2> = None;
 
     let dot_opacity = ((idx_scale.points_per_index() - 4.0 * stroke_width) / 8.0).clamp(0.0, 1.0);
     let dot_color = color.gamma_multiply(dot_opacity);
+
+    let min_dist_sq = 4.0 / ui.ctx().pixels_per_point() / ui.ctx().pixels_per_point();
 
     view.for_each_elem(range, |idx, val| {
         let pos = val.map(|val| Pos2 {
@@ -62,11 +63,15 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
         }
 
         if let (Some(lpos), Some(pos)) = (last, pos) {
+            if lpos.distance_sq(pos) < min_dist_sq {
+                // Lines that are too short are not rendered by egui, so we skip them
+                // to ensure that the line is continuous and to reduce overdraw.
+                return;
+            }
             painter.line_segment([lpos, pos], stroke);
         }
 
         last = pos;
-        last_idx = idx;
     });
 
     TimelineResponse {
