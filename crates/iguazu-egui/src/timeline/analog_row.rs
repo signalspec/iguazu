@@ -41,7 +41,7 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
 
     let v_margin = stroke_width * 2.0;
     let v_scale = -1.0 * (rect.height() - v_margin * 2.0) as f64 / (number_range.max - number_range.min);
-    let v_offset = v_margin + rect.top() + (number_range.min * v_scale) as f32;
+    let v_offset = rect.bottom() - v_margin - (number_range.min * v_scale) as f32;
 
     let mut last = None;
     let mut last_idx = 0;
