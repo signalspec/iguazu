@@ -1,4 +1,4 @@
-use crate::{schema::EntityStream, Idx};
+use crate::{schema::EntityStream, stream::StreamState, Idx};
 
 use super::{IntView, ViewManager};
 
@@ -17,5 +17,9 @@ impl<'a> EnumView<'a> {
 
         // TODO: get child index
         Some((val, 0))
+    }
+
+    pub fn state(&self) -> StreamState {
+        self.view.state()
     }
 }

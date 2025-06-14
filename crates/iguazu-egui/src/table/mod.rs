@@ -35,7 +35,8 @@ enum Column<'a> {
 
 struct Delegate<'a> {
     columns: Vec<Column<'a>>,
-    headers: BTreeMap<(usize, usize, usize), String>
+    headers: BTreeMap<(usize, usize, usize), String>,
+    n_rows: u64,
 }
 
 impl<'a> Delegate<'a> {
@@ -44,12 +45,15 @@ impl<'a> Delegate<'a> {
         let mut headers = BTreeMap::new();
 
         columns.push(Column::Index);
+
+        let mut n_rows = 0;
     
         fn inner<'a>(
             vm: &'a ViewManager,
             depth: usize,
             data: &mut Vec<Column<'a>>,
             headers: &mut BTreeMap<(usize, usize, usize), String>,
+            n_rows: &mut u64,
             entity: &EntityStream,
         ) {
             match entity.kind {
@@ -57,20 +61,22 @@ impl<'a> Delegate<'a> {
                 iguazu::schema::EntityKind::Record => {
                     for (name, child) in &entity.children {
                         let start = data.len();
-                        inner(vm, depth + 1, data, headers, child);
+                        inner(vm, depth + 1, data, headers, n_rows, child);
                         let end = data.len();
                         headers.insert((depth, start, end), name.clone());
                     }
                 }
                 _ => {
-                    data.push(Column::Text(vm.text_view(entity)))
+                    let view = vm.text_view(entity);
+                    *n_rows = (*n_rows).max(view.state().end);
+                    data.push(Column::Text(view))
                 }
             }
         }
     
-        inner(view_manager, 0, &mut columns, &mut headers, entity);
+        inner(view_manager, 0, &mut columns, &mut headers, &mut n_rows, entity);
     
-        Self { columns, headers }
+        Self { columns, headers, n_rows }
     }
 
     fn table(&self) -> egui_table::Table {
@@ -90,7 +96,7 @@ impl<'a> Delegate<'a> {
             }).collect();
 
         egui_table::Table::new()
-            .num_rows(100)
+            .num_rows(self.n_rows)
             .columns(columns)
             .headers(headers)
             .num_sticky_cols(1)

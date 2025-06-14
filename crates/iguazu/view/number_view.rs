@@ -1,4 +1,4 @@
-use crate::{schema::{EntityKind, EntityStream}, Idx, IdxRange};
+use crate::{schema::{EntityKind, EntityStream}, stream::StreamState, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
@@ -69,5 +69,9 @@ impl<'a> NumberView<'a> {
             
             f(i, v)
         })
+    }
+
+    pub fn state(&self) -> StreamState {
+        self.view.state()
     }
 }

@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::{Formatter, Write};
 
-use crate::{schema::{attribute::Text, EntityKind, EntityStream}, Idx};
+use crate::{schema::{attribute::Text, EntityKind, EntityStream}, stream::StreamState, Idx};
 
 use super::{EnumView, IntView, NumberView, ViewManager};
 pub struct TextView<'a>(Vec<Element<'a>>);
@@ -143,6 +143,18 @@ impl<'a> TextView<'a> {
 
     pub fn format<'b>(&'b self, idx: Idx) -> FormatValue<'a, 'b> {
         FormatValue(self, idx)
+    }
+
+    pub fn state(&self) -> StreamState {
+        self.0.iter().map(|e| match e {
+            Element::Literal(_) => StreamState { end: 0, streaming: false },
+            Element::Bin(v, _) | Element::Hex(v, _) => v.state(),
+            Element::Num(v) => v.state(),
+            Element::Enum(v, _) => v.state(),
+        }).reduce(|a, b| StreamState {
+            end: a.end.max(b.end),
+            streaming: a.streaming || b.streaming,
+        }).unwrap_or(StreamState { end: 0, streaming: false })
     }
 }
 
