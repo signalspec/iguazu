@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 
+use attribute::AttributeValue;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -100,30 +101,30 @@ pub struct Field {
 }
 
 impl Field {
-    pub fn attribute<'a, A: Deserialize<'a>>(&'a self, attr: &str) -> Option<A> {
+    pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
         self.attributes.get(attr)
     }
     
-    pub fn set_attribute(&mut self, attr: &str, val: impl Serialize) {
+    pub fn set_attribute(&mut self, attr: &str, val: impl Into<AttributeValue>) {
         self.attributes.insert(attr, val);
     }
     
-    pub fn with_attribute(mut self, attr: &str, val: impl Serialize) -> Self {
+    pub fn with_attribute(mut self, attr: &str, val: impl Into<AttributeValue>) -> Self {
         self.set_attribute(attr, val);
         self
     }
 }
 
 impl<S> Entity<S> {
-    pub fn attribute<'a, A: Deserialize<'a>>(&'a self, attr: &str) -> Option<A> {
+    pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
         self.attributes.get(attr)
     }
     
-    pub fn set_attribute(&mut self, attr: &str, val: impl Serialize) {
+    pub fn set_attribute(&mut self, attr: &str, val: impl Into<AttributeValue>) {
         self.attributes.insert(attr, val);
     }
     
-    pub fn with_attribute(mut self, attr: &str, val: impl Serialize) -> Self {
+    pub fn with_attribute(mut self, attr: &str, val: impl Into<AttributeValue>) -> Self {
         self.set_attribute(attr, val);
         self
     }

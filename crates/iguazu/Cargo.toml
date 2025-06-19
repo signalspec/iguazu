@@ -28,6 +28,7 @@ lexical-core = { version = "1.0.5", optional = true }
 piper = { git = "https://github.com/kevinmehall/piper.git", rev = "5ef4e1324232adda03a2932c24c83432038ee397" }
 csv-core = "0.1.12"
 clap = { workspace = true, optional = true, features = ["derive"] }
+strum = { version = "0.27.1", features = ["derive"] }
 
 [features]
 csv = ["dep:csv", "dep:lexical-core"]

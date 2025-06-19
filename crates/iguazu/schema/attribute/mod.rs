@@ -1,28 +1,28 @@
-use std::sync::Arc;
+use std::{string, sync::Arc};
 
 use indexmap::IndexMap;
 use serde::{Serialize, Deserialize};
-use serde_json::Value;
+use strum::{EnumString, IntoStaticStr};
 
 use super::{Entity, EntityKind, Field};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AttributeMap {
     #[serde(flatten)]
-    pub attributes: IndexMap<Arc<str>, Value>,
+    pub attributes: IndexMap<Arc<str>, AttributeValue>,
 }
 
 impl AttributeMap {
-    pub fn get<'a, A: Deserialize<'a>>(&'a self, attr: &str) -> Option<A> {
+    pub fn get<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
         self.attributes.get(attr)
-        .and_then(|v| A::deserialize(v).ok())
+        .and_then(|v| A::try_from(v).ok())
     }
     
-    pub fn insert(&mut self, attr: &str, val: impl Serialize) {
-        self.attributes.insert(attr.into(), serde_json::to_value(val).unwrap());
+    pub fn insert(&mut self, attr: &str, val: impl Into<AttributeValue>) {
+        self.attributes.insert(attr.into(), val.into());
     }
 
-    pub fn items(&self) -> impl Iterator<Item = (&str, &Value)> {
+    pub fn items(&self) -> impl Iterator<Item = (&str, &AttributeValue)> {
         self.attributes.iter().map(|(k, v)| (k.as_ref(), v))
     }
 
@@ -32,6 +32,200 @@ impl AttributeMap {
 
     pub fn is_empty(&self) -> bool {
         self.attributes.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AttributeValue {
+    String(Arc<str>),
+    Float(f64),
+    Bool(bool),
+    Object(AttributeMap),
+    Array(Vec<AttributeValue>),
+}
+
+impl From<&str> for AttributeValue {
+    fn from(value: &str) -> Self {
+        AttributeValue::String(Arc::from(value))
+    }
+}
+
+impl From<Arc<str>> for AttributeValue {
+    fn from(value: Arc<str>) -> Self {
+        AttributeValue::String(value)
+    }
+}
+
+impl TryFrom<&AttributeValue> for Arc<str> {
+    type Error = ();
+
+    fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
+        match value {
+            AttributeValue::String(s) => Ok(s.clone()),
+            _ => Err(()),
+        }
+    }
+}
+
+impl From<f64> for AttributeValue {
+    fn from(value: f64) -> Self {
+        AttributeValue::Float(value)
+    }
+}
+
+impl TryFrom<&AttributeValue> for f64 {
+    type Error = ();
+
+    fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
+        match value {
+            AttributeValue::Float(f) => Ok(*f),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<&AttributeValue> for u64 {
+    type Error = ();
+
+    fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
+        match value {
+            AttributeValue::Float(f) if *f >= 0.0 && *f <= u64::MAX as f64 && f.fract() == 0.0  => {
+                Ok(*f as u64)
+            }
+            _ => Err(()),
+        }
+    }
+}
+
+impl From<bool> for AttributeValue {
+    fn from(value: bool) -> Self {
+        AttributeValue::Bool(value)
+    }
+}
+
+impl TryFrom<&AttributeValue> for bool {
+    type Error = ();
+
+    fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
+        match value {
+            AttributeValue::Bool(b) => Ok(*b),
+            _ => Err(()),
+        }
+    }
+}
+
+impl From<AttributeMap> for AttributeValue {
+    fn from(value: AttributeMap) -> Self {
+        AttributeValue::Object(value)
+    }
+}
+
+impl TryFrom<&AttributeValue> for AttributeMap {
+    type Error = ();
+
+    fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
+        match value {
+            AttributeValue::Object(map) => Ok(map.clone()),
+            _ => Err(()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AttributeValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        struct AttributeValueVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for AttributeValueVisitor {
+            type Value = AttributeValue;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a string, number, bool, or object")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(AttributeValue::String(Arc::from(value)))
+            }
+
+            fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(AttributeValue::Float(value))
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(AttributeValue::Float(value as f64))
+            }
+
+            fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(AttributeValue::Bool(value))
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: serde::de::MapAccess<'de>,
+            {
+                let mut attributes = IndexMap::new();
+                while let Some((key, value)) = map.next_entry::<String, AttributeValue>()? {
+                    attributes.insert(Arc::from(key), value);
+                }
+                Ok(AttributeValue::Object(AttributeMap { attributes }))
+            }
+
+            fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
+            where
+                S: serde::de::SeqAccess<'de>,
+            {
+                let mut values = Vec::new();
+                while let Some(value) = seq.next_element::<AttributeValue>()? {
+                    values.push(value);
+                }
+                Ok(AttributeValue::Array(values))
+            }
+        }
+
+        deserializer.deserialize_any(AttributeValueVisitor)
+    }
+}
+
+impl Serialize for AttributeValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        match self {
+            AttributeValue::String(s) => serializer.serialize_str(s),
+            AttributeValue::Float(f) => serializer.serialize_f64(*f),
+            AttributeValue::Bool(b) => serializer.serialize_bool(*b),
+            AttributeValue::Object(map) => {
+                use serde::ser::SerializeMap;
+                let mut ser_map = serializer.serialize_map(Some(map.len()))?;
+                for (k, v) in &map.attributes {
+                    ser_map.serialize_entry(&**k, v)?;
+                }
+                ser_map.end()
+            }
+            AttributeValue::Array(arr) => {
+                use serde::ser::SerializeSeq;
+                let mut ser_seq = serializer.serialize_seq(Some(arr.len()))?;
+                for v in arr {
+                    ser_seq.serialize_element(v)?;
+                }
+                ser_seq.end()
+            }
+        }
     }
 }
 
@@ -50,7 +244,11 @@ impl<D> Entity<D> {
     }
 
     pub fn number_range(&self) -> Option<NumberRange> {
-        self.attribute("number:range")
+        let o: AttributeMap = self.attribute("number:range")?;
+        Some(NumberRange {
+            min: o.get("min")?,
+            max: o.get("max")?,
+        })
     }
 }
 
@@ -62,7 +260,8 @@ pub struct NumberRange {
 
 impl<D> Entity<D> {
     pub fn display_default(&self) -> Option<DefaultView> {
-        self.attribute("display:default").or(
+        let o: Option<AttributeMap> = self.attribute("display:default");
+        o.and_then(|o| o.get("view")).or(
             if self.time().is_some() || self.sample_rate().is_some() {
                 Some(DefaultView::Timeline)
             } else if matches!(self.kind, EntityKind::Record {..}) {
@@ -104,9 +303,29 @@ impl<D> Entity<D> {
     }
 }
 
+macro_rules! string_attribute {
+    ($name:ty) => {
+        impl TryFrom<&AttributeValue> for $name {
+            type Error = ();
 
-#[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+            fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
+                match value {
+                    AttributeValue::String(s) => s.parse().map_err(|_| ()),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl Into<AttributeValue> for $name {
+            fn into(self) -> AttributeValue {
+                AttributeValue::String(<&str>::from(self).into())
+            }
+        }
+    };
+}
+
+#[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub enum AccentColor {
     Red,
     Orange,
@@ -117,9 +336,10 @@ pub enum AccentColor {
     Purple,
 }
 
+string_attribute!(AccentColor);
 
-#[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub enum TimelineRow {
     /// Children are displayed as separate timeline rows.
     Group,
@@ -138,9 +358,14 @@ pub enum TimelineRow {
     Events,
 }
 
-#[derive(Copy, Clone, PartialEq, Debug, Deserialize, Serialize)]
-#[serde(tag = "view", rename_all = "snake_case")]
+string_attribute!(TimelineRow);
+
+#[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
+#[strum(serialize_all = "snake_case")]
 pub enum DefaultView {
     Timeline,
     Table,
 }
+
+string_attribute!(DefaultView);
+
