@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::{Formatter, Write};
 
-use crate::{schema::{attribute::Text, EntityKind, EntityStream}, stream::StreamState, Idx};
+use crate::{schema::{EntityKind, EntityStream}, stream::StreamState, Idx};
 
 use super::{EnumView, IntView, NumberView, ViewManager};
 pub struct TextView<'a>(Vec<Element<'a>>);
@@ -21,8 +21,8 @@ impl<'a> TextView<'a> {
 
     pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> TextView<'a> {
         fn inner<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream) {
-            if let Some(text) = entity.attribute::<Text>() {
-                parse(vm, elements, entity, &text.0)
+            if let Some(text) = entity.text() {
+                parse(vm, elements, entity, &text)
             } else {
                 this(vm, elements, entity)
             }
@@ -198,7 +198,7 @@ fn test_textview() {
         MemoryStream::new(ElementSize::U32, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())
     );
     
-    let literal = bits.clone().with_attribute(&Text("test".into()));
+    let literal = bits.clone().with_attribute("text", "test");
     let literal_view = vm.text_view(&literal);
     assert_eq!(literal_view.format(0).to_string(), "test");
     assert_eq!(literal_view.format(100).to_string(), "test");
@@ -227,7 +227,7 @@ fn test_textview() {
     let record = EntityStream::record()
         .with_child("a".into(), bits.clone())
         .with_child("b".into(), ints.clone())
-        .with_attribute(&Text("test({b}, {a})".into()));
+        .with_attribute("text", "test({b}, {a})");
 
     let record_view = vm.text_view(&record);
     assert_eq!(record_view.format(0).to_string(), "test(1, 10)");

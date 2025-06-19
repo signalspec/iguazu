@@ -231,7 +231,7 @@ fn render_entity(
     label: Option<&str>,
     entity: &EntityStream,
 ) -> TimelineResponse {
-    match entity.attribute::<TimelineRow>() {
+    match entity.timeline_row() {
         None | Some(TimelineRow::Group) => {
             let mut res = TimelineResponse::default();
             for (name, child) in &entity.children {

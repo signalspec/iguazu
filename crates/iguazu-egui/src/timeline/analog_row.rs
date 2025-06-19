@@ -1,5 +1,5 @@
 use egui::{Pos2, Stroke, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, NumberRange, SampleRate}, EntityStream}, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, EntityStream}, IdxRange};
 
 use crate::color::named_color;
 
@@ -12,19 +12,19 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
         return TimelineResponse::default();
     }
 
-    let Some(sample_rate) = entity.attribute::<SampleRate>() else {
+    let Some(sample_rate) = entity.sample_rate() else {
         return TimelineResponse::default()
     };
 
-    let Some(number_range) = entity.attribute::<NumberRange>() else {
+    let Some(y_range) = entity.number_range() else {
         return TimelineResponse::default()
     };
 
-    let idx_scale = scale.idx_scale(sample_rate.0);
+    let idx_scale = scale.idx_scale(sample_rate);
 
     let color = named_color(
         entity
-            .attribute::<AccentColor>()
+            .accent_color()
             .unwrap_or(AccentColor::Green),
     );
 
@@ -33,15 +33,15 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
     let stroke = Stroke::new(stroke_width, color);
 
     let state = entity.data.state();
-    let range = IdxRange {
+    let x_range = IdxRange {
         min: idx_scale.visible.min,
         max: (idx_scale.visible.max + 1).min(state.end),
     };
     let view = vcx.view_manager.number_view(&entity);
 
     let v_margin = stroke_width * 2.0;
-    let v_scale = -1.0 * (rect.height() - v_margin * 2.0) as f64 / (number_range.max - number_range.min);
-    let v_offset = rect.bottom() - v_margin - (number_range.min * v_scale) as f32;
+    let v_scale = -1.0 * (rect.height() - v_margin * 2.0) as f64 / (y_range.max - y_range.min);
+    let v_offset = rect.bottom() - v_margin - (y_range.min * v_scale) as f32;
 
     let mut last: Option<Pos2> = None;
 
@@ -50,7 +50,7 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
 
     let min_dist_sq = 4.0 / ui.ctx().pixels_per_point() / ui.ctx().pixels_per_point();
 
-    view.for_each_elem(range, |idx, val| {
+    view.for_each_elem(x_range, |idx, val| {
         let pos = val.map(|val| Pos2 {
             x: idx_scale.x_from_idx(idx),
             y: (val * v_scale) as f32 + v_offset,

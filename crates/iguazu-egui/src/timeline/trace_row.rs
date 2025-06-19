@@ -1,5 +1,5 @@
 use egui::{Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, SampleRate}, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
 
 use crate::{color::named_color, ViewerContext};
 
@@ -18,17 +18,13 @@ pub(crate) fn render(
         return TimelineResponse::default();
     }
 
-    let Some(sample_rate) = entity.attribute::<SampleRate>() else {
+    let Some(sample_rate) = entity.sample_rate() else {
         return TimelineResponse::default();
     };
 
-    let idx_scale = scale.idx_scale(sample_rate.0);
+    let idx_scale = scale.idx_scale(sample_rate);
 
-    let color = named_color(
-        entity
-            .attribute::<AccentColor>()
-            .unwrap_or(AccentColor::Green),
-    );
+    let color = named_color(entity.accent_color().unwrap_or(AccentColor::Green));
 
     let font_id = egui::TextStyle::Body.resolve(ui.style());
     let font_color = ui.style().visuals.text_color();
@@ -86,10 +82,10 @@ pub(crate) fn render_logic(
         return TimelineResponse::default();
     };
 
-    let Some(sample_rate) = entity.attribute::<SampleRate>() else {
+    let Some(sample_rate) = entity.sample_rate() else {
         return TimelineResponse::default();
     };
-    let idx_scale = scale.idx_scale(sample_rate.0);
+    let idx_scale = scale.idx_scale(sample_rate);
 
     let state = entity.data.state();
 
@@ -112,9 +108,7 @@ pub(crate) fn render_logic(
             continue;
         }
 
-        let color = field.attribute::<AccentColor>()
-            .unwrap_or(AccentColor::Green);
-        let color = named_color(color);
+        let color = named_color(field.accent_color().unwrap_or(AccentColor::Green));
 
         let painter = ui.painter_at(rect);
         let stroke_width = 1.0;

@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 pub mod attribute;
-pub use attribute::{ Attributes, Attribute };
+pub use attribute::AttributeMap;
 
 mod fmt;
 pub use fmt::EntityValueText;
@@ -14,6 +14,7 @@ use crate::{storage::MemoryStream, stream::{ArcStream, ElementSize}};
 pub type Name = String;
 pub type Path = String;
 
+/// Placeholder for `data` field in `EntitySchema` which does not carry data of its own.
 #[derive(Debug, Default, Clone)]
 pub struct Ignored;
 
@@ -44,7 +45,7 @@ pub struct Entity<S> {
     pub children: IndexMap<String, Entity<S>>,
     
     #[serde(flatten)]
-    pub attributes: Attributes,
+    pub attributes: AttributeMap,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,45 +96,43 @@ pub struct Field {
     pub name: String,
     
     #[serde(flatten)]
-    pub attributes: Attributes,
+    pub attributes: AttributeMap,
 }
+
 impl Field {
-    pub fn with_attribute<A: Attribute>(mut self, a: &A) -> Self {
-        self.set_attribute(a);
+    pub fn attribute<'a, A: Deserialize<'a>>(&'a self, attr: &str) -> Option<A> {
+        self.attributes.get(attr)
+    }
+    
+    pub fn set_attribute(&mut self, attr: &str, val: impl Serialize) {
+        self.attributes.insert(attr, val);
+    }
+    
+    pub fn with_attribute(mut self, attr: &str, val: impl Serialize) -> Self {
+        self.set_attribute(attr, val);
         self
-    }
-
-    pub fn attribute<A: Attribute>(&self) -> Option<A> {
-        self.attributes.get::<A>()
-            .and_then(|a| a.ok())
-    }
-
-    pub fn set_attribute<A: Attribute>(&mut self, a: &A) {
-        self.attributes.set(a)
     }
 }
 
 impl<S> Entity<S> {
-    pub fn with_attribute<A: Attribute>(mut self, a: &A) -> Self {
-        self.set_attribute(a);
+    pub fn attribute<'a, A: Deserialize<'a>>(&'a self, attr: &str) -> Option<A> {
+        self.attributes.get(attr)
+    }
+    
+    pub fn set_attribute(&mut self, attr: &str, val: impl Serialize) {
+        self.attributes.insert(attr, val);
+    }
+    
+    pub fn with_attribute(mut self, attr: &str, val: impl Serialize) -> Self {
+        self.set_attribute(attr, val);
         self
     }
-
+    
     pub fn with_child(mut self, name: String, child: Entity<S>) -> Self {
         self.children.insert(name, child);
         self
     }
-
-    pub fn attribute<A: Attribute>(&self) -> Option<A> {
-        self.attributes.get::<A>()
-            .and_then(|a| a.ok())
-            .or_else(|| A::default(self))
-    }
-
-    pub fn set_attribute<A: Attribute>(&mut self, a: &A) {
-        self.attributes.set(a)
-    }
-
+    
     pub fn try_map_children<T, E>(&self, mut f: impl FnMut(&str, &Entity<S>) -> Result<T, E>) -> Result<IndexMap<String, T>, E> {
         self.children.iter().map(|(k, v)| {
             Ok((k.clone(), f(k, v)?))

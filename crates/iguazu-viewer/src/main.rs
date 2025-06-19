@@ -1,13 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::sync::Arc;
-
 use clap::Parser;
 use eframe::egui;
 use egui::Frame;
 
 use futures_lite::future::block_on;
-use iguazu::{cli::ImportOpts, import::IMPORTERS, io::FsFile, schema::{attribute::DefaultView, EntityStream}};
+use iguazu::{cli::ImportOpts, import::IMPORTERS, schema::{attribute::DefaultView, EntityStream}};
 use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
 
 #[derive(Parser)]
@@ -26,7 +24,7 @@ fn main() -> Result<(), eframe::Error> {
     let (entity, completion) = block_on(cli.import.import(IMPORTERS)).expect("Failed to load file");
     block_on(completion).expect("Failed to complete import");
 
-    let view = entity.attribute::<DefaultView>();
+    let view = entity.display_default();
 
     let app = App {
         view,

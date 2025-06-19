@@ -21,8 +21,7 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
 
     let idx_scale = scale.idx_scale(event_view.sample_rate());
 
-    let color = entity.attribute::<AccentColor>()
-        .unwrap_or(AccentColor::Green);
+    let color = entity.accent_color().unwrap_or(AccentColor::Green);
     let color = named_color(color);
 
     let painter = ui.painter_at(rect);

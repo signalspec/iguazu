@@ -1,5 +1,5 @@
 use std::mem;
-use crate::{schema::{attribute::Time, EntityKind, EntityStream}, Idx, IdxRange};
+use crate::{schema::{EntityKind, EntityStream}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
@@ -10,8 +10,8 @@ pub struct EventView<'a> {
 
 impl<'a> EventView<'a> {
     pub fn new(vm: &'a ViewManager, mut entity: &EntityStream) -> Option<Self> {
-        while let Some(time_field) = entity.attribute::<Time>() {
-            entity = entity.children.get(&time_field.0)?;
+        while let Some(time_field) = entity.time() {
+            entity = entity.children.get(&*time_field)?;
         };
         let tuple_inner = entity.children.get_index(0)?.1;
 
