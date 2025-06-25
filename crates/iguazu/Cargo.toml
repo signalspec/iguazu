@@ -29,6 +29,7 @@ piper = { git = "https://github.com/kevinmehall/piper.git", rev = "5ef4e1324232a
 csv-core = "0.1.12"
 clap = { workspace = true, optional = true, features = ["derive"] }
 strum = { version = "0.27.1", features = ["derive"] }
+ecow = { version = "0.2.5", features = ["serde"] }
 
 [features]
 csv = ["dep:csv", "dep:lexical-core"]

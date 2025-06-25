@@ -1,5 +1,4 @@
-use std::{string, sync::Arc};
-
+use ecow::EcoString;
 use indexmap::IndexMap;
 use serde::{Serialize, Deserialize};
 use strum::{EnumString, IntoStaticStr};
@@ -9,7 +8,7 @@ use super::{Entity, EntityKind, Field};
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AttributeMap {
     #[serde(flatten)]
-    pub attributes: IndexMap<Arc<str>, AttributeValue>,
+    pub attributes: IndexMap<EcoString, AttributeValue>,
 }
 
 impl AttributeMap {
@@ -37,7 +36,7 @@ impl AttributeMap {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttributeValue {
-    String(Arc<str>),
+    String(EcoString),
     Float(f64),
     Bool(bool),
     Object(AttributeMap),
@@ -46,17 +45,17 @@ pub enum AttributeValue {
 
 impl From<&str> for AttributeValue {
     fn from(value: &str) -> Self {
-        AttributeValue::String(Arc::from(value))
+        AttributeValue::String(EcoString::from(value))
     }
 }
 
-impl From<Arc<str>> for AttributeValue {
-    fn from(value: Arc<str>) -> Self {
+impl From<EcoString> for AttributeValue {
+    fn from(value: EcoString) -> Self {
         AttributeValue::String(value)
     }
 }
 
-impl TryFrom<&AttributeValue> for Arc<str> {
+impl TryFrom<&AttributeValue> for EcoString {
     type Error = ();
 
     fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
@@ -149,7 +148,7 @@ impl<'de> Deserialize<'de> for AttributeValue {
             where
                 E: serde::de::Error,
             {
-                Ok(AttributeValue::String(Arc::from(value)))
+                Ok(AttributeValue::String(EcoString::from(value)))
             }
 
             fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
@@ -179,7 +178,7 @@ impl<'de> Deserialize<'de> for AttributeValue {
             {
                 let mut attributes = IndexMap::new();
                 while let Some((key, value)) = map.next_entry::<String, AttributeValue>()? {
-                    attributes.insert(Arc::from(key), value);
+                    attributes.insert(EcoString::from(key), value);
                 }
                 Ok(AttributeValue::Object(AttributeMap { attributes }))
             }
@@ -235,11 +234,11 @@ impl<D> Entity<D> {
         self.attribute("sample_rate")
     }
 
-    pub fn time(&self) -> Option<Arc<str>> {
+    pub fn time(&self) -> Option<EcoString> {
         self.attribute("time")
     }
 
-    pub fn text(&self) -> Option<Arc<str>> {
+    pub fn text(&self) -> Option<EcoString> {
         self.attribute("text")
     }
 
@@ -316,9 +315,9 @@ macro_rules! string_attribute {
             }
         }
 
-        impl Into<AttributeValue> for $name {
-            fn into(self) -> AttributeValue {
-                AttributeValue::String(<&str>::from(self).into())
+        impl From<$name> for AttributeValue {
+            fn from(value: $name) -> AttributeValue {
+                AttributeValue::String(<&str>::from(value).into())
             }
         }
     };

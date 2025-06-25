@@ -917,6 +917,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ecow"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b92b481eb5d59fd8e80e92ff11d057d1ca8d144b2cd8c66cc8d5bd177a3c0dc5"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "eframe"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1662,6 +1671,7 @@ dependencies = [
  "clap",
  "csv",
  "csv-core",
+ "ecow",
  "elsa",
  "futures-lite",
  "indexmap",
