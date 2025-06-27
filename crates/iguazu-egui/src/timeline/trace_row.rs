@@ -33,12 +33,19 @@ pub(crate) fn render(
     let stroke_width = 1.0;
     let stroke = Stroke::new(stroke_width, color);
 
-    let state = entity.data.state();
+    let Some(view) = vcx.view_manager.int_view(&entity) else {
+        return TimelineResponse::default();
+    };
+
+    let Some(fmt) = entity.formatter() else {
+        return TimelineResponse::default();
+    };
+
+    let state = view.state();
     let range = IdxRange {
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
     };
-    let view = vcx.view_manager.int_view(&entity);
 
     scan(&idx_scale, &view, range, |a, b| a==b, |x1, x2, _idx1, _idx2, val | {
         let h_pad = 5.0;
@@ -56,7 +63,7 @@ pub(crate) fn render(
                 .text(
                     Pos2::new(tx, padded_rect.y_range().center()),
                     Align2::LEFT_CENTER,
-                    entity.kind.format(val).to_string(),
+                    fmt.format(val).to_string(),
                     font_id.clone(), 
                     font_color.gamma_multiply(opacity)
                 );
@@ -78,7 +85,7 @@ pub(crate) fn render_logic(
     _label: Option<&str>,
     entity: &EntityStream,
 ) -> TimelineResponse {
-    let EntityKind::Logic { ref bits } = entity.kind else {
+    let EntityKind::Logic { ref bits, .. } = entity.kind else {
         return TimelineResponse::default();
     };
 
@@ -87,13 +94,16 @@ pub(crate) fn render_logic(
     };
     let idx_scale = scale.idx_scale(sample_rate);
 
-    let state = entity.data.state();
+    let Some(view) = vcx.view_manager.int_view(&entity) else {
+        return TimelineResponse::default();
+    };
+
+    let state = view.state();
 
     let range = IdxRange {
         min: idx_scale.visible.min,
         max: idx_scale.visible.max.min(state.end),
     };
-    let view = vcx.view_manager.int_view(&entity);
 
     let font_id = egui::TextStyle::Body.resolve(ui.style());
     let font_color = ui.style().visuals.text_color();

@@ -2,10 +2,11 @@ use std::{pin::Pin, sync::Arc};
 
 use async_executor::{ Executor, Task };
 use futures_lite::{stream, StreamExt};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use num_traits::Zero;
 
-use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream }, stream::{ArcStream, ElementSize}};
+use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntityKind, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream }, stream::{ArcStream, ElementSize}};
 
 use super::{ImportError, Importer};
 
@@ -23,17 +24,17 @@ pub enum StreamRef {
 
 pub struct VirtualImporter {
     file: Arc<dyn ReadableFile>,
-    schema: Option<Entity<Option<StreamRef>>>,
+    schema: Option<Entity<StreamRef>>,
 }
 
 impl VirtualImporter {
-    async fn load(&mut self) -> Result<&mut Entity<Option<StreamRef>>, ImportError> {
+    async fn load(&mut self) -> Result<&mut Entity<StreamRef>, ImportError> {
         if let Some(ref mut schema) = self.schema {
             return Ok(schema);
         }
 
         let data = self.file.clone().read_all(1024 * 1024 * 16).await?;
-        let schema = serde_json::from_slice::<Entity<Option<StreamRef>>>(&data).map_err(|e| ImportError::InvalidFile(e.to_string()))?;
+        let schema = serde_json::from_slice::<Entity<StreamRef>>(&data).map_err(|e| ImportError::InvalidFile(e.to_string()))?;
         Ok(self.schema.insert(schema))
     }
 }
@@ -61,34 +62,86 @@ pub fn importer(file: Arc<dyn ReadableFile>) -> Box::<dyn Importer> {
     Box::new(VirtualImporter { file, schema: None })
 }
 
-pub async fn load(file: Arc<dyn ReadableFile>, schema: Entity<Option<StreamRef>>) -> Result<EntityStream, ImportError> {
+pub async fn load(file: Arc<dyn ReadableFile>, schema: Entity<StreamRef>) -> Result<EntityStream, ImportError> {
     let executor = Arc::new(Executor::new());
 
-    fn create(ex: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, schema: Entity<Option<StreamRef>>) -> impl Future<Output = Result<EntityStream, ImportError>> + Send {
+    async fn create_stream(src_file: Arc<dyn ReadableFile>, stream: StreamRef) -> Result<ArcStream, ImportError> {
+        match stream {
+            StreamRef::FlatFile { ref file_name, element_size, offset } => {
+                let file = src_file.relative(file_name).await?;
+                let mut opts = FlatFileOpts::default();
+                opts.element_size = element_size;
+                opts.offset = offset;
+                Ok(Arc::new(FlatFileStream::new(file, opts).await?))
+            }
+        }
+    }
+
+    async fn create_children(ex: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, children: IndexMap<String, Entity<StreamRef>>) -> Result<IndexMap<String, EntityStream>, ImportError> {
+        let child_tasks: Vec<(String, Task<_>)> = children.into_iter().map(|(k, v)| {
+            (k, ex.spawn(create(ex.clone(), src_file.clone(), v)))
+        }).collect();
+
+        stream::iter(child_tasks)
+            .then(|(k, f_v)| async move { Ok::<_, ImportError>((k, f_v.await?)) })
+            .try_collect().await
+    }
+
+    fn create(ex: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, schema: Entity<StreamRef>) -> impl Future<Output = Result<EntityStream, ImportError>> + Send {
         async move {
-            let data: ArcStream = match schema.data {
-                Some(StreamRef::FlatFile { ref file_name, element_size, offset }) => {
-                    let file = src_file.relative(file_name).await?;
-                    let mut opts = FlatFileOpts::default();
-                    opts.element_size = element_size;
-                    opts.offset = offset;
-                    Arc::new(FlatFileStream::new(file, opts).await?)
-                }
-                None => MemoryStream::new(ElementSize::Null, &[])
-            };
-
-            let child_tasks: Vec<(String, Task<_>)> = schema.children.into_iter().map(|(k, v)| {
-                (k, ex.spawn(create(ex.clone(), src_file.clone(), v)))
-            }).collect();
-
-            let children = stream::iter(child_tasks)
-                .then(|(k, f_v)| async move { Ok::<_, ImportError>((k, f_v.await?)) })
-                .try_collect().await?;
-
-            let kind = schema.kind;
             let attributes = schema.attributes;
 
-            Ok(Entity { data, kind, attributes, children })
+            match schema.kind {
+                EntityKind::Group { children } => {
+                    let children = create_children(ex, src_file, children).await?;
+                    Ok(EntityStream { kind: EntityKind::Group { children }, attributes })
+                }
+                EntityKind::Record { children } => {
+                    let children = create_children(ex, src_file, children).await?;
+                    Ok(EntityStream { kind: EntityKind::Record { children }, attributes })
+                }
+                EntityKind::Bits { data, bits } => {
+                    let data = create_stream(src_file, data).await?;
+                    Ok(EntityStream { kind: EntityKind::Bits { bits, data }, attributes })
+                }
+                EntityKind::Logic { data, bits } => {
+                    let data = create_stream(src_file, data).await?;
+                    Ok(EntityStream { kind: EntityKind::Logic { bits, data }, attributes })
+                }
+                EntityKind::Timestamp { data, sample_rate } => {
+                    let data = create_stream(src_file, data).await?;
+                    Ok(EntityStream { kind: EntityKind::Timestamp { sample_rate, data }, attributes })
+                }
+                EntityKind::Unsigned { data, scale, offset } => {
+                    let data = create_stream(src_file, data).await?;
+                    Ok(EntityStream { kind: EntityKind::Unsigned { data, scale, offset }, attributes })
+                }
+                EntityKind::Signed { data, scale, offset } => {
+                    let data = create_stream(src_file, data).await?;
+                    Ok(EntityStream { kind: EntityKind::Signed { data, scale, offset }, attributes })
+                }
+                EntityKind::Float { data } => {
+                    let data = create_stream(src_file, data).await?;
+                    Ok(EntityStream { kind: EntityKind::Float { data }, attributes })
+                }
+                EntityKind::Enum { data, values } => {
+                    let data = create_stream(src_file, data).await?;
+                    Ok(EntityStream { kind: EntityKind::Enum { data, values }, attributes })
+                }
+                EntityKind::FixedArray { elements, child } => {
+                    let child = Box::new(ex.spawn(create(ex.clone(), src_file, *child)).await?);
+                    Ok(EntityStream { kind: EntityKind::FixedArray { elements, child }, attributes })
+                }
+                EntityKind::Tuple { fields, child } => {
+                    let child = Box::new(ex.spawn(create(ex.clone(), src_file, *child)).await?);
+                    Ok(EntityStream { kind: EntityKind::Tuple { fields, child }, attributes })
+                }
+                EntityKind::VariableArray { data, child } => {
+                    let data = create_stream(src_file.clone(), data).await?;
+                    let child = Box::new(ex.spawn(create(ex.clone(), src_file, *child)).await?);
+                    Ok(EntityStream { kind: EntityKind::VariableArray { data, child }, attributes })
+                }
+            }
         }
     }
 

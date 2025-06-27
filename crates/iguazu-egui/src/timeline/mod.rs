@@ -5,7 +5,7 @@ mod trace_row;
 mod events_row;
 
 use egui::{CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Vec2};
-use iguazu::schema::{attribute::TimelineRow, EntityStream};
+use iguazu::schema::{attribute::TimelineRow, EntityKind, EntityStream};
 use crate::{ egui_util:: shadow_line::draw_shadow_line, time::TimeRange, Time, ViewerContext };
 
 use scale::Scale;
@@ -234,9 +234,13 @@ fn render_entity(
     match entity.timeline_row() {
         None | Some(TimelineRow::Group) => {
             let mut res = TimelineResponse::default();
-            for (name, child) in &entity.children {
-                res = res.merge(render_entity(vcx, ui, scale, Some(name), child));
+
+            if let EntityKind::Group { children } | EntityKind::Record { children } = &entity.kind {
+                for (name, child) in children {
+                    res = res.merge(render_entity(vcx, ui, scale, Some(name), child));
+                }
             }
+
             res
         }
         Some(TimelineRow::YAxis) => {

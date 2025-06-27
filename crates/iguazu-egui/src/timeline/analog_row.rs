@@ -20,6 +20,10 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
         return TimelineResponse::default()
     };
 
+    let Some(view) = vcx.view_manager.number_view(&entity) else {
+        return TimelineResponse::default();
+    };
+
     let idx_scale = scale.idx_scale(sample_rate);
 
     let color = named_color(
@@ -32,12 +36,11 @@ pub(crate) fn render(vcx: &mut crate::ViewerContext, ui: &mut egui::Ui, scale: &
     let stroke_width = 1.0;
     let stroke = Stroke::new(stroke_width, color);
 
-    let state = entity.data.state();
+    let state = view.state();
     let x_range = IdxRange {
         min: idx_scale.visible.min,
         max: (idx_scale.visible.max + 1).min(state.end),
     };
-    let view = vcx.view_manager.number_view(&entity);
 
     let v_margin = stroke_width * 2.0;
     let v_scale = -1.0 * (rect.height() - v_margin * 2.0) as f64 / (y_range.max - y_range.min);

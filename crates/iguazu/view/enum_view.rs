@@ -7,9 +7,9 @@ pub struct EnumView<'a> {
 }
 
 impl<'a> EnumView<'a> {
-    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Self {
-        let view = vm.int_view(&entity);
-        EnumView { view }
+    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Option<Self> {
+        let view = vm.int_view(&entity)?;
+        Some(EnumView { view })
     }
 
     pub fn get(&self, idx: Idx) -> Option<(usize, Idx)> {

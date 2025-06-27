@@ -11,13 +11,14 @@ pub struct EventView<'a> {
 impl<'a> EventView<'a> {
     pub fn new(vm: &'a ViewManager, mut entity: &EntityStream) -> Option<Self> {
         while let Some(time_field) = entity.time() {
-            entity = entity.children.get(&*time_field)?;
+            entity = entity.child(&*time_field)?;
         };
-        let tuple_inner = entity.children.get_index(0)?.1;
 
-        let EntityKind::Timestamp { sample_rate } = tuple_inner.kind else { return None };
+        let EntityKind::Tuple { child, .. } = &entity.kind else { return None };
 
-        let view = vm.int_view(&tuple_inner);
+        let EntityKind::Timestamp { sample_rate, .. } = child.kind else { return None };
+
+        let view = vm.int_view(child)?;
 
         Some(EventView { view, sample_rate })
     }
@@ -145,23 +146,24 @@ fn test_event_view() {
     use crate::schema::{ EntityKind, Field };
     use crate::stream::ElementSize;
 
-    let mut vm = super::ViewManager::new();
+    let vm = super::ViewManager::new();
+
+    let data = MemoryStream::new(ElementSize::U64, bytemuck::cast_slice(&[
+        1000u64, 1010,
+        1010, 1020,
+        1030, 1040,
+        1100, 1200,
+        4000, 4100,
+    ]));
 
     let ts = EntityStream::new(
-        EntityKind::Timestamp { sample_rate: 1e6 },
-        MemoryStream::new(ElementSize::U64, bytemuck::cast_slice(&[
-            1000u64, 1010,
-            1010, 1020,
-            1030, 1040,
-            1100, 1200,
-            4000, 4100,
-        ]))
+        EntityKind::Timestamp { data, sample_rate: 1e6 },
     );
 
-    let tuple = EntityStream::tuple(vec![
+    let tuple = EntityStream::tuple(ts, vec![
         Field { name: "start".into(), attributes: Default::default() },
         Field { name: "end".into(), attributes: Default::default() }
-    ]).with_child("value".into(), ts);
+    ]);
 
     let ev = vm.event_view(&tuple).unwrap();
 

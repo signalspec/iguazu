@@ -6,7 +6,7 @@ use csv_core::ReadRecordResult;
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
 
-use crate::schema::{Entity, EntityKind, EntityStream};
+use crate::schema::{Entity, EntityKind, EntityStream, Ignored};
 use crate::storage::MemoryStreamWriter;
 use crate::stream::Stream;
 use crate::{io::ReadableFile, schema::EntitySchema, storage::MemoryStream};
@@ -104,20 +104,18 @@ fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<Colu
     let mut parsers = (0..headers.len()).map(|_| ColumnParser::Skip).collect::<Vec<_>>();
     
     let entity = match schema.kind {
-        EntityKind::Record => {
-            let children = schema.try_map_children::<_, ImportError>(|name, child| {
+        EntityKind::Record { ref children } => {
+            let children = children.iter().map(|(name, child)| {
                 let column = headers.iter().position(|h| h == name)
                     .ok_or_else(|| ImportError::SchemaMismatch(format!("No column found for field `{}`", name)))?;
-                let (entity, parser) = column_parser(child)?;
+                let (entity, parser) = column_parser(&child)?;
                 parsers[column] = parser;
-                Ok(entity)
-            })?;
+                Ok((name.clone(), entity))
+            }).collect::<Result<IndexMap<_, _>, ImportError>>()?;
 
             Entity { 
-                data: MemoryStream::null() as Arc<dyn Stream>,
-                kind: EntityKind::Record,
+                kind: EntityKind::Record { children },
                 attributes: schema.attributes.clone(),
-                children,
             }
         }
         _ => return Err(ImportError::SchemaMismatch(format!("CSV import expects top-level entity to be a record, not {:?}", schema.kind))),
@@ -128,15 +126,13 @@ fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<Colu
 
 fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), ImportError>{
     Ok(match schema.kind {
-        EntityKind::Float { bits: 32 } => {
+        EntityKind::Float { data: Ignored } => {
             let writer = MemoryStreamWriter::new(crate::stream::ElementSize::U32);
             let data = writer.stream().clone() as Arc<dyn Stream>;
 
             let entity = Entity { 
-                data,
-                kind: EntityKind::Float { bits: 32 },
+                kind: EntityKind::Float { data },
                 attributes: schema.attributes.clone(),
-                children: IndexMap::new(),
             };
 
             (entity, ColumnParser::Float32(writer))

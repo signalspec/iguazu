@@ -1,9 +1,50 @@
-use super::EntityKind;
+use crate::{schema::Field, stream::ElementSize};
+
+use super::{EntityKind, EntityStream};
 
 pub struct EntityValueText<'a> {
-    pub(in super) value: u64,
-    pub(in super) kind: &'a EntityKind,
+    value: u64,
+    kind: ValueFormatter<'a>,
 }
+
+#[derive(Clone, Copy)]
+pub enum ValueFormatter<'a> {
+    Binary { bits: u32 },
+    Hex { digits: u32 },
+    Unsigned { scale: f64, offset: f64 },
+    Signed { bits: u32, scale: f64, offset: f64 },
+    Float32,
+    Float64,
+    Enum { values: &'a Vec<Field> },
+}
+
+impl <'a> ValueFormatter<'a> {
+    pub(in super) fn new(entity: &'a EntityStream) -> Option<ValueFormatter<'a>> {
+        match entity.kind {
+            EntityKind::Bits { bits, .. } if bits % 4 == 0 => Some(ValueFormatter::Hex { digits: bits / 4 }),
+            EntityKind::Bits { bits, .. } => Some(ValueFormatter::Binary { bits }),
+            EntityKind::Logic { ref bits, .. } => Some(ValueFormatter::Binary { bits: bits.len() as u32 }),
+            EntityKind::Unsigned { scale, offset, .. } => Some(ValueFormatter::Unsigned { scale, offset }),
+            EntityKind::Signed { scale, offset, ref data, .. } => {
+                Some(ValueFormatter::Signed { bits: data.desc().element_size.bits() as u32, scale, offset })
+            }
+            EntityKind::Float { ref data } => {
+                match data.desc().element_size {
+                    ElementSize::U32 => Some(ValueFormatter::Float32),
+                    ElementSize::U64 => Some(ValueFormatter::Float64),
+                    x => Some(ValueFormatter::Hex { digits: x.bits() as u32 / 4 }),
+                }
+            }
+            EntityKind::Enum { ref values, .. } => Some(ValueFormatter::Enum { values }),
+            _ => None,
+        }
+    }
+
+    pub fn format(&self, value: u64) -> EntityValueText<'a> {
+        EntityValueText { kind: *self, value }
+    }
+}
+
 
 fn get_i64(v: u64, bits: u32) -> i64 {
     let shift = bits - u64::BITS;
@@ -12,45 +53,39 @@ fn get_i64(v: u64, bits: u32) -> i64 {
 
 impl<'a> std::fmt::Display for EntityValueText<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self.kind {            
-            EntityKind::Bits { bits } => {
-                if bits % 4 == 0 {
-                    write!(f, "{:0width$X}", self.value, width = bits as usize / 4)
-                } else {
-                    write!(f, "{:0width$b}", self.value, width = bits as usize)
-                }
+        match self.kind {            
+            ValueFormatter::Binary { bits, .. } => {
+                write!(f, "{:0width$b}", self.value, width = bits as usize)
             }
 
-            EntityKind::Logic { ref bits } => {
-                write!(f, "{:0width$b}", self.value, width = bits.len())
+            ValueFormatter::Hex { digits } => {
+                write!(f, "{:0width$X}", self.value, width = digits as usize)
             }
 
-            EntityKind::Unsigned { scale, offset, .. } => {
+            ValueFormatter::Unsigned { scale, offset, .. } => {
                 let d = self.value as f64 * scale + offset;
                 write!(f, "{d}")
             }
 
-            EntityKind::Signed { bits, scale, offset, .. } => {
+            ValueFormatter::Signed { bits, scale, offset, .. } => {
                 let d = get_i64(self.value, bits) as f64 * offset + scale;
                 write!(f, "{d}")
             }
 
-            EntityKind::Float { bits: 32 } => {
+            ValueFormatter::Float32 => {
                 let v = f32::from_bits(self.value as u32);
                 write!(f, "{v}")
             }
 
-            EntityKind::Float { bits: 64 } => {
+            ValueFormatter::Float64 => {
                 let v = f64::from_bits(self.value);
                 write!(f, "{v}")
             }
 
-            EntityKind::Enum { ref values, .. } => {
+            ValueFormatter::Enum { ref values, .. } => {
                 let name = values.get(self.value as usize).map_or("‽", |f| &f.name);
                 write!(f, "{name}")
             }
-
-            _ => Ok(())
         }
     }
 }
@@ -59,20 +94,14 @@ impl<'a> std::fmt::Display for EntityValueText<'a> {
 fn test_format() {
     use crate::schema::Field;
 
-    assert_eq!(EntityKind::Bits { bits: 16 }.format(0x1234).to_string(), "1234");
-    assert_eq!(EntityKind::Bits { bits: 4 }.format(0xA).to_string(), "A");
-    assert_eq!(EntityKind::Bits { bits: 3 }.format(0x5).to_string(), "101");
-    
-    assert_eq!(EntityKind::Logic { bits: vec![
-        Field { name: "a".into(), attributes: Default::default()},
-        Field { name: "b".into(), attributes: Default::default()},
-    ] }.format(0x2).to_string(), "10");
+    assert_eq!(ValueFormatter::Hex { digits: 4 }.format(0x1234).to_string(), "1234");
+    assert_eq!(ValueFormatter::Binary { bits: 3 }.format(0x5).to_string(), "101");
 
-    assert_eq!(EntityKind::Unsigned { bits: 8, scale: 1.0, offset: 0.0 }.format(5).to_string(), "5");
-    assert_eq!(EntityKind::Unsigned { bits: 8, scale: 0.25, offset: -0.5 }.format(5).to_string(), "0.75");
-    assert_eq!(EntityKind::Unsigned { bits: 32, scale: 1.0, offset: 0.0 }.format(0x0505).to_string(), "1285");
+    assert_eq!(ValueFormatter::Unsigned { scale: 1.0, offset: 0.0 }.format(5).to_string(), "5");
+    assert_eq!(ValueFormatter::Unsigned { scale: 0.25, offset: -0.5 }.format(5).to_string(), "0.75");
+    assert_eq!(ValueFormatter::Unsigned { scale: 1.0, offset: 0.0 }.format(0x0505).to_string(), "1285");
 
-    assert_eq!(EntityKind::Enum { values: vec![
+    assert_eq!(ValueFormatter::Enum { values: &vec![
         Field { name: "a".into(), attributes: Default::default()},
         Field { name: "b".into(), attributes: Default::default()},
     ]}.format(1).to_string(), "b");

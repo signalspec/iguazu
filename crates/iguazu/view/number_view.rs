@@ -1,4 +1,4 @@
-use crate::{schema::{EntityKind, EntityStream}, stream::StreamState, Idx, IdxRange};
+use crate::{schema::{EntityKind, EntityStream}, stream::{ElementSize, StreamState}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
@@ -36,25 +36,30 @@ impl Format {
 }
 
 impl<'a> NumberView<'a> {
-    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Self {
-        let view = vm.int_view(entity);
+    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Option<Self> {
+        let view = vm.int_view(entity)?;
         let format = match entity.kind {
-            EntityKind::Signed { scale, offset, .. } => {
-                let shift = 64 - 8 * entity.data.desc().element_size as u8;
-                Format::SInt { scale, offset, shift  }
+            EntityKind::Signed { scale, offset, ref data, .. } => {
+                let shift = 64 - 8 * data.desc().element_size as u8;
+                Some(Format::SInt { scale, offset, shift  })
             }
             EntityKind::Unsigned { scale, offset, .. } => {
-                Format::UInt { scale, offset }
+                Some(Format::UInt { scale, offset })
             }
-            EntityKind::Float { bits: 32 } => Format::F32,
-            EntityKind::Float { bits: 64 } => Format::F64,
-            EntityKind::Timestamp { sample_rate } => {
-                Format::UInt { scale: 1.0 / sample_rate, offset: 0.0 }
+            EntityKind::Float { ref data } => {
+                match data.desc().element_size {
+                    ElementSize::U32 => Some(Format::F32),
+                    ElementSize::U64 => Some(Format::F64),
+                    _ => None
+                }
             }
-            _ => Format::None,
-        };
+            EntityKind::Timestamp { sample_rate, .. } => {
+                Some(Format::UInt { scale: 1.0 / sample_rate, offset: 0.0 })
+            }
+            _ => None,
+        }?;
 
-        NumberView { view, format }
+        Some(NumberView { view, format })
     }
 
     pub fn get(&self, idx: Idx) -> Option<f64> {

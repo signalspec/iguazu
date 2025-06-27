@@ -40,7 +40,7 @@ impl<'a> TextView<'a> {
                 } else if let Some((key, rest)) = rest.split_once('}') {
                     if key.is_empty() {
                         this(vm, elements, entity);
-                    } else if let Some(child) = entity.children.get(key) {
+                    } else if let Some(child) = entity.child(key) {
                         inner(vm, elements, child);
                     } else {
                         // unknown key
@@ -60,35 +60,43 @@ impl<'a> TextView<'a> {
 
         fn this<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream) {
             match entity.kind {
-                EntityKind::Group | EntityKind::Record => {}
-                EntityKind::Bits { bits } => {
+                EntityKind::Group { .. } | EntityKind::Record { .. } => {}
+                EntityKind::Bits { bits, ref data } => {
                     if bits % 4 == 0 {
-                        elements.push(Element::Hex(vm.int_view(entity), bits / 4))
+                        elements.push(Element::Hex(IntView::new_from_stream(vm, data), bits / 4))
                     } else {
-                        elements.push(Element::Bin(vm.int_view(entity), bits))
+                        elements.push(Element::Bin(IntView::new_from_stream(vm, data), bits))
                     }
                 },
-                EntityKind::Logic { ref bits } => {
-                    elements.push(Element::Bin(vm.int_view(entity), bits.len() as u32))
+                EntityKind::Logic { ref bits, ref data } => {
+                    elements.push(Element::Bin(IntView::new_from_stream(vm, data), bits.len() as u32))
                 },
-                EntityKind::Signed { .. } | EntityKind::Unsigned {.. } | EntityKind::Float { .. } | EntityKind::Timestamp { .. } => {
-                    elements.push(Element::Num(vm.number_view(entity)))
+                EntityKind::Signed { .. } | EntityKind::Unsigned { .. } | EntityKind::Float { .. } | EntityKind::Timestamp { .. } => {
+                    if let Some(num) = vm.number_view(entity) {
+                        elements.push(Element::Num(num))
+                    } else {
+                        elements.push(Element::Literal("‽".into()));
+                    }
                 }
-                EntityKind::Enum { ref values } => {
+                EntityKind::Enum { ref values, .. } => {
                     // TODO: format inner
                     let inner = values.iter()
                         .map(|variant| TextView::literal(variant.name.clone()))
                         .collect();
-                    
-                    elements.push(Element::Enum(vm.enum_view(entity), inner))
+
+                    if let Some(view) = vm.enum_view(entity) {
+                        elements.push(Element::Enum(view, inner))
+                    } else {
+                        elements.push(Element::Literal("‽".into()));
+                    }
                 }
-                EntityKind::FixedArray { elements } => {
+                EntityKind::FixedArray { .. } => {
                     // TODO
                 }
-                EntityKind::Tuple { ref fields } => {
+                EntityKind::Tuple { .. } => {
                     // TODO
                 }
-                EntityKind::VariableArray { bits } => {
+                EntityKind::VariableArray { .. } => {
                     // TODO
                 }
             }
@@ -174,28 +182,23 @@ fn test_textview() {
     let vm = super::ViewManager::new();
 
     let bits = EntityStream::new(
-        EntityKind::Bits { bits: 2 },
-        MemoryStream::new(ElementSize::U8, &[0b10, 0b01, 0b00])
+        EntityKind::Bits { bits: 2, data: MemoryStream::new(ElementSize::U8, &[0b10, 0b01, 0b00]) },
     );
 
     let ints = EntityStream::new(
-        EntityKind::Unsigned { bits: 8, scale: 1.0, offset: 0.0 },
-        MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])
+        EntityKind::Unsigned { scale: 1.0, offset: 0.0, data: MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])},
     );
 
     let scaled_ints = EntityStream::new(
-        EntityKind::Unsigned { bits: 8, scale: 0.01, offset: 0.0 },
-        MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])
+        EntityKind::Unsigned { scale: 0.01, offset: 0.0, data: MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])},
     );
 
     let signed_ints = EntityStream::new(
-        EntityKind::Signed { bits: 16, scale: 1.0, offset: 0.0 },
-        MemoryStream::new(ElementSize::U16, &[-10, 456, -1280, 9999].into_iter().flat_map(i16::to_le_bytes).collect::<Vec<u8>>())
+        EntityKind::Signed { scale: 1.0, offset: 0.0, data: MemoryStream::new(ElementSize::U16, &[-10, 456, -1280, 9999].into_iter().flat_map(i16::to_le_bytes).collect::<Vec<u8>>())},
     );
 
     let floats = EntityStream::new(
-        EntityKind::Float { bits: 32 },
-        MemoryStream::new(ElementSize::U32, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())
+        EntityKind::Float { data: MemoryStream::new(ElementSize::U32, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())},
     );
     
     let literal = bits.clone().with_attribute("text", "test");

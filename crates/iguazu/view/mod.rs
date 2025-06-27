@@ -53,15 +53,15 @@ impl ViewManager {
         }
     }
     
-    pub fn int_view<'a>(&'a self, entity: &EntityStream) -> IntView<'a> {
+    pub fn int_view<'a>(&'a self, entity: &EntityStream) -> Option<IntView<'a>> {
         IntView::new(self, entity)
     }
 
-    pub fn number_view<'a>(&'a self, entity: &EntityStream) -> NumberView<'a> {
+    pub fn number_view<'a>(&'a self, entity: &EntityStream) -> Option<NumberView<'a>> {
         NumberView::new(self, entity)
     }
 
-    pub fn enum_view<'a>(&'a self, entity: &EntityStream) -> EnumView<'a> {
+    pub fn enum_view<'a>(&'a self, entity: &EntityStream) -> Option<EnumView<'a>> {
         EnumView::new(self, entity)
     }
 

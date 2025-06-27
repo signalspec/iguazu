@@ -1,6 +1,6 @@
 use std::{cell::RefCell, u64};
 
-use crate::{schema::EntityStream, stream::{StreamAccess, StreamDesc, StreamState}, Idx, IdxRange};
+use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess, StreamDesc, StreamState}, Idx, IdxRange};
 
 use super::ViewManager;
 
@@ -11,11 +11,16 @@ pub struct IntView<'a> {
 }
 
 impl<'a> IntView<'a> {
-    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Self {
-        let view = vm.stream(&entity.data);
-        let desc = entity.data.desc();
+    pub fn new_from_stream(vm: &'a ViewManager, stream: &ArcStream) -> Self {
+        let view = vm.stream(stream);
+        let desc = stream.desc();
         let cache = RefCell::new((u64::MAX, &[][..]));
         IntView { view, desc, cache }
+    }
+
+    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Option<Self> {
+        let stream = entity.data()?;
+        Some(Self::new_from_stream(vm, stream))
     }
 
     pub fn desc(&self) -> &StreamDesc {

@@ -57,9 +57,9 @@ impl<'a> Delegate<'a> {
             entity: &EntityStream,
         ) {
             match entity.kind {
-                iguazu::schema::EntityKind::Group => {}
-                iguazu::schema::EntityKind::Record => {
-                    for (name, child) in &entity.children {
+                iguazu::schema::EntityKind::Group { .. } => {}
+                iguazu::schema::EntityKind::Record { ref children, ..}=> {
+                    for (name, child) in children {
                         let start = data.len();
                         inner(vm, depth + 1, data, headers, n_rows, child);
                         let end = data.len();

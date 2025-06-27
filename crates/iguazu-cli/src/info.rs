@@ -34,11 +34,13 @@ pub fn info_tree<D>(w: &mut impl Write, root_name: &str, entity: &Entity<D>) {
 
 fn info_tree_inner<D>(w: &mut impl Write, prefix: &str, name: &str, entity: &Entity<D>) -> std::io::Result<()> {
     match &entity.kind {
-        EntityKind::Group => {
+        EntityKind::Group { children } => {
             header_line(w, name, "Group")?;
+            print_children(w, prefix, children.iter(), info_tree_inner)?;
         }
-        EntityKind::Record => {
+        EntityKind::Record { children }=> {
             header_line(w, name, "Record")?;
+            print_children(w, prefix, children.iter(), info_tree_inner)?;
         }
         EntityKind::Bits { .. } => {
             header_line(w, name, "Bits")?;
@@ -61,17 +63,20 @@ fn info_tree_inner<D>(w: &mut impl Write, prefix: &str, name: &str, entity: &Ent
         EntityKind::Enum { .. } => {
             header_line(w, name, "Enum")?;
         }
-        EntityKind::FixedArray { .. } => {
+        EntityKind::FixedArray { child, .. } => {
             header_line(w, name, "FixedArray")?;
+            print_children(w, prefix, [("inner", &**child)].into_iter(), info_tree_inner)?;
         }
-        EntityKind::Tuple { .. } => {
+        EntityKind::Tuple { child, .. } => {
             header_line(w, name, "Tuple")?;
+            print_children(w, prefix, [("inner", &**child)].into_iter(), info_tree_inner)?;
         }
-        EntityKind::VariableArray { .. } => {
+        EntityKind::VariableArray { child, .. } => {
             header_line(w, name, "VariableArray")?;
+            print_children(w, prefix, [("inner", &**child)].into_iter(), info_tree_inner)?;
         }
     }
-    print_children(w, prefix, entity.children.iter(), info_tree_inner)
+    Ok(())
 }
 
 fn print_children<T, W: Write>(
