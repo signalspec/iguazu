@@ -291,9 +291,7 @@ impl<D> Entity<D> {
                 EntityKind::Group { .. }
                 | EntityKind::Record { .. } => Some(TimelineRow::Group),
                 EntityKind::Logic { .. } => Some(TimelineRow::Logic),
-                EntityKind::Signed { .. }
-                | EntityKind::Unsigned { .. }
-                | EntityKind::Float { .. } => Some(TimelineRow::YAxis),
+                EntityKind::Number { .. } => Some(TimelineRow::YAxis),
                 EntityKind::Bits { .. }
                 | EntityKind::Enum { .. } => Some(TimelineRow::Trace),
                 _ => None,

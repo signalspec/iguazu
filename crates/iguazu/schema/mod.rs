@@ -64,22 +64,10 @@ pub enum EntityKind<S> {
         data: S,
         sample_rate: f64,
     },
-    Unsigned {
+    Number {
         data: S,
-        #[serde(default = "One::one", skip_serializing_if = "One::is_one")]
-        scale: f64,
-        #[serde(default = "Zero::zero", skip_serializing_if = "Zero::is_zero")]
-        offset: f64,
-    },
-    Signed {
-        data: S,
-        #[serde(default = "One::one", skip_serializing_if = "One::is_one")]
-        scale: f64,
-        #[serde(default = "Zero::zero", skip_serializing_if = "Zero::is_zero")]
-        offset: f64,
-    },
-    Float {
-        data: S,
+        #[serde(flatten)]
+        encoding: NumberEncoding,
     },
     Enum {
         data: S,
@@ -97,6 +85,24 @@ pub enum EntityKind<S> {
         data: S,
         child: Box<Entity<S>>,
     }
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[serde(tag = "encoding", rename_all="snake_case")]
+pub enum NumberEncoding {
+    Unsigned {
+        #[serde(default = "One::one", skip_serializing_if = "One::is_one")]
+        scale: f64,
+        #[serde(default = "Zero::zero", skip_serializing_if = "Zero::is_zero")]
+        offset: f64,
+    },
+    Signed {
+        #[serde(default = "One::one", skip_serializing_if = "One::is_one")]
+        scale: f64,
+        #[serde(default = "Zero::zero", skip_serializing_if = "Zero::is_zero")]
+        offset: f64,
+    },
+    Float,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -179,9 +185,7 @@ impl<S> Entity<S> {
             EntityKind::Bits { data, .. } => Some(data),
             EntityKind::Logic { data, .. } => Some(data),
             EntityKind::Timestamp { data, .. } => Some(data),
-            EntityKind::Unsigned { data, .. } => Some(data),
-            EntityKind::Signed { data, .. } => Some(data),
-            EntityKind::Float { data, .. } => Some(data),
+            EntityKind::Number { data, .. } => Some(data),
             EntityKind::Enum { data, .. } => Some(data),
             _ => None,
         }
@@ -215,17 +219,9 @@ impl<S> Entity<S> {
                 let data = f(data)?;
                 Ok(Entity { kind: EntityKind::Timestamp { sample_rate, data }, attributes })
             }
-            EntityKind::Unsigned { ref data, scale, offset } => {
+            EntityKind::Number { ref data, encoding } => {
                 let data = f(data)?;
-                Ok(Entity { kind: EntityKind::Unsigned { data, scale, offset }, attributes })
-            },
-            EntityKind::Signed { ref data, scale, offset } => {
-                let data = f(data)?;
-                Ok(Entity {  kind: EntityKind::Signed { data, scale, offset }, attributes })
-            },
-            EntityKind::Float { ref data } => {
-                let data = f(data)?;
-                Ok(Entity { kind: EntityKind::Float { data }, attributes })
+                Ok(Entity { kind: EntityKind::Number { data, encoding }, attributes })
             },
             EntityKind::Enum { ref data, ref values } => {
                 let data = f(data)?;
@@ -266,7 +262,7 @@ impl EntitySchema {
     pub fn single_stream(&self) -> Option<(&EntityKind<Ignored>, usize)> {
         match self.kind {
             EntityKind::Group { .. } | EntityKind::Record { .. } | EntityKind::VariableArray { .. } => None,
-            EntityKind::Bits { .. } | EntityKind::Signed { .. } | EntityKind::Unsigned { .. } | EntityKind::Timestamp { .. } | EntityKind::Logic { .. } | EntityKind::Float { .. } | EntityKind::Enum { .. } => {
+            EntityKind::Bits { .. } | EntityKind::Number { .. } | EntityKind::Timestamp { .. } | EntityKind::Logic { .. } | EntityKind::Enum { .. } => {
                 Some((&self.kind, 1))
             }
             EntityKind::FixedArray { ref child, elements } => {
@@ -287,20 +283,14 @@ impl EntitySchema {
             EntityKind::Bits { data: Ignored, bits  } => {
                 Some(Entity { kind: EntityKind::Bits { data, bits }, attributes })
             }
-            EntityKind::Signed { data: Ignored, scale, offset  } => {
-                Some(Entity { kind: EntityKind::Signed { data, scale, offset }, attributes })
-            }
-            EntityKind::Unsigned {data: Ignored, scale, offset } => {
-                Some(Entity { kind: EntityKind::Unsigned { data, scale, offset }, attributes })
+            EntityKind::Number { data: Ignored, encoding } => {
+                Some(Entity { kind: EntityKind::Number { data, encoding }, attributes })
             }
             EntityKind::Timestamp { data: Ignored, sample_rate } => {
                 Some(Entity { kind: EntityKind::Timestamp { data, sample_rate }, attributes })
             }
             EntityKind::Logic { data: Ignored, ref bits } => {
                 Some(Entity { kind: EntityKind::Logic { data, bits: bits.clone() }, attributes })
-            }
-            EntityKind::Float { data: Ignored } => {
-                Some(Entity { kind: EntityKind::Float { data }, attributes })
             }
             EntityKind::Enum { data: Ignored, ref values } => {
                 Some(Entity { kind: EntityKind::Enum { data, values: values.clone() }, attributes })

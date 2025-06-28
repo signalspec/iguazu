@@ -48,14 +48,8 @@ fn info_tree_inner<D>(w: &mut impl Write, prefix: &str, name: &str, entity: &Ent
         EntityKind::Logic { .. } => {
             header_line(w, name, "Logic")?;
         }
-        EntityKind::Unsigned { .. } => {
-            header_line(w, name, "Unsigned Int")?;
-        }
-        EntityKind::Signed { .. } => {
-            header_line(w, name, "Signed Int")?;
-        }
-        EntityKind::Float { .. } => {
-            header_line(w, name, "Float")?;
+        EntityKind::Number { .. } => {
+            header_line(w, name, "Number")?;
         }
         EntityKind::Timestamp { .. } => {
             header_line(w, name, "Timestamp")?;

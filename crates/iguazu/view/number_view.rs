@@ -1,4 +1,4 @@
-use crate::{schema::{EntityKind, EntityStream}, stream::{ElementSize, StreamState}, Idx, IdxRange};
+use crate::{schema::{EntityKind, EntityStream, NumberEncoding}, stream::{ElementSize, StreamState}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
@@ -39,18 +39,22 @@ impl<'a> NumberView<'a> {
     pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Option<Self> {
         let view = vm.int_view(entity)?;
         let format = match entity.kind {
-            EntityKind::Signed { scale, offset, ref data, .. } => {
-                let shift = 64 - 8 * data.desc().element_size as u8;
-                Some(Format::SInt { scale, offset, shift  })
-            }
-            EntityKind::Unsigned { scale, offset, .. } => {
-                Some(Format::UInt { scale, offset })
-            }
-            EntityKind::Float { ref data } => {
-                match data.desc().element_size {
-                    ElementSize::U32 => Some(Format::F32),
-                    ElementSize::U64 => Some(Format::F64),
-                    _ => None
+            EntityKind::Number { encoding, ref data, .. } => {
+                match encoding {
+                    NumberEncoding::Signed { scale, offset } => {
+                        let shift = 64 - 8 * data.desc().element_size as u8;
+                        Some(Format::SInt { scale, offset, shift })
+                    }
+                    NumberEncoding::Unsigned { scale, offset } => {
+                        Some(Format::UInt { scale, offset })
+                    }
+                    NumberEncoding::Float => {
+                        match data.desc().element_size {
+                            ElementSize::U32 => Some(Format::F32),
+                            ElementSize::U64 => Some(Format::F64),
+                            _ => None
+                        }
+                    }
                 }
             }
             EntityKind::Timestamp { sample_rate, .. } => {

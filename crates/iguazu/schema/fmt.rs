@@ -1,4 +1,4 @@
-use crate::{schema::Field, stream::ElementSize};
+use crate::{schema::{Field, NumberEncoding}, stream::ElementSize};
 
 use super::{EntityKind, EntityStream};
 
@@ -24,15 +24,15 @@ impl <'a> ValueFormatter<'a> {
             EntityKind::Bits { bits, .. } if bits % 4 == 0 => Some(ValueFormatter::Hex { digits: bits / 4 }),
             EntityKind::Bits { bits, .. } => Some(ValueFormatter::Binary { bits }),
             EntityKind::Logic { ref bits, .. } => Some(ValueFormatter::Binary { bits: bits.len() as u32 }),
-            EntityKind::Unsigned { scale, offset, .. } => Some(ValueFormatter::Unsigned { scale, offset }),
-            EntityKind::Signed { scale, offset, ref data, .. } => {
-                Some(ValueFormatter::Signed { bits: data.desc().element_size.bits() as u32, scale, offset })
-            }
-            EntityKind::Float { ref data } => {
-                match data.desc().element_size {
-                    ElementSize::U32 => Some(ValueFormatter::Float32),
-                    ElementSize::U64 => Some(ValueFormatter::Float64),
-                    x => Some(ValueFormatter::Hex { digits: x.bits() as u32 / 4 }),
+            EntityKind::Number { encoding, ref data, .. } => {
+                match encoding {
+                    NumberEncoding::Unsigned { scale, offset } => Some(ValueFormatter::Unsigned { scale, offset }),
+                    NumberEncoding::Signed { scale, offset } => Some(ValueFormatter::Signed { bits: data.desc().element_size.bits() as u32, scale, offset }),
+                    NumberEncoding::Float => match data.desc().element_size {
+                        ElementSize::U32 => Some(ValueFormatter::Float32),
+                        ElementSize::U64 => Some(ValueFormatter::Float64),
+                        x => Some(ValueFormatter::Hex { digits: x.bits() as u32 / 4 }),
+                    }
                 }
             }
             EntityKind::Enum { ref values, .. } => Some(ValueFormatter::Enum { values }),

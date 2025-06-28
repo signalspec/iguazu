@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::{Formatter, Write};
 
-use crate::{schema::{EntityKind, EntityStream}, stream::StreamState, Idx};
+use crate::{schema::{EntityKind, EntityStream, NumberEncoding}, stream::StreamState, Idx};
 
 use super::{EnumView, IntView, NumberView, ViewManager};
 pub struct TextView<'a>(Vec<Element<'a>>);
@@ -71,7 +71,7 @@ impl<'a> TextView<'a> {
                 EntityKind::Logic { ref bits, ref data } => {
                     elements.push(Element::Bin(IntView::new_from_stream(vm, data), bits.len() as u32))
                 },
-                EntityKind::Signed { .. } | EntityKind::Unsigned { .. } | EntityKind::Float { .. } | EntityKind::Timestamp { .. } => {
+                EntityKind::Number { .. } | EntityKind::Timestamp { .. } => {
                     if let Some(num) = vm.number_view(entity) {
                         elements.push(Element::Num(num))
                     } else {
@@ -186,19 +186,19 @@ fn test_textview() {
     );
 
     let ints = EntityStream::new(
-        EntityKind::Unsigned { scale: 1.0, offset: 0.0, data: MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])},
+        EntityKind::Number { encoding: NumberEncoding::Unsigned { scale: 1.0, offset: 0.0 }, data: MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123]) },
     );
 
     let scaled_ints = EntityStream::new(
-        EntityKind::Unsigned { scale: 0.01, offset: 0.0, data: MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])},
+        EntityKind::Number { encoding: NumberEncoding::Unsigned { scale: 0.01, offset: 0.0 }, data: MemoryStream::new(ElementSize::U8, &[1, 10, 99, 123])},
     );
 
     let signed_ints = EntityStream::new(
-        EntityKind::Signed { scale: 1.0, offset: 0.0, data: MemoryStream::new(ElementSize::U16, &[-10, 456, -1280, 9999].into_iter().flat_map(i16::to_le_bytes).collect::<Vec<u8>>())},
+        EntityKind::Number { encoding: NumberEncoding::Signed { scale: 1.0, offset: 0.0 }, data: MemoryStream::new(ElementSize::U16, &[-10, 456, -1280, 9999].into_iter().flat_map(i16::to_le_bytes).collect::<Vec<u8>>())},
     );
 
     let floats = EntityStream::new(
-        EntityKind::Float { data: MemoryStream::new(ElementSize::U32, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())},
+        EntityKind::Number { encoding: NumberEncoding::Float, data: MemoryStream::new(ElementSize::U32, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())},
     );
     
     let literal = bits.clone().with_attribute("text", "test");

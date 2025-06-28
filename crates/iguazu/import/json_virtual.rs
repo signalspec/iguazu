@@ -112,17 +112,9 @@ pub async fn load(file: Arc<dyn ReadableFile>, schema: Entity<StreamRef>) -> Res
                     let data = create_stream(src_file, data).await?;
                     Ok(EntityStream { kind: EntityKind::Timestamp { sample_rate, data }, attributes })
                 }
-                EntityKind::Unsigned { data, scale, offset } => {
+                EntityKind::Number { data, encoding } => {
                     let data = create_stream(src_file, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Unsigned { data, scale, offset }, attributes })
-                }
-                EntityKind::Signed { data, scale, offset } => {
-                    let data = create_stream(src_file, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Signed { data, scale, offset }, attributes })
-                }
-                EntityKind::Float { data } => {
-                    let data = create_stream(src_file, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Float { data }, attributes })
+                    Ok(EntityStream { kind: EntityKind::Number { data, encoding }, attributes })
                 }
                 EntityKind::Enum { data, values } => {
                     let data = create_stream(src_file, data).await?;
