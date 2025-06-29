@@ -3,7 +3,7 @@ use std::fmt::Debug;
 
 use append_array::{AppendArrayWriter, AppendArray};
 use elsa::sync::FrozenVec;
-use crate::stream::{ElementType, Stream, StreamAccess, StreamDesc, StreamState};
+use crate::stream::{Element, ElementType, Stream, StreamAccess, StreamDesc, StreamState};
 
 const BLOCK_SIZE: usize = 1<<16;
 
@@ -13,7 +13,11 @@ pub struct MemoryStream {
 }
 
 impl MemoryStream {
-    pub fn new(element_type: ElementType, data: &[u8]) -> Arc<Self> {
+    pub fn new<T: Element>(data: &[T]) -> Arc<Self> {
+        Self::raw(T::ELEMENT_TYPE, bytemuck::cast_slice(data))
+    }
+
+    pub fn raw(element_type: ElementType, data: &[u8]) -> Arc<Self> {
         let mut writer = MemoryStreamWriter::new(element_type);
         writer.extend_from_slice(data);
         writer.stream

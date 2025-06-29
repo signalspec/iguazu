@@ -78,3 +78,38 @@ impl ElementType {
         }
     }
 }
+
+pub trait Element: bytemuck::Pod + bytemuck::NoUninit + bytemuck::Zeroable + bytemuck::AnyBitPattern {
+    const ELEMENT_TYPE: ElementType;
+}
+
+impl Element for u8 {
+    const ELEMENT_TYPE: ElementType = ElementType::U8;
+}
+impl Element for u16 {
+    const ELEMENT_TYPE: ElementType = ElementType::U16;
+}
+impl Element for u32 {
+    const ELEMENT_TYPE: ElementType = ElementType::U32;
+}
+impl Element for u64 {
+    const ELEMENT_TYPE: ElementType = ElementType::U64;
+}
+impl Element for i8 {
+    const ELEMENT_TYPE: ElementType = ElementType::I8;
+}
+impl Element for i16 {
+    const ELEMENT_TYPE: ElementType = ElementType::I16;
+}
+impl Element for i32 {
+    const ELEMENT_TYPE: ElementType = ElementType::I32;
+}
+impl Element for i64 {
+    const ELEMENT_TYPE: ElementType = ElementType::I64;
+}
+impl Element for f32 {
+    const ELEMENT_TYPE: ElementType = ElementType::F32;
+}
+impl Element for f64 {
+    const ELEMENT_TYPE: ElementType = ElementType::F64;
+}

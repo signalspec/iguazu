@@ -177,28 +177,27 @@ impl std::fmt::Display for FormatValue<'_, '_> {
 #[test]
 fn test_textview() {
     use crate::storage::MemoryStream;
-    use crate::stream::ElementType;
 
     let vm = super::ViewManager::new();
 
     let bits = EntityStream::new(
-        EntityKind::Bits { bits: 2, data: MemoryStream::new(ElementType::U8, &[0b10, 0b01, 0b00]) },
+        EntityKind::Bits { bits: 2, data: MemoryStream::new::<u8>(&[0b10, 0b01, 0b00]) },
     );
 
     let ints = EntityStream::new(
-        EntityKind::Number { data: MemoryStream::new(ElementType::U8, &[1, 10, 99, 123]) },
+        EntityKind::Number { data: MemoryStream::new::<u8>(&[1, 10, 99, 123]) },
     );
 
     let scaled_ints = EntityStream::new(
-        EntityKind::Number {data: MemoryStream::new(ElementType::U8, &[1, 10, 99, 123])},
+        EntityKind::Number {data: MemoryStream::new::<u8>(&[1, 10, 99, 123])},
     ).with_attribute("number:scale", 0.01);
 
     let signed_ints = EntityStream::new(
-        EntityKind::Number { data: MemoryStream::new(ElementType::I16, &[-10, 456, -1280, 9999].into_iter().flat_map(i16::to_le_bytes).collect::<Vec<u8>>())},
+        EntityKind::Number { data: MemoryStream::new::<i16>(&[-10, 456, -1280, 9999])},
     );
 
     let floats = EntityStream::new(
-        EntityKind::Number { data: MemoryStream::new(ElementType::F32, &[3333.25, 12.0, 0.5].into_iter().flat_map(f32::to_le_bytes).collect::<Vec<u8>>())},
+        EntityKind::Number { data: MemoryStream::new::<f32>(&[3333.25, 12.0, 0.5])},
     );
     
     let literal = bits.clone().with_attribute("text", "test");
