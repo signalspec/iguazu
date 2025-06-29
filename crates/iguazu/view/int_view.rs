@@ -38,7 +38,7 @@ impl<'a> IntView<'a> {
     pub fn get_u64(&self, idx: Idx) -> Option<u64> {
         let block = idx / self.desc.block_size as Idx;
         let pos = idx % self.desc.block_size as Idx;
-        let byte_pos = pos as usize * self.desc.element_size.bytes();
+        let byte_pos = pos as usize * self.desc.element_type.bytes();
 
         let mut cache = self.cache.borrow_mut();
 
@@ -47,7 +47,7 @@ impl<'a> IntView<'a> {
             cache.1 = self.view.get_block(block);
         }
 
-        let elem = cache.1.get(byte_pos .. byte_pos + self.desc.element_size.bytes())?;
+        let elem = cache.1.get(byte_pos .. byte_pos + self.desc.element_type.bytes())?;
         let mut data = [0; 8];
         data[..elem.len()].copy_from_slice(elem);
         Some(u64::from_le_bytes(data))
@@ -61,10 +61,10 @@ impl<'a> IntView<'a> {
             let block = self.view.get_block(block_i);
             let idx = (block_i as u64) * self.desc.block_size as u64;
 
-            let start = range.min.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
-            let end = range.max.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
+            let start = range.min.saturating_sub(idx).min((block.len() / self.desc.element_type.bytes()) as u64) as usize;
+            let end = range.max.saturating_sub(idx).min((block.len() / self.desc.element_type.bytes()) as u64) as usize;
 
-            for (i, v) in block[start * self.desc.element_size.bytes() .. end * self.desc.element_size.bytes()].chunks_exact(self.desc.element_size.bytes()).enumerate() {
+            for (i, v) in block[start * self.desc.element_type.bytes() .. end * self.desc.element_type.bytes()].chunks_exact(self.desc.element_type.bytes()).enumerate() {
                 let mut data = [0; 8];
                 data[..v.len()].copy_from_slice(v);
                 f(idx + start as u64 + i as u64, Some(u64::from_le_bytes(data)))

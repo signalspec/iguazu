@@ -4,13 +4,13 @@ use elsa::FrozenMap;
 use futures_lite::future::block_on;
 use log::{debug, error};
 
-use crate::{import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{ElementSize, Stream, StreamAccess, StreamDesc, StreamState}};
+use crate::{import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{ElementType, Stream, StreamAccess, StreamDesc, StreamState}};
 
 pub struct FlatFileOpts {
     pub offset: u64,
     pub count: Option<u64>,
     pub block_size: usize,
-    pub element_size: ElementSize,
+    pub element_type: ElementType,
 }
 
 impl Default for FlatFileOpts {
@@ -19,7 +19,7 @@ impl Default for FlatFileOpts {
             offset: 0,
             count: None,
             block_size: 1 << 20,
-            element_size: ElementSize::U8,
+            element_type: ElementType::U8,
         }
     }
 }
@@ -30,7 +30,7 @@ pub struct FlatFileStream {
     count: u64,
     block_size: usize,
     block_size_bytes: usize,
-    element_size: ElementSize,
+    element_type: ElementType,
 }
 
 impl Debug for FlatFileStream {
@@ -46,12 +46,12 @@ impl FlatFileStream {
         let file_len = file.clone().get_len().await?;
         
         let offset = opts.offset;
-        let element_size = opts.element_size;
-        let count = opts.count.or(file_len.checked_div(element_size.bytes() as u64)).unwrap_or(0);
+        let element_type = opts.element_type;
+        let count = opts.count.or(file_len.checked_div(element_type.bytes() as u64)).unwrap_or(0);
         let block_size = opts.block_size;
-        let block_size_bytes = block_size.saturating_mul(element_size.bytes() as usize);
+        let block_size_bytes = block_size.saturating_mul(element_type.bytes() as usize);
 
-        Ok(FlatFileStream { file, offset, count, block_size, block_size_bytes, element_size })
+        Ok(FlatFileStream { file, offset, count, block_size, block_size_bytes, element_type })
     }
 
     pub async fn entity(file: Arc<dyn ReadableFile>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
@@ -77,7 +77,7 @@ impl FlatFileStream {
 impl Stream for FlatFileStream {
     fn desc(&self) -> StreamDesc {
         StreamDesc {
-            element_size: self.element_size,
+            element_type: self.element_type,
             block_size: self.block_size
         }
     }

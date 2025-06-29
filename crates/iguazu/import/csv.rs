@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 
 use crate::schema::{Entity, EntityKind, EntityStream, Ignored};
 use crate::storage::MemoryStreamWriter;
-use crate::stream::Stream;
+use crate::stream::{ElementType, Stream};
 use crate::{io::ReadableFile, schema::EntitySchema};
 
 use super::{ImportError, Importer};
@@ -126,12 +126,12 @@ fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<Colu
 
 fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), ImportError>{
     Ok(match schema.kind {
-        EntityKind::Number { data: Ignored, encoding } => {
-            let writer = MemoryStreamWriter::new(crate::stream::ElementSize::U32);
+        EntityKind::Number { data: Ignored } => {
+            let writer = MemoryStreamWriter::new(ElementType::F32);
             let data = writer.stream().clone() as Arc<dyn Stream>;
 
             let entity = Entity { 
-                kind: EntityKind::Number { data, encoding },
+                kind: EntityKind::Number { data },
                 attributes: schema.attributes.clone(),
             };
 

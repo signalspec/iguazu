@@ -66,8 +66,6 @@ pub enum EntityKind<S> {
     },
     Number {
         data: S,
-        #[serde(flatten)]
-        encoding: NumberEncoding,
     },
     Enum {
         data: S,
@@ -85,24 +83,6 @@ pub enum EntityKind<S> {
         data: S,
         child: Box<Entity<S>>,
     }
-}
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-#[serde(tag = "encoding", rename_all="snake_case")]
-pub enum NumberEncoding {
-    Unsigned {
-        #[serde(default = "One::one", skip_serializing_if = "One::is_one")]
-        scale: f64,
-        #[serde(default = "Zero::zero", skip_serializing_if = "Zero::is_zero")]
-        offset: f64,
-    },
-    Signed {
-        #[serde(default = "One::one", skip_serializing_if = "One::is_one")]
-        scale: f64,
-        #[serde(default = "Zero::zero", skip_serializing_if = "Zero::is_zero")]
-        offset: f64,
-    },
-    Float,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,9 +199,9 @@ impl<S> Entity<S> {
                 let data = f(data)?;
                 Ok(Entity { kind: EntityKind::Timestamp { sample_rate, data }, attributes })
             }
-            EntityKind::Number { ref data, encoding } => {
+            EntityKind::Number { ref data } => {
                 let data = f(data)?;
-                Ok(Entity { kind: EntityKind::Number { data, encoding }, attributes })
+                Ok(Entity { kind: EntityKind::Number { data }, attributes })
             },
             EntityKind::Enum { ref data, ref values } => {
                 let data = f(data)?;
@@ -283,8 +263,8 @@ impl EntitySchema {
             EntityKind::Bits { data: Ignored, bits  } => {
                 Some(Entity { kind: EntityKind::Bits { data, bits }, attributes })
             }
-            EntityKind::Number { data: Ignored, encoding } => {
-                Some(Entity { kind: EntityKind::Number { data, encoding }, attributes })
+            EntityKind::Number { data: Ignored } => {
+                Some(Entity { kind: EntityKind::Number { data }, attributes })
             }
             EntityKind::Timestamp { data: Ignored, sample_rate } => {
                 Some(Entity { kind: EntityKind::Timestamp { data, sample_rate }, attributes })

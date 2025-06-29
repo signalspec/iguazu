@@ -144,11 +144,11 @@ impl Iterator for EventViewIter<'_> {
 fn test_event_view() {
     use crate::storage::MemoryStream;
     use crate::schema::{ EntityKind, Field };
-    use crate::stream::ElementSize;
+    use crate::stream::ElementType;
 
     let vm = super::ViewManager::new();
 
-    let data = MemoryStream::new(ElementSize::U64, bytemuck::cast_slice(&[
+    let data = MemoryStream::new(ElementType::U64, bytemuck::cast_slice(&[
         1000u64, 1010,
         1010, 1020,
         1030, 1040,

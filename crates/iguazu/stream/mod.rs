@@ -21,7 +21,7 @@ pub trait StreamAccess: Send  {
 }
 
 pub struct StreamDesc {
-    pub element_size: ElementSize,
+    pub element_type: ElementType,
     pub block_size: usize,
 }
 
@@ -30,43 +30,35 @@ pub struct StreamState {
     pub streaming: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum ElementSize {
-    Null,
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ElementType {
     U8,
     U16,
     U32,
     U64,
+    I8,
+    I16,
+    I32,
+    I64,
+    F32,
+    F64,
 }
 
-impl<'de> Deserialize<'de> for ElementSize {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let bits = u8::deserialize(deserializer)?;
-        ElementSize::from_exact_bits(bits).ok_or(serde::de::Error::custom(format!("expected valid element size")))
-    }
-}
-
-impl Serialize for ElementSize {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_u8(self.bits() as u8)
-    }
-}
-
-impl ElementSize {
+impl ElementType {
     #[inline]
     pub fn bytes(&self) -> usize {
         match self {
-            ElementSize::Null => 0,
-            ElementSize::U8 => 1,
-            ElementSize::U16 => 2,
-            ElementSize::U32 => 4,
-            ElementSize::U64 => 8,
+            ElementType::U8 => 1,
+            ElementType::U16 => 2,
+            ElementType::U32 => 4,
+            ElementType::U64 => 8,
+            ElementType::I8 => 1,
+            ElementType::I16 => 2,
+            ElementType::I32 => 4,
+            ElementType::I64 => 8,
+            ElementType::F32 => 4,
+            ElementType::F64 => 8,
         }
     }
 
@@ -76,25 +68,12 @@ impl ElementSize {
     }
 
     #[inline]
-    pub fn from_exact_bits(bits: u8) -> Option<Self> {
+    pub fn unsigned_from_bits(bits: u8) -> Option<Self> {
         match bits {
-            0 => Some(ElementSize::Null),
-            8 => Some(ElementSize::U8),
-            16 => Some(ElementSize::U16),
-            32 => Some(ElementSize::U32),
-            64 => Some(ElementSize::U64),
-            _ => None,
-        }
-    }
-
-    #[inline]
-    pub fn from_bits(bits: u8) -> Option<Self> {
-        match bits {
-            0 => Some(ElementSize::Null),
-            ..=8 => Some(ElementSize::U8),
-            ..=16 => Some(ElementSize::U16),
-            ..=32 => Some(ElementSize::U32),
-            ..=64 => Some(ElementSize::U64),
+            ..=8 => Some(ElementType::U8),
+            ..=16 => Some(ElementType::U16),
+            ..=32 => Some(ElementType::U32),
+            ..=64 => Some(ElementType::U64),
             _ => None,
         }
     }

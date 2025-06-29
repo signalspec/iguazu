@@ -1,4 +1,4 @@
-use crate::{schema::{EntityKind, EntityStream, NumberEncoding}, stream::{ElementSize, StreamState}, Idx, IdxRange};
+use crate::{schema::{EntityKind, EntityStream}, stream::{ElementType, StreamState}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
@@ -8,11 +8,10 @@ pub struct NumberView<'a> {
 }
 
 enum Format {
-    None,
     UInt { scale: f64, offset: f64 },
     SInt { shift: u8, scale: f64, offset: f64 },
-    F32,
-    F64,
+    F32 { scale: f64, offset: f64 },
+    F64 { scale: f64, offset: f64 },
 }
 
 impl Format {
@@ -24,13 +23,12 @@ impl Format {
             Format::SInt { shift, scale, offset } => {
                 ((v << shift) as i64 >> shift) as f64 * scale + offset
             }
-            Format::F32 => {
-                f32::from_bits(v as u32) as f64
+            Format::F32 { scale, offset} => {
+                f32::from_bits(v as u32) as f64 * scale + offset
             }
-            Format::F64 => {
-                f64::from_bits(v)
+            Format::F64 { scale, offset}=> {
+                f64::from_bits(v) * scale + offset
             }
-            Format::None => f64::NAN
         }
     }
 }
@@ -39,22 +37,15 @@ impl<'a> NumberView<'a> {
     pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Option<Self> {
         let view = vm.int_view(entity)?;
         let format = match entity.kind {
-            EntityKind::Number { encoding, ref data, .. } => {
-                match encoding {
-                    NumberEncoding::Signed { scale, offset } => {
-                        let shift = 64 - 8 * data.desc().element_size as u8;
-                        Some(Format::SInt { scale, offset, shift })
-                    }
-                    NumberEncoding::Unsigned { scale, offset } => {
-                        Some(Format::UInt { scale, offset })
-                    }
-                    NumberEncoding::Float => {
-                        match data.desc().element_size {
-                            ElementSize::U32 => Some(Format::F32),
-                            ElementSize::U64 => Some(Format::F64),
-                            _ => None
-                        }
-                    }
+            EntityKind::Number { ref data, .. } => {
+                let scale = entity.number_scale();
+                let offset = entity.number_offset();
+                use ElementType::*;
+                match data.desc().element_type {
+                    U8 | U16 | U32 | U64 => Some(Format::UInt { scale, offset }),
+                    t @ (I8 | I16 | I32 | I64) => Some(Format::SInt { shift: 64 - t.bits() as u8, scale, offset }),
+                    F32 => Some(Format::F32 { scale, offset}),
+                    F64 => Some(Format::F64 { scale, offset}),
                 }
             }
             EntityKind::Timestamp { sample_rate, .. } => {

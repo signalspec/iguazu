@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use num_traits::Zero;
 
-use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntityKind, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream }, stream::{ArcStream, ElementSize}};
+use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntityKind, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream }, stream::{ArcStream, ElementType}};
 
 use super::{ImportError, Importer};
 
@@ -15,7 +15,7 @@ use super::{ImportError, Importer};
 pub enum StreamRef {
     FlatFile {
         file_name: RelativePath,
-        element_size: ElementSize,
+        element_type: ElementType,
 
         #[serde(default = "u64::zero", skip_serializing_if = "u64::is_zero")]
         offset: u64,
@@ -67,10 +67,10 @@ pub async fn load(file: Arc<dyn ReadableFile>, schema: Entity<StreamRef>) -> Res
 
     async fn create_stream(src_file: Arc<dyn ReadableFile>, stream: StreamRef) -> Result<ArcStream, ImportError> {
         match stream {
-            StreamRef::FlatFile { ref file_name, element_size, offset } => {
+            StreamRef::FlatFile { ref file_name, element_type, offset } => {
                 let file = src_file.relative(file_name).await?;
                 let mut opts = FlatFileOpts::default();
-                opts.element_size = element_size;
+                opts.element_type = element_type;
                 opts.offset = offset;
                 Ok(Arc::new(FlatFileStream::new(file, opts).await?))
             }
@@ -112,9 +112,9 @@ pub async fn load(file: Arc<dyn ReadableFile>, schema: Entity<StreamRef>) -> Res
                     let data = create_stream(src_file, data).await?;
                     Ok(EntityStream { kind: EntityKind::Timestamp { sample_rate, data }, attributes })
                 }
-                EntityKind::Number { data, encoding } => {
+                EntityKind::Number { data } => {
                     let data = create_stream(src_file, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Number { data, encoding }, attributes })
+                    Ok(EntityStream { kind: EntityKind::Number { data }, attributes })
                 }
                 EntityKind::Enum { data, values } => {
                     let data = create_stream(src_file, data).await?;

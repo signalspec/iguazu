@@ -249,6 +249,14 @@ impl<D> Entity<D> {
             max: o.get("max")?,
         })
     }
+
+    pub fn number_scale(&self) -> f64 {
+        self.attribute("number:scale").unwrap_or(1.0)
+    }
+
+    pub fn number_offset(&self) -> f64 {
+        self.attribute("number:offset").unwrap_or(0.0)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
