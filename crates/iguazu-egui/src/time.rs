@@ -190,8 +190,20 @@ pub struct TimeRange {
 }
 
 impl TimeRange {
+    pub const ZERO: TimeRange = TimeRange {
+        min: Time::ZERO,
+        max: Time::ZERO,
+    };
+    
     pub fn length(&self) -> Time {
         self.max - self.min
+    }
+
+    pub fn union(&self, other: &TimeRange) -> TimeRange {
+        TimeRange {
+            min: self.min.min(other.min),
+            max: self.max.max(other.max),
+        }
     }
 }
 

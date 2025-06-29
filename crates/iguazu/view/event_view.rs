@@ -25,6 +25,12 @@ impl<'v> EventView<'v> {
 
     pub fn sample_rate(&self) -> f64 { self.sample_rate }
 
+    pub fn latest_idx(&self) -> Idx {
+        self.view.get_u64(self.view.state().end)
+            .map(|v| v as Idx)
+            .unwrap_or(0)
+    }
+
     /// Finds the smallest index within `bounds` whose value is equal to or greater than `search`
     fn binary_search(&self, bounds: IdxRange, search: Idx) -> Option<Idx> {
         if bounds.max <= bounds.min {

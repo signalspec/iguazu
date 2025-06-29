@@ -1,7 +1,7 @@
 use egui::{Pos2, Stroke, Vec2};
 use iguazu::{schema::{attribute::{AccentColor, NumberRange}, EntityStream}, view::NumberView, IdxRange};
 
-use crate::{color::named_color, ViewerContext};
+use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
 use super::{fixed_height_header, TimelineResponse};
 
@@ -27,6 +27,13 @@ impl<'a> YAxisRow<'a> {
             color,
             label: label.map(|s| s.to_string()),
         })
+    }
+
+    pub fn time_range(&self) -> TimeRange {
+        TimeRange {
+            min: Time::ZERO,
+            max: (self.view.state().end as i128) * Time::period_float(self.sample_rate),
+        }
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse{

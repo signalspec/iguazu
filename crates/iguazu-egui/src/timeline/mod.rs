@@ -17,7 +17,6 @@ use scale::Scale;
 pub struct TimelineState {
     /// Width of the entity name columns previous frame.
     pub col_width: f32,
-    pub time_range: TimeRange,
     pub visible_range: Option<TimeRange>,
 }
 
@@ -25,7 +24,6 @@ impl Default for TimelineState {
     fn default() -> Self {
         Self {
             col_width: 0.0,
-            time_range: TimeRange { min: Time::ZERO, max: Time::MINUTE },
             visible_range: None,
         }
     }
@@ -74,10 +72,15 @@ impl TimelineView {
             time_x_left..=right
         };
 
+        let rows = timeline_rows(vcx, entity);
+        let time_range = rows.iter().fold(TimeRange::ZERO, |acc, row| {
+            acc.union(&row.time_range())
+        });
+
         let scale = Scale::new(
             time_x_range,
-            state.visible_range.unwrap_or(state.time_range),
-            state.time_range,
+            state.visible_range.unwrap_or(time_range),
+            time_range,
             x_margin,
             x_margin + scrollbar_width,
         );
@@ -111,8 +114,6 @@ impl TimelineView {
                 ui,
                 &streams_rect,
             );
-
-            let rows = timeline_rows(vcx, entity);
 
             let entity_response = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
@@ -271,6 +272,15 @@ impl<'a> TimelineRowKind<'a> {
             TimelineRowKind::Trace(row) => row.render(ui, scale),
             TimelineRowKind::Logic(row) => row.render(ui, scale),
             TimelineRowKind::Events(row) => row.render(ui, scale),
+        }
+    }
+
+    fn time_range(&self) -> TimeRange {
+        match self {
+            TimelineRowKind::YAxis(row) => row.time_range(),
+            TimelineRowKind::Trace(row) => row.time_range(),
+            TimelineRowKind::Logic(row) => row.time_range(),
+            TimelineRowKind::Events(row) => row.time_range(),
         }
     }
 }

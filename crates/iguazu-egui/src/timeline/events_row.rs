@@ -1,7 +1,7 @@
 use egui::{Align2, Color32, Rect, Stroke, Vec2};
 use iguazu::{schema::{attribute::AccentColor, EntityStream}, view::{EventView, TextView}, IdxRange};
 
-use crate::{color::named_color, ViewerContext};
+use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
 use super::{fixed_height_header, TimelineResponse};
 
@@ -24,6 +24,13 @@ impl<'a> EventsRow<'a> {
             color,
             label: label.map(|s| s.to_string()),
         })
+    }
+
+    pub fn time_range(&self) -> TimeRange {
+        TimeRange {
+            min: Time::ZERO,
+            max: (self.event_view.latest_idx() as i128) * Time::period_float(self.event_view.sample_rate()),
+        }
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {

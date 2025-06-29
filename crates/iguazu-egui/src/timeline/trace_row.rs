@@ -1,7 +1,7 @@
 use egui::{Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
 use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
 
-use crate::{color::named_color, ViewerContext};
+use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
 use super::{fixed_height_header, scale::IdxScale, TimelineResponse};
 
@@ -22,6 +22,13 @@ impl<'a> TraceRow<'a> {
         let formatter = entity.formatter()?;
 
         Some(TraceRow { view, sample_rate, label, color, formatter })
+    }
+
+    pub fn time_range(&self) -> TimeRange {
+        TimeRange {
+            min: Time::ZERO,
+            max: (self.view.state().end as i128) * Time::period_float(self.sample_rate),
+        }
     }
 
     pub fn render(&self, ui: &mut Ui, scale: &super::scale::Scale) -> TimelineResponse {
@@ -102,6 +109,13 @@ impl<'a> LogicRow<'a> {
         }).collect();
 
         Some(LogicRow { view, sample_rate, bits })
+    }
+
+    pub fn time_range(&self) -> TimeRange {
+        TimeRange {
+            min: Time::ZERO,
+            max: (self.view.state().end as i128) * Time::period_float(self.sample_rate),
+        }
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
