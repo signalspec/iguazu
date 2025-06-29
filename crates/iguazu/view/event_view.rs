@@ -3,13 +3,13 @@ use crate::{schema::{EntityKind, EntityStream}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
-pub struct EventView<'a> {
-    view: IntView<'a>,
+pub struct EventView<'v> {
+    view: IntView<'v>,
     sample_rate: f64,
 }
 
-impl<'a> EventView<'a> {
-    pub fn new(vm: &'a ViewManager, mut entity: &EntityStream) -> Option<Self> {
+impl<'v> EventView<'v> {
+    pub fn new(vm: &'v ViewManager, mut entity: &EntityStream) -> Option<Self> {
         while let Some(time_field) = entity.time() {
             entity = entity.child(&*time_field)?;
         };
@@ -64,7 +64,7 @@ impl<'a> EventView<'a> {
         Some(IdxRange { min, max })
     }
 
-    pub fn range(&'a self, val_range: IdxRange, min_width: u64) -> EventViewIter<'a> {
+    pub fn range(&self, val_range: IdxRange, min_width: u64) -> EventViewIter<'_, 'v> {
         let idx_range = self.binary_search_bounds(val_range)
             .map(|r| r.divide(2));
         EventViewIter {
@@ -76,8 +76,8 @@ impl<'a> EventView<'a> {
     }
 }
 
-pub struct EventViewIter<'a> {
-    view: &'a EventView<'a>,
+pub struct EventViewIter<'a, 'v> {
+    view: &'a EventView<'v>,
     val_range: IdxRange,
     idx_range: Option<IdxRange>,
     min_width: u64,
@@ -90,7 +90,7 @@ pub enum Event {
     Loading(IdxRange),
 }
 
-impl Iterator for EventViewIter<'_> {
+impl Iterator for EventViewIter<'_, '_> {
     type Item = Event;
 
     fn next(&mut self) -> Option<Self::Item> {

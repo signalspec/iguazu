@@ -60,11 +60,6 @@ impl Scale {
         Time::div_as_f32(time, self.view_range.length()) * self.x_width()
     }
 
-    /// Clamp the index to the valid range
-    pub fn clamp_time(&self, time: Time) -> Time {
-        time.clamp(self.bounds.min, self.bounds.max)
-    }
-
     /// Viewport including margins
     pub fn visible(&self) -> TimeRange {
         let min = self.view_range.min - self.points_to_time(self.x_margin_left);

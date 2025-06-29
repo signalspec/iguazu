@@ -1,195 +1,206 @@
 use egui::{Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::AccentColor, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
 
 use crate::{color::named_color, ViewerContext};
 
-use super::{fixed_height_header, scale::{IdxScale, Scale}, TimelineResponse};
+use super::{fixed_height_header, scale::IdxScale, TimelineResponse};
 
-pub(crate) fn render(
-    vcx: &mut ViewerContext,
-    ui: &mut Ui,
-    scale: &Scale,
-    label: Option<&str>,
-    entity: &EntityStream,
-) -> TimelineResponse {
-    let rect = fixed_height_header(ui, scale, label, 32.0);
-    let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
-    if !ui.is_rect_visible(padded_rect) {
-        return TimelineResponse::default();
-    }
-
-    let Some(sample_rate) = entity.sample_rate() else {
-        return TimelineResponse::default();
-    };
-
-    let idx_scale = scale.idx_scale(sample_rate);
-
-    let color = named_color(entity.accent_color().unwrap_or(AccentColor::Green));
-
-    let font_id = egui::TextStyle::Body.resolve(ui.style());
-    let font_color = ui.style().visuals.text_color();
-
-    let painter = ui.painter_at(rect);
-    let stroke_width = 1.0;
-    let stroke = Stroke::new(stroke_width, color);
-
-    let Some(view) = vcx.view_manager.int_view(&entity) else {
-        return TimelineResponse::default();
-    };
-
-    let Some(fmt) = entity.formatter() else {
-        return TimelineResponse::default();
-    };
-
-    let state = view.state();
-    let range = IdxRange {
-        min: idx_scale.visible.min,
-        max: idx_scale.visible.max.min(state.end),
-    };
-
-    scan(&idx_scale, &view, range, |a, b| a==b, |x1, x2, _idx1, _idx2, val | {
-        let h_pad = 5.0;
-        let text_min_width = 8.0;
-        let tx = x1.max(padded_rect.left()) + h_pad;
-        if x2 - tx > text_min_width {
-            let opacity = ((x2 - tx - text_min_width) / 4.0).clamp(0.0, 1.0);
-            painter
-                .with_clip_rect(
-                    Rect::from_x_y_ranges(
-                        Rangef::new(tx, x2 - h_pad),
-                        padded_rect.y_range()
-                    )
-                )
-                .text(
-                    Pos2::new(tx, padded_rect.y_range().center()),
-                    Align2::LEFT_CENTER,
-                    fmt.format(val).to_string(),
-                    font_id.clone(), 
-                    font_color.gamma_multiply(opacity)
-                );
-        }
-        painter.hline(x1..=x2, padded_rect.bottom(), stroke);
-        painter.hline(x1..=x2, padded_rect.top(), stroke);
-        painter.vline(x2, padded_rect.y_range(), stroke);
-    });
-
-    TimelineResponse {
-        snap_to_time: None
-    }
+pub struct TraceRow<'a> {
+    view: IntView<'a>,
+    sample_rate: f64,
+    formatter: ValueFormatter<'a>,
+    label: Option<String>,
+    color: AccentColor,
 }
 
-pub(crate) fn render_logic(
-    vcx: &mut ViewerContext,
-    ui: &mut Ui,
-    scale: &Scale,
-    _label: Option<&str>,
-    entity: &EntityStream,
-) -> TimelineResponse {
-    let EntityKind::Logic { ref bits, .. } = entity.kind else {
-        return TimelineResponse::default();
-    };
+impl<'a> TraceRow<'a> {
+    pub fn new(vcx: &'a ViewerContext, entity: &'a EntityStream, label: Option<&str>) -> Option<Self> {
+        let sample_rate = entity.sample_rate()?;
+        let view = vcx.view_manager.int_view(entity)?;
+        let color = entity.accent_color().unwrap_or(AccentColor::Green);
+        let label = label.map(|s| s.to_string());
+        let formatter = entity.formatter()?;
 
-    let Some(sample_rate) = entity.sample_rate() else {
-        return TimelineResponse::default();
-    };
-    let idx_scale = scale.idx_scale(sample_rate);
+        Some(TraceRow { view, sample_rate, label, color, formatter })
+    }
 
-    let Some(view) = vcx.view_manager.int_view(&entity) else {
-        return TimelineResponse::default();
-    };
-
-    let state = view.state();
-
-    let range = IdxRange {
-        min: idx_scale.visible.min,
-        max: idx_scale.visible.max.min(state.end),
-    };
-
-    let font_id = egui::TextStyle::Body.resolve(ui.style());
-    let font_color = ui.style().visuals.text_color();
-
-    let interact_radius = ui.style().interaction.resize_grab_radius_side;
-    let mut snap_to_idx = None;
-
-    for (bit, field) in bits.iter().enumerate() {
-        let rect = fixed_height_header(ui, scale, Some(&field.name), 32.0);
+    pub fn render(&self, ui: &mut Ui, scale: &super::scale::Scale) -> TimelineResponse {
+        let rect = fixed_height_header(ui, scale, self.label.as_deref(), 32.0);
         let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
         if !ui.is_rect_visible(padded_rect) {
-            continue;
+            return TimelineResponse::default();
         }
-
-        let color = named_color(field.accent_color().unwrap_or(AccentColor::Green));
-
+    
+        let idx_scale = scale.idx_scale(self.sample_rate);
+    
+        let color = named_color(self.color);
+    
+        let font_id = egui::TextStyle::Body.resolve(ui.style());
+        let font_color = ui.style().visuals.text_color();
+    
         let painter = ui.painter_at(rect);
         let stroke_width = 1.0;
         let stroke = Stroke::new(stroke_width, color);
+    
+        let state = self.view.state();
+        let range = IdxRange {
+            min: idx_scale.visible.min,
+            max: idx_scale.visible.max.min(state.end),
+        };
+    
+        scan(&idx_scale, &self.view, range, |a, b| a==b, |x1, x2, _idx1, _idx2, val | {
+            let h_pad = 5.0;
+            let text_min_width = 8.0;
+            let tx = x1.max(padded_rect.left()) + h_pad;
+            if x2 - tx > text_min_width {
+                let opacity = ((x2 - tx - text_min_width) / 4.0).clamp(0.0, 1.0);
+                painter
+                    .with_clip_rect(
+                        Rect::from_x_y_ranges(
+                            Rangef::new(tx, x2 - h_pad),
+                            padded_rect.y_range()
+                        )
+                    )
+                    .text(
+                        Pos2::new(tx, padded_rect.y_range().center()),
+                        Align2::LEFT_CENTER,
+                        self.formatter.format(val).to_string(),
+                        font_id.clone(), 
+                        font_color.gamma_multiply(opacity)
+                    );
+            }
+            painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+            painter.hline(x1..=x2, padded_rect.top(), stroke);
+            painter.vline(x2, padded_rect.y_range(), stroke);
+        });
+    
+        TimelineResponse {
+            snap_to_time: None
+        }
+    }
+}
 
-        let mask = 1 << bit;
-        let eq = |v1: u64, v2: u64| {
-            v1 & mask == v2 & mask
+pub struct LogicRow<'a> {
+    view: IntView<'a>,
+    sample_rate: f64,
+    bits: Vec<(String, AccentColor)>,
+}
+
+impl<'a> LogicRow<'a> {
+    pub fn new(vcx: &'a ViewerContext, entity: &EntityStream, _label: Option<&str>) -> Option<Self> {
+        let EntityKind::Logic { bits, .. } = &entity.kind else {
+            return None;
         };
 
-        let hover_x = ui.input(|i| i.pointer.interact_pos())
-            .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
-            .map(|pos| pos.x);
+        let sample_rate = entity.sample_rate()?;
+        let view = vcx.view_manager.int_view(entity)?;
 
-        let mut prev_idx = None;
+        let bits = bits.iter().map(|bit| {
+            let name = bit.name.clone();
+            let color = bit.accent_color().unwrap_or(AccentColor::Green);
+            (name, color)
+        }).collect();
 
-        scan(&idx_scale, &view, range, eq, |x1, x2, idx1, idx2, val | {
-            if val & mask != 0 {
-                painter.hline(x1..=x2, padded_rect.top(), stroke);
-            } else {
-                painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+        Some(LogicRow { view, sample_rate, bits })
+    }
+
+    pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
+        let idx_scale = scale.idx_scale(self.sample_rate);
+    
+        let state = self.view.state();
+    
+        let range = IdxRange {
+            min: idx_scale.visible.min,
+            max: idx_scale.visible.max.min(state.end),
+        };
+    
+        let font_id = egui::TextStyle::Body.resolve(ui.style());
+        let font_color = ui.style().visuals.text_color();
+    
+        let interact_radius = ui.style().interaction.resize_grab_radius_side;
+        let mut snap_to_idx = None;
+    
+        for (bit, (name, color)) in self.bits.iter().enumerate() {
+            let rect = fixed_height_header(ui, scale, Some(name), 32.0);
+            let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
+            if !ui.is_rect_visible(padded_rect) {
+                continue;
             }
-
-            painter.vline(x2, padded_rect.y_range(), stroke);
-
-            if let Some(hover_x) = hover_x {
-                if (hover_x - x1).abs() < interact_radius {
-                    // Hovering the left edge of this span
-                    snap_to_idx = idx1;
-
-                    if let (Some(idx0), Some(idx2)) = (prev_idx, idx2) {
-                        let x0 = idx_scale.x_from_idx(idx0);
-
-                        let anchor = if x2 - x1 > 80.0 {
-                            Some(Align::LEFT)
-                        } else if x1 - x0 > 80.0 {
-                            Some(Align::RIGHT)
-                        } else { None };
-
-                        if let Some(anchor) = anchor {
-                            let span_rect = Rect::from_x_y_ranges(x0..=x2, padded_rect.y_range());
-                            let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx0);
-                            let text = width.format_period_as_freq().to_string();
-                            span_width_label(&painter, span_rect, x1 - anchor.to_sign() * 8.0, anchor, &font_id, font_color, text);
+    
+            let color = named_color(*color);
+    
+            let painter = ui.painter_at(rect);
+            let stroke_width = 1.0;
+            let stroke = Stroke::new(stroke_width, color);
+    
+            let mask = 1 << bit;
+            let eq = |v1: u64, v2: u64| {
+                v1 & mask == v2 & mask
+            };
+    
+            let hover_x = ui.input(|i| i.pointer.interact_pos())
+                .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
+                .map(|pos| pos.x);
+    
+            let mut prev_idx = None;
+    
+            scan(&idx_scale, &self.view, range, eq, |x1, x2, idx1, idx2, val | {
+                if val & mask != 0 {
+                    painter.hline(x1..=x2, padded_rect.top(), stroke);
+                } else {
+                    painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+                }
+    
+                painter.vline(x2, padded_rect.y_range(), stroke);
+    
+                if let Some(hover_x) = hover_x {
+                    if (hover_x - x1).abs() < interact_radius {
+                        // Hovering the left edge of this span
+                        snap_to_idx = idx1;
+    
+                        if let (Some(idx0), Some(idx2)) = (prev_idx, idx2) {
+                            let x0 = idx_scale.x_from_idx(idx0);
+    
+                            let anchor = if x2 - x1 > 80.0 {
+                                Some(Align::LEFT)
+                            } else if x1 - x0 > 80.0 {
+                                Some(Align::RIGHT)
+                            } else { None };
+    
+                            if let Some(anchor) = anchor {
+                                let span_rect = Rect::from_x_y_ranges(x0..=x2, padded_rect.y_range());
+                                let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx0);
+                                let text = width.format_period_as_freq().to_string();
+                                span_width_label(&painter, span_rect, x1 - anchor.to_sign() * 8.0, anchor, &font_id, font_color, text);
+                            }
                         }
-                    }
-                } else if (x1..x2 - interact_radius).contains(&hover_x) {
-                    // hovering within the span
-                    if let (Some(idx1), Some(idx2)) = (idx1, idx2) {
-                        if x2 - x1 > 80.0 {
-                            let span_rect = Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range());
-                            let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx1);
-                            let text = width.format_relative(idx_scale.sample_period()).to_string();
-                            span_width_label(&painter, span_rect, span_rect.x_range().center(), Align::Center, &font_id, font_color, text);
+                    } else if (x1..x2 - interact_radius).contains(&hover_x) {
+                        // hovering within the span
+                        if let (Some(idx1), Some(idx2)) = (idx1, idx2) {
+                            if x2 - x1 > 80.0 {
+                                let span_rect = Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range());
+                                let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx1);
+                                let text = width.format_relative(idx_scale.sample_period()).to_string();
+                                span_width_label(&painter, span_rect, span_rect.x_range().center(), Align::Center, &font_id, font_color, text);
+                            }
                         }
                     }
                 }
-            }
-
-            prev_idx = idx1;
+    
+                prev_idx = idx1;
+            });
+        }
+    
+        let snap_to_time = snap_to_idx.map(|idx| {
+            idx_scale.t_from_idx(idx)
         });
-    }
-
-    let snap_to_time = snap_to_idx.map(|idx| {
-        idx_scale.t_from_idx(idx)
-    });
-
-    TimelineResponse {
-        snap_to_time,
+    
+        TimelineResponse {
+            snap_to_time,
+        }
     }
 }
+
 
 fn scan(
     idx_scale: &IdxScale,

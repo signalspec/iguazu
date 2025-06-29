@@ -4,13 +4,14 @@ mod analog_row;
 mod trace_row;
 mod events_row;
 
+use analog_row::YAxisRow;
 use egui::{CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Vec2};
+use events_row::EventsRow;
 use iguazu::schema::{attribute::TimelineRow, EntityKind, EntityStream};
+use trace_row::{LogicRow, TraceRow};
 use crate::{ egui_util:: shadow_line::draw_shadow_line, time::TimeRange, Time, ViewerContext };
 
 use scale::Scale;
-
-pub struct TimelineView {}
 
 #[derive(Clone, Debug)]
 pub struct TimelineState {
@@ -40,6 +41,8 @@ impl TimelineState {
     }
 }
 
+pub struct TimelineView {}
+
 impl TimelineView {
     pub fn new() -> Self {
         Self { }
@@ -52,12 +55,6 @@ impl TimelineView {
         entity: &mut EntityStream,
     ) {
         let mut state: TimelineState = ui.data_mut(|d| d.get_temp(ui.id())).unwrap_or_default();
-        
-        //               |timeline            |
-        // ------------------------------------
-        // tree          |streams             |
-        //               |  . .   .    ...    |
-        //               |             ...  . |
 
         let rect = ui.max_rect();
 
@@ -115,16 +112,21 @@ impl TimelineView {
                 &streams_rect,
             );
 
+            let rows = timeline_rows(vcx, entity);
+
             let entity_response = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .drag_to_scroll(false)
                 .enable_scrolling(!streams_response.hovered())
                 .show(ui, |ui| {
-                    let entity_response = render_entity(vcx, ui, &scale, None, &entity);
+                    let mut res = TimelineResponse::default();
+                    for row in rows {
+                        res = res.merge(row.render(ui, &scale));
+                    }
 
                     // measure sidebar width for next frame
                     state.col_width = ui.min_rect().width();
-                    entity_response
+                    res
                 }).inner;
             
             {
@@ -224,36 +226,51 @@ impl TimelineResponse {
     }
 }
 
-fn render_entity(
-    vcx: &mut ViewerContext,
-    ui: &mut egui::Ui,
-    scale: &Scale,
-    label: Option<&str>,
-    entity: &EntityStream,
-) -> TimelineResponse {
-    match entity.timeline_row() {
-        None | Some(TimelineRow::Group) => {
-            let mut res = TimelineResponse::default();
+enum TimelineRowKind<'a> {
+    YAxis(YAxisRow<'a>),
+    Trace(TraceRow<'a>),
+    Logic(LogicRow<'a>),
+    Events(EventsRow<'a>),
+}
 
-            if let EntityKind::Group { children } | EntityKind::Record { children } = &entity.kind {
-                for (name, child) in children {
-                    res = res.merge(render_entity(vcx, ui, scale, Some(name), child));
+fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<TimelineRowKind<'a>> {
+    let mut rows = Vec::new();
+
+    fn inner<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, entity: &'a EntityStream, label: Option<&str>) {
+        match entity.timeline_row() {
+            None | Some(TimelineRow::Group) => {
+                if let EntityKind::Group { children } | EntityKind::Record { children } = &entity.kind {
+                    for (name, child) in children {
+                        inner(vcx, rows, child, Some(name))
+                    }
                 }
             }
+            Some(TimelineRow::YAxis) => {
+                rows.extend(YAxisRow::new(vcx, entity, label).map(TimelineRowKind::YAxis));
+            }
+            Some(TimelineRow::Trace) => {
+                rows.extend(TraceRow::new(vcx, entity, label).map(TimelineRowKind::Trace));
+            }
+            Some(TimelineRow::Logic) => {
+                rows.extend(LogicRow::new(vcx, entity, label).map(TimelineRowKind::Logic));
+            }
+            Some(TimelineRow::Events) => {
+                rows.extend(EventsRow::new(vcx, entity, label).map(TimelineRowKind::Events));
+            }
+        }
+    }
 
-            res
-        }
-        Some(TimelineRow::YAxis) => {
-            analog_row::render(vcx, ui, scale, label, entity)
-        }
-        Some(TimelineRow::Trace) => {
-            trace_row::render(vcx, ui, scale, label, entity)
-        }
-        Some(TimelineRow::Logic) => {
-            trace_row::render_logic(vcx, ui, scale, label, entity)
-        }
-        Some(TimelineRow::Events) => {
-            events_row::render(vcx, ui, scale, label, entity)
+    inner(vcx, &mut rows, entity, None);
+    rows
+}
+
+impl<'a> TimelineRowKind<'a> {
+    fn render(self, ui: &mut egui::Ui, scale: &Scale) -> TimelineResponse {
+        match self {
+            TimelineRowKind::YAxis(row) => row.render(ui, scale),
+            TimelineRowKind::Trace(row) => row.render(ui, scale),
+            TimelineRowKind::Logic(row) => row.render(ui, scale),
+            TimelineRowKind::Events(row) => row.render(ui, scale),
         }
     }
 }

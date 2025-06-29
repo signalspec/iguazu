@@ -61,7 +61,7 @@ impl<'a> NumberView<'a> {
         Some(self.format.decode(self.view.get_u64(idx)?))
     }
 
-    pub fn for_each_elem(&'a self, range: IdxRange, mut f: impl FnMut(Idx, Option<f64>)) {
+    pub fn for_each_elem(&self, range: IdxRange, mut f: impl FnMut(Idx, Option<f64>)) {
         self.view.for_each_elem(range, |i, elem| {
             let v = elem.map(|elem| {
                 self.format.decode(elem)
