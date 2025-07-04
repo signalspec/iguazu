@@ -253,7 +253,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
                 rows.extend(TraceRow::new(vcx, entity, label).map(TimelineRowKind::Trace));
             }
             Some(TimelineRow::Logic) => {
-                rows.extend(LogicRow::new(vcx, entity, label).map(TimelineRowKind::Logic));
+                rows.extend(LogicRow::each_bit(vcx, entity).into_iter().flatten().map(TimelineRowKind::Logic));
             }
             Some(TimelineRow::Events) => {
                 rows.extend(EventsRow::new(vcx, entity, label).map(TimelineRowKind::Events));

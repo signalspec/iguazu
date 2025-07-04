@@ -20,6 +20,7 @@ pub trait StreamAccess: Send  {
     fn reset(&mut self);
 }
 
+#[derive(Clone)]
 pub struct StreamDesc {
     pub element_type: ElementType,
     pub block_size: usize,

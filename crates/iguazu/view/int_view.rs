@@ -4,6 +4,7 @@ use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess, StreamDesc, 
 
 use super::ViewManager;
 
+#[derive(Clone)]
 pub struct IntView<'a> {
     view: &'a dyn StreamAccess,
     desc: StreamDesc,

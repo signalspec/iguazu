@@ -1,5 +1,5 @@
 use egui::{Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream, Field}, view::IntView, Idx, IdxRange};
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
@@ -89,12 +89,14 @@ impl<'a> TraceRow<'a> {
 
 pub struct LogicRow<'a> {
     view: IntView<'a>,
+    bit: u32,
     sample_rate: f64,
-    bits: Vec<(String, AccentColor)>,
+    label: Option<String>,
+    color: AccentColor,
 }
 
 impl<'a> LogicRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, entity: &EntityStream, _label: Option<&str>) -> Option<Self> {
+    pub fn each_bit(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Option<impl Iterator<Item = Self> + 'a> {
         let EntityKind::Logic { bits, .. } = &entity.kind else {
             return None;
         };
@@ -102,13 +104,14 @@ impl<'a> LogicRow<'a> {
         let sample_rate = entity.sample_rate()?;
         let view = vcx.view_manager.int_view(entity)?;
 
-        let bits = bits.iter().map(|bit| {
-            let name = bit.name.clone();
-            let color = bit.accent_color().unwrap_or(AccentColor::Green);
-            (name, color)
-        }).collect();
+        Some(bits.iter().enumerate().map(move |(bit, field)| {
+            let view = view.clone();
+            let bit = bit as u32;
+            let name = field.name.clone();
+            let color = field.accent_color().unwrap_or(AccentColor::Green);
 
-        Some(LogicRow { view, sample_rate, bits })
+            LogicRow { view, sample_rate, bit: bit as u32, label: Some(name), color }
+        }))
     }
 
     pub fn time_range(&self) -> TimeRange {
@@ -133,78 +136,76 @@ impl<'a> LogicRow<'a> {
     
         let interact_radius = ui.style().interaction.resize_grab_radius_side;
         let mut snap_to_idx = None;
-    
-        for (bit, (name, color)) in self.bits.iter().enumerate() {
-            let rect = fixed_height_header(ui, scale, Some(name), 32.0);
-            let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
-            if !ui.is_rect_visible(padded_rect) {
-                continue;
+
+        let rect = fixed_height_header(ui, scale, self.label.as_deref(), 32.0);
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
+        if !ui.is_rect_visible(padded_rect) {
+            return TimelineResponse::default();
+        }
+
+        let color = named_color(self.color);
+
+        let painter = ui.painter_at(rect);
+        let stroke_width = 1.0;
+        let stroke = Stroke::new(stroke_width, color);
+
+        let mask = 1 << self.bit;
+        let eq = |v1: u64, v2: u64| {
+            v1 & mask == v2 & mask
+        };
+
+        let hover_x = ui.input(|i| i.pointer.interact_pos())
+            .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
+            .map(|pos| pos.x);
+
+        let mut prev_idx = None;
+
+        scan(&idx_scale, &self.view, range, eq, |x1, x2, idx1, idx2, val | {
+            if val & mask != 0 {
+                painter.hline(x1..=x2, padded_rect.top(), stroke);
+            } else {
+                painter.hline(x1..=x2, padded_rect.bottom(), stroke);
             }
-    
-            let color = named_color(*color);
-    
-            let painter = ui.painter_at(rect);
-            let stroke_width = 1.0;
-            let stroke = Stroke::new(stroke_width, color);
-    
-            let mask = 1 << bit;
-            let eq = |v1: u64, v2: u64| {
-                v1 & mask == v2 & mask
-            };
-    
-            let hover_x = ui.input(|i| i.pointer.interact_pos())
-                .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
-                .map(|pos| pos.x);
-    
-            let mut prev_idx = None;
-    
-            scan(&idx_scale, &self.view, range, eq, |x1, x2, idx1, idx2, val | {
-                if val & mask != 0 {
-                    painter.hline(x1..=x2, padded_rect.top(), stroke);
-                } else {
-                    painter.hline(x1..=x2, padded_rect.bottom(), stroke);
-                }
-    
-                painter.vline(x2, padded_rect.y_range(), stroke);
-    
-                if let Some(hover_x) = hover_x {
-                    if (hover_x - x1).abs() < interact_radius {
-                        // Hovering the left edge of this span
-                        snap_to_idx = idx1;
-    
-                        if let (Some(idx0), Some(idx2)) = (prev_idx, idx2) {
-                            let x0 = idx_scale.x_from_idx(idx0);
-    
-                            let anchor = if x2 - x1 > 80.0 {
-                                Some(Align::LEFT)
-                            } else if x1 - x0 > 80.0 {
-                                Some(Align::RIGHT)
-                            } else { None };
-    
-                            if let Some(anchor) = anchor {
-                                let span_rect = Rect::from_x_y_ranges(x0..=x2, padded_rect.y_range());
-                                let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx0);
-                                let text = width.format_period_as_freq().to_string();
-                                span_width_label(&painter, span_rect, x1 - anchor.to_sign() * 8.0, anchor, &font_id, font_color, text);
-                            }
+
+            painter.vline(x2, padded_rect.y_range(), stroke);
+
+            if let Some(hover_x) = hover_x {
+                if (hover_x - x1).abs() < interact_radius {
+                    // Hovering the left edge of this span
+                    snap_to_idx = idx1;
+
+                    if let (Some(idx0), Some(idx2)) = (prev_idx, idx2) {
+                        let x0 = idx_scale.x_from_idx(idx0);
+
+                        let anchor = if x2 - x1 > 80.0 {
+                            Some(Align::LEFT)
+                        } else if x1 - x0 > 80.0 {
+                            Some(Align::RIGHT)
+                        } else { None };
+
+                        if let Some(anchor) = anchor {
+                            let span_rect = Rect::from_x_y_ranges(x0..=x2, padded_rect.y_range());
+                            let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx0);
+                            let text = width.format_period_as_freq().to_string();
+                            span_width_label(&painter, span_rect, x1 - anchor.to_sign() * 8.0, anchor, &font_id, font_color, text);
                         }
-                    } else if (x1..x2 - interact_radius).contains(&hover_x) {
-                        // hovering within the span
-                        if let (Some(idx1), Some(idx2)) = (idx1, idx2) {
-                            if x2 - x1 > 80.0 {
-                                let span_rect = Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range());
-                                let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx1);
-                                let text = width.format_relative(idx_scale.sample_period()).to_string();
-                                span_width_label(&painter, span_rect, span_rect.x_range().center(), Align::Center, &font_id, font_color, text);
-                            }
+                    }
+                } else if (x1..x2 - interact_radius).contains(&hover_x) {
+                    // hovering within the span
+                    if let (Some(idx1), Some(idx2)) = (idx1, idx2) {
+                        if x2 - x1 > 80.0 {
+                            let span_rect = Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range());
+                            let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx1);
+                            let text = width.format_relative(idx_scale.sample_period()).to_string();
+                            span_width_label(&painter, span_rect, span_rect.x_range().center(), Align::Center, &font_id, font_color, text);
                         }
                     }
                 }
-    
-                prev_idx = idx1;
-            });
-        }
-    
+            }
+
+            prev_idx = idx1;
+        });
+        
         let snap_to_time = snap_to_idx.map(|idx| {
             idx_scale.t_from_idx(idx)
         });
