@@ -3,7 +3,7 @@ use iguazu::{schema::{attribute::AccentColor, EntityStream}, view::{EventView, T
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
-use super::{fixed_height_header, TimelineResponse};
+use super::{label_frame, stream_rect, TimelineResponse};
 
 pub struct EventsRow<'a> {
     event_view: EventView<'a>,
@@ -34,8 +34,11 @@ impl<'a> EventsRow<'a> {
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
-        let rect = fixed_height_header(ui, scale, self.label.as_deref(), 32.0);
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
+        label_frame(ui, |ui| {
+            ui.label(self.label.as_deref().unwrap_or(""));
+        });
+        let rect = stream_rect(ui, scale);
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0));
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
         }

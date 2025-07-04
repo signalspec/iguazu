@@ -3,7 +3,7 @@ use iguazu::{schema::{attribute::{AccentColor, NumberRange}, EntityStream}, view
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
-use super::{fixed_height_header, TimelineResponse};
+use super::{label_frame, stream_rect, TimelineResponse};
 
 pub(crate) struct YAxisRow<'a> {
     sample_rate: f64,
@@ -37,7 +37,11 @@ impl<'a> YAxisRow<'a> {
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse{
-        let rect = fixed_height_header(ui, scale, self.label.as_deref(), 64.0);
+        label_frame(ui, |ui| {
+            ui.label(self.label.as_deref().unwrap_or(""));
+        });
+        let rect = stream_rect(ui, scale);
+
         let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
@@ -57,7 +61,7 @@ impl<'a> YAxisRow<'a> {
             max: (idx_scale.visible.max + 1).min(state.end),
         };
 
-        let v_margin = stroke_width * 2.0;
+        let v_margin = 4.0 + stroke_width * 2.0;
         let v_scale = -1.0 * (rect.height() - v_margin * 2.0) as f64 / (self.y_range.max - self.y_range.min);
         let v_offset = rect.bottom() - v_margin - (self.y_range.min * v_scale) as f32;
 

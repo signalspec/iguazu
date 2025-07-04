@@ -1,9 +1,9 @@
 use egui::{Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream, Field}, view::IntView, Idx, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
-use super::{fixed_height_header, scale::IdxScale, TimelineResponse};
+use super::{label_frame, scale::IdxScale, stream_rect, TimelineResponse};
 
 pub struct TraceRow<'a> {
     view: IntView<'a>,
@@ -32,8 +32,11 @@ impl<'a> TraceRow<'a> {
     }
 
     pub fn render(&self, ui: &mut Ui, scale: &super::scale::Scale) -> TimelineResponse {
-        let rect = fixed_height_header(ui, scale, self.label.as_deref(), 32.0);
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
+        label_frame(ui, |ui| {
+            ui.label(self.label.as_deref().unwrap_or(""));
+        });
+        let rect = stream_rect(ui, scale);
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0));
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
         }
@@ -122,6 +125,10 @@ impl<'a> LogicRow<'a> {
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
+        label_frame(ui, |ui| {
+            ui.label(self.label.as_deref().unwrap_or(""));
+        });
+        let rect = stream_rect(ui, scale);
         let idx_scale = scale.idx_scale(self.sample_rate);
     
         let state = self.view.state();
@@ -137,8 +144,7 @@ impl<'a> LogicRow<'a> {
         let interact_radius = ui.style().interaction.resize_grab_radius_side;
         let mut snap_to_idx = None;
 
-        let rect = fixed_height_header(ui, scale, self.label.as_deref(), 32.0);
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0));
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
         }

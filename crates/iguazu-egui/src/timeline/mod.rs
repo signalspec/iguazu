@@ -4,8 +4,10 @@ mod analog_row;
 mod trace_row;
 mod events_row;
 
+use std::iter::Sum;
+
 use analog_row::YAxisRow;
-use egui::{CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Vec2};
+use egui::{Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, UiBuilder, Vec2};
 use events_row::EventsRow;
 use iguazu::schema::{attribute::TimelineRow, EntityKind, EntityStream};
 use trace_row::{LogicRow, TraceRow};
@@ -108,6 +110,10 @@ impl TimelineView {
                 timeline_rect.bottom()..=rect.bottom(),
             );
 
+            let rows_height_request: HeightRequest = rows.iter().map(|row| row.height()).sum();
+            let extra_height = (streams_rect.height() - rows_height_request.min_height - 8.0).max(0.0);
+            let flex_height = extra_height / rows_height_request.flex.max(1.0);
+
             let streams_response = self.interact(
                 &mut state,
                 &scale,
@@ -120,9 +126,15 @@ impl TimelineView {
                 .drag_to_scroll(false)
                 .enable_scrolling(!streams_response.hovered())
                 .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(0.0, 0.0);
                     let mut res = TimelineResponse::default();
                     for row in rows {
-                        res = res.merge(row.render(ui, &scale));
+                        let height_request = row.height();
+                        let height = (height_request.min_height + flex_height * height_request.flex).floor();
+                        let mut child_ui = ui.new_child(UiBuilder::default().layout(Layout::top_down(Align::Min)));
+                        child_ui.set_height(height);
+                        res.merge(row.render(&mut child_ui, &scale));
+                        ui.advance_cursor_after_rect(child_ui.min_rect());
                     }
 
                     // measure sidebar width for next frame
@@ -220,10 +232,8 @@ struct TimelineResponse {
 }
 
 impl TimelineResponse {
-    fn merge(self, r: TimelineResponse) -> TimelineResponse {
-        TimelineResponse {
-            snap_to_time: self.snap_to_time.or(r.snap_to_time)
-        }
+    fn merge(&mut self, r: TimelineResponse) {
+        self.snap_to_time = self.snap_to_time.or(r.snap_to_time)
     }
 }
 
@@ -265,6 +275,20 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
     rows
 }
 
+struct HeightRequest {
+    min_height: f32,
+    flex: f32,
+}
+
+impl Sum for HeightRequest {
+    fn sum<I: Iterator<Item = HeightRequest>>(iter: I) -> HeightRequest {
+        iter.fold(HeightRequest { min_height: 0.0, flex: 0.0 }, |acc, h| HeightRequest {
+            min_height: acc.min_height + h.min_height,
+            flex: acc.flex + h.flex,
+        })
+    }
+}
+
 impl<'a> TimelineRowKind<'a> {
     fn render(self, ui: &mut egui::Ui, scale: &Scale) -> TimelineResponse {
         match self {
@@ -283,19 +307,28 @@ impl<'a> TimelineRowKind<'a> {
             TimelineRowKind::Events(row) => row.time_range(),
         }
     }
+
+    fn height(&self) -> HeightRequest {
+        match self {
+            TimelineRowKind::YAxis(_) => HeightRequest { min_height: 72.0, flex: 1.0 },
+            TimelineRowKind::Trace(_) => HeightRequest { min_height: 40.0, flex: 0.0 },
+            TimelineRowKind::Logic(_) => HeightRequest { min_height: 40.0, flex: 0.0 },
+            TimelineRowKind::Events(_) => HeightRequest { min_height: 40.0, flex: 0.0 },
+        }
+    }
 }
 
-fn fixed_height_header(ui: &mut egui::Ui, scale: &Scale, label: Option<&str>, height: f32) -> Rect {
-    let header_y_range = ui.horizontal(|ui| {
-        ui.set_height(height);
-        Frame::new()
-            .inner_margin(Margin::symmetric(6, 6))
-            .show(ui, |ui| {
-            ui.label(label.unwrap_or(""));
-        });
-    }).response.rect.y_range();
+fn label_frame<T>(ui: &mut egui::Ui, inner: impl FnOnce(&mut egui::Ui) -> T) -> T {
+    Frame::new()
+        .inner_margin(Margin::symmetric(6, 6))
+        .show(ui, |ui| {
+            inner(ui)
+        }).inner
+}
 
-    Rect::from_x_y_ranges(scale.x_range.clone(), header_y_range)
+fn stream_rect(ui: &egui::Ui, scale: &Scale) -> Rect {
+    let rect = ui.max_rect();
+    Rect::from_x_y_ranges(scale.x_range, rect.y_range())
 }
 
 /// A vertical line that shows the current time.
