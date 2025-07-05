@@ -259,7 +259,7 @@ impl<D> Entity<D> {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct NumberRange {
     pub min: f64,
     pub max: f64,

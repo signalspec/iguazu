@@ -1,9 +1,30 @@
-use egui::{Pos2, Stroke, Vec2};
+use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
 use iguazu::{schema::{attribute::{AccentColor, NumberRange}, EntityStream}, view::NumberView, IdxRange};
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
 use super::{label_frame, stream_rect, TimelineResponse};
+
+struct YScale {
+    scale: f64,
+    offset: f32,
+}
+
+impl YScale {
+    fn new(v_range: NumberRange, y_range: Rangef) -> Self {
+        let scale = -1.0 * y_range.span() as f64 / (v_range.max - v_range.min);
+        let offset = y_range.max - (v_range.min * scale) as f32;
+
+        YScale {
+            scale,
+            offset,
+        }
+    }
+
+    fn y_from_value(&self, value: f64) -> f32 {
+        (value * self.scale) as f32 + self.offset
+    }
+}
 
 pub(crate) struct YAxisRow<'a> {
     sample_rate: f64,
@@ -42,7 +63,10 @@ impl<'a> YAxisRow<'a> {
         });
         let rect = stream_rect(ui, scale);
 
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 4.0));
+        let stroke_width = 1.0;
+
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0 + stroke_width * 2.0));
+
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
         }
@@ -52,7 +76,6 @@ impl<'a> YAxisRow<'a> {
         let color = named_color(self.color);
 
         let painter = ui.painter_at(rect);
-        let stroke_width = 1.0;
         let stroke = Stroke::new(stroke_width, color);
 
         let state = self.view.state();
@@ -61,9 +84,8 @@ impl<'a> YAxisRow<'a> {
             max: (idx_scale.visible.max + 1).min(state.end),
         };
 
-        let v_margin = 4.0 + stroke_width * 2.0;
-        let v_scale = -1.0 * (rect.height() - v_margin * 2.0) as f64 / (self.y_range.max - self.y_range.min);
-        let v_offset = rect.bottom() - v_margin - (self.y_range.min * v_scale) as f32;
+        let y_scale = YScale::new(self.y_range, padded_rect.y_range());
+        draw_y_ticks(ui, self.y_range, &y_scale, rect);
 
         let mut last: Option<Pos2> = None;
 
@@ -75,7 +97,7 @@ impl<'a> YAxisRow<'a> {
         self.view.for_each_elem(x_range, |idx, val| {
             let pos = val.map(|val| Pos2 {
                 x: idx_scale.x_from_idx(idx),
-                y: (val * v_scale) as f32 + v_offset,
+                y: y_scale.y_from_value(val),
             });
 
             if dot_opacity > 0.0 {
@@ -101,4 +123,55 @@ impl<'a> YAxisRow<'a> {
         }
 
         }
+}
+
+fn generate_ticks(v_range: NumberRange, desired_tick_count: f64) -> impl Iterator<Item = f64> {
+    let v_span = (v_range.max - v_range.min).abs();
+    let mut step = 10.0f64.powf((v_span / desired_tick_count).log10().floor());
+
+    let err = desired_tick_count / v_span * step;
+    if err < 0.15 {
+        step *= 10.0;
+    } else if err < 0.35 {
+        step *= 5.0;
+    } else if err < 0.75 {
+        step *= 2.0;
+    }
+
+    let tick_min_i = (v_range.min / step).ceil() as i64;
+    let tick_max_i = (v_range.max / step).floor() as i64;
+
+    (tick_min_i..=tick_max_i).map(move |i| i as f64 * step)
+}
+
+#[test]
+fn test_generate_ticks() {
+    assert_eq!(
+        generate_ticks(NumberRange { min: 0.0, max: 100.0 }, 10.0).collect::<Vec<_>>(),
+        vec![0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
+    );
+
+    assert_eq!(
+        generate_ticks(NumberRange { min: -1.0, max: 1.0 }, 4.0).collect::<Vec<_>>(),
+        vec![-1.0, -0.5, 0.0, 0.5, 1.0]
+    );
+
+    assert_eq!(
+        generate_ticks(NumberRange { min: -10.0, max: 10.0 }, 8.0).collect::<Vec<_>>(),
+        vec![-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
+    );
+}
+
+fn draw_y_ticks(ui: &mut egui::Ui, v_range: NumberRange, y_scale: &YScale, rect: Rect) {
+    let desired_tick_spacing = 60.0;
+    let desired_tick_count = (rect.height() / desired_tick_spacing) as f64;
+
+    let painter = ui.painter_at(rect);
+    let stroke = Stroke::new(1.0, ui.ctx().style().visuals.widgets.noninteractive.bg_stroke.color);
+    let zero_stroke = Stroke::new(1.0, ui.ctx().style().visuals.widgets.noninteractive.fg_stroke.color);
+
+    for v in generate_ticks(v_range, desired_tick_count) {
+        let y = y_scale.y_from_value(v).round_to_pixel_center(ui.pixels_per_point());
+        painter.hline(rect.x_range(), y, if v == 0.0 { zero_stroke } else { stroke });
+    }
 }
