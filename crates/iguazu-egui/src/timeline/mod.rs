@@ -350,8 +350,7 @@ fn cursor_ui(
     let is_anything_being_dragged = ui.ctx().dragged_id().is_some();
 
     if !is_anything_being_dragged {
-        let mut stroke = ui.visuals().widgets.noninteractive.bg_stroke;
-        stroke.color = stroke.color.gamma_multiply(0.5);
+        let stroke = Stroke::new(1.0, ui.visuals().widgets.noninteractive.fg_stroke.color.gamma_multiply(0.2));
 
         painter.vline(
             pointer_x,
