@@ -1,7 +1,7 @@
 use egui::{Color32, Rect};
 
-pub fn draw_shadow_line(ui: &mut egui::Ui, rect: Rect, direction: egui::Direction) {
-    let color_dark = ui.visuals().extreme_bg_color.gamma_multiply(0.3);
+pub fn draw_shadow_line(ui: &mut egui::Ui, rect: Rect, direction: egui::Direction, opacity: f32) {
+    let color_dark = ui.visuals().extreme_bg_color.gamma_multiply(opacity);
     let color_bright = Color32::TRANSPARENT;
 
     let (left_top, right_top, left_bottom, right_bottom) = match direction {

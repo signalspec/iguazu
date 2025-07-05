@@ -7,7 +7,7 @@ mod events_row;
 use std::iter::Sum;
 
 use analog_row::YAxisRow;
-use egui::{emath::GuiRounding, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, UiBuilder, Vec2};
+use egui::{emath::GuiRounding, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
 use iguazu::schema::{attribute::TimelineRow, EntityKind, EntityStream};
 use trace_row::{LogicRow, TraceRow};
@@ -133,6 +133,16 @@ impl TimelineView {
                         let height = (height_request.min_height + flex_height * height_request.flex).floor();
                         let mut child_ui = ui.new_child(UiBuilder::default().layout(Layout::top_down(Align::Min)));
                         child_ui.set_height(height);
+
+                        let top = child_ui.min_rect().top();
+                        ui.painter().hline(
+                            time_x_range, 
+                            top.round_to_pixel_center(ui.pixels_per_point()),
+                            Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color.gamma_multiply(0.2))
+                        );
+                        let shade_rect = Rect::from_x_y_ranges(time_x_range, top..=(top + 16.0));
+                        draw_shadow_line(ui, shade_rect, egui::Direction::TopDown, 0.15);
+
                         res.merge(row.render(&mut child_ui, &scale));
                         ui.advance_cursor_after_rect(child_ui.min_rect());
                     }
@@ -151,7 +161,7 @@ impl TimelineView {
                     rect.y_range().clone(),
                 );
 
-                draw_shadow_line(ui, rect, egui::Direction::LeftToRight);
+                draw_shadow_line(ui, rect, egui::Direction::LeftToRight, 0.4);
             }
 
             let cursor_x = entity_response.snap_to_time.map(|snap_to_time| {
