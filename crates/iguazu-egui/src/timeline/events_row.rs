@@ -1,4 +1,4 @@
-use egui::{Align2, Color32, Rect, Stroke, Vec2};
+use egui::{emath::GuiRounding, Align2, Color32, Rect, Stroke, Vec2};
 use iguazu::{schema::{attribute::AccentColor, EntityStream}, view::{EventView, TextView}, IdxRange};
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
@@ -37,8 +37,10 @@ impl<'a> EventsRow<'a> {
         label_frame(ui, |ui| {
             ui.label(self.label.as_deref().unwrap_or(""));
         });
+        
         let rect = stream_rect(ui, scale);
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0));
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0))
+            .round_to_pixel_center(ui.pixels_per_point());
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
         }

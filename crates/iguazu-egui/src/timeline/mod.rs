@@ -7,7 +7,7 @@ mod events_row;
 use std::iter::Sum;
 
 use analog_row::YAxisRow;
-use egui::{Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, UiBuilder, Vec2};
+use egui::{emath::GuiRounding, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, UiBuilder, Vec2};
 use events_row::EventsRow;
 use iguazu::schema::{attribute::TimelineRow, EntityKind, EntityStream};
 use trace_row::{LogicRow, TraceRow};
@@ -94,7 +94,7 @@ impl TimelineView {
 
             ui.painter().hline(
                 rect.x_range(),
-                timeline_rect.bottom(),
+                timeline_rect.bottom().round_to_pixel_center(ui.pixels_per_point()),
                 ui.visuals().widgets.noninteractive.bg_stroke,
             );
 

@@ -1,4 +1,4 @@
-use egui::{Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
+use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
 use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
@@ -36,7 +36,8 @@ impl<'a> TraceRow<'a> {
             ui.label(self.label.as_deref().unwrap_or(""));
         });
         let rect = stream_rect(ui, scale);
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0));
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0))
+            .round_to_pixel_center(ui.pixels_per_point());
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
         }
@@ -144,7 +145,8 @@ impl<'a> LogicRow<'a> {
         let interact_radius = ui.style().interaction.resize_grab_radius_side;
         let mut snap_to_idx = None;
 
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0));
+        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0))
+            .round_to_pixel_center(ui.pixels_per_point());
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
         }
@@ -165,7 +167,6 @@ impl<'a> LogicRow<'a> {
             .map(|pos| pos.x);
 
         let mut prev_idx = None;
-
         scan(&idx_scale, &self.view, range, eq, |x1, x2, idx1, idx2, val | {
             if val & mask != 0 {
                 painter.hline(x1..=x2, padded_rect.top(), stroke);

@@ -1,11 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use clap::Parser;
-use eframe::egui;
+use eframe::{egui, CreationContext};
 use egui::Frame;
 
 use futures_lite::future::block_on;
-use iguazu::{cli::ImportOpts, import::IMPORTERS, schema::{attribute::DefaultView, EntityStream}};
+use iguazu::{cli::ImportOpts, import::IMPORTERS, schema::{attribute::DefaultView, Entity, EntityStream}, stream::ArcStream};
 use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
 
 #[derive(Parser)]
@@ -26,12 +26,6 @@ fn main() -> Result<(), eframe::Error> {
 
     let view = entity.display_default();
 
-    let app = App {
-        view,
-        entity,
-        vctx: ViewerContext::new(),
-    };
-
     let options = eframe::NativeOptions {
         ..Default::default()
     };
@@ -39,7 +33,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Iguazu Viewer",
         options,
-        Box::new(|_cc| Ok(Box::new(app))),
+        Box::new(|cc| Ok(Box::new(App::new(cc, entity, view)))),
     )
 }
 
@@ -47,6 +41,21 @@ struct App {
     entity: EntityStream,
     view: Option<DefaultView>,
     vctx: ViewerContext,
+}
+impl App {
+    fn new(cc: &CreationContext, entity: Entity<ArcStream>, view: Option<DefaultView>) -> Self {
+        cc.egui_ctx.tessellation_options_mut(|o| {
+            // Rounding causes jitter and gaps in timeline logic traces
+            o.round_line_segments_to_pixels = false;
+            o.round_rects_to_pixels = false;
+        });
+
+        App {
+            view,
+            entity,
+            vctx: ViewerContext::new(),
+        }
+    }
 }
 
 impl eframe::App for App {
