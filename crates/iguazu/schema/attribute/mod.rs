@@ -34,6 +34,13 @@ impl AttributeMap {
     }
 }
 
+impl FromIterator<(EcoString, AttributeValue)> for AttributeMap {
+    fn from_iter<T: IntoIterator<Item = (EcoString, AttributeValue)>>(iter: T) -> Self {
+        let attributes = IndexMap::from_iter(iter);
+        AttributeMap { attributes }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttributeValue {
     String(EcoString),

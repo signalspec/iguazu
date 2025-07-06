@@ -5,7 +5,7 @@ pub mod storage;
 pub mod io;
 pub mod view;
 
-#[cfg(feature = "clap")]
+#[cfg(all(feature="clap", any(target_family = "unix", target_family = "windows")))]
 pub mod cli;
 
 pub type Idx = u64;
