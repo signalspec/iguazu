@@ -1,8 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Debug, io, mem, sync::Arc};
+use std::{cell::RefCell, collections::{hash_map, HashMap, HashSet}, fmt::Debug, future::Future, io, sync::Arc, task::{Context, Poll, Waker}};
 
+use async_executor::{Executor, Task};
 use elsa::FrozenMap;
-use futures_lite::future::block_on;
-use log::{debug, error};
+use futures_lite::FutureExt;
 
 use crate::{import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{ElementType, Stream, StreamAccess, StreamDesc, StreamState}};
 
@@ -31,6 +31,7 @@ pub struct FlatFileStream {
     block_size: usize,
     block_size_bytes: usize,
     element_type: ElementType,
+    executor: Arc<Executor<'static>>,
 }
 
 impl Debug for FlatFileStream {
@@ -42,7 +43,7 @@ impl Debug for FlatFileStream {
 }
 
 impl FlatFileStream {
-    pub async fn new(file: Arc<dyn ReadableFile>, opts: FlatFileOpts) -> Result<Self, io::Error> {
+    pub async fn new(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>, opts: FlatFileOpts) -> Result<Self, io::Error> {
         let file_len = file.clone().get_len().await?;
         
         let offset = opts.offset;
@@ -51,13 +52,13 @@ impl FlatFileStream {
         let block_size = opts.block_size;
         let block_size_bytes = block_size.saturating_mul(element_type.bytes() as usize);
 
-        Ok(FlatFileStream { file, offset, count, block_size, block_size_bytes, element_type })
+        Ok(FlatFileStream { file, offset, count, block_size, block_size_bytes, element_type, executor })
     }
 
-    pub async fn entity(file: Arc<dyn ReadableFile>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
+    pub async fn entity(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
         let _ = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
-        let stream = Self::new(file, opts).await.map_err(ImportError::Io)?;
+        let stream = Self::new(file, executor, opts).await.map_err(ImportError::Io)?;
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 
@@ -65,12 +66,9 @@ impl FlatFileStream {
         self.offset.saturating_add((self.block_size_bytes as u64).saturating_mul(block))
     }
 
-    async fn load_block(&self, block: u64) -> Result<Vec<u8>, io::Error> {
+    fn load_block(&self, block: u64) -> impl Future<Output = Result<Vec<u8>, io::Error>> + Send + 'static {
         let offset = self.block_offset(block);
-        debug!("Loading block of {self:?} at {offset}");
-        self.file.clone().read_at(offset, self.block_size_bytes).await.inspect_err(|e| {
-            error!("Failed to read block of {:?} at {offset}: {e}", self);
-        })
+        self.file.clone().read_at(offset, self.block_size_bytes)
     }
 }
 
@@ -90,41 +88,88 @@ impl Stream for FlatFileStream {
     }
     
     fn access(self: Arc<Self>) -> Box<dyn crate::stream::StreamAccess> {
-        Box::new(FileStreamAccess { stream: self, blocks: FrozenMap::new(), prev_blocks: RefCell::new(HashMap::new()) })
+        Box::new(FileStreamAccess {
+            stream: self,
+            blocks: FrozenMap::new(),
+            state: RefCell::new(FileStreamAccessState { 
+                used: HashSet::new(),
+                loading: HashMap::new(),
+                error: None
+            }),
+            waker: Waker::noop().clone(),
+        })
     }
 }
 
 struct FileStreamAccess {
     stream: Arc<FlatFileStream>,
-    prev_blocks: RefCell<HashMap<u64, Vec<u8>>>,
     blocks: FrozenMap<u64, Vec<u8>>,
+    state: RefCell<FileStreamAccessState>,
+    waker: Waker,
+}
+
+struct FileStreamAccessState {
+    used: HashSet<u64>,
+    loading: HashMap<u64, Task<Result<Vec<u8>, io::Error>>>,
+    error: Option<io::Error>,
 }
 
 impl StreamAccess for FileStreamAccess {
     fn get_block(&self, block: u64) -> &[u8] {
+        let mut state = self.state.borrow_mut();
+        state.used.insert(block);
+
         if let Some(buf) = self.blocks.get(&block) {
+            // Block is already loaded
             return buf;
         }
 
-        let buf = if let Some(buf) = self.prev_blocks.borrow_mut().remove(&block) {
-            buf
-        } else if let Ok(buf) = block_on(self.stream.load_block(block)) {
-            buf
-        } else {
-            return &[];
+        let is_error = state.error.is_some();
+        let mut entry = match state.loading.entry(block) {
+            hash_map::Entry::Occupied(entry) => entry,
+            hash_map::Entry::Vacant(entry) => {
+                // Block is not loaded, start loading
+                if is_error {
+                    return &[];
+                }
+
+                log::debug!("Loading block {block} of {}", self.stream.file.filename().unwrap_or("<unknown>"));
+
+                entry.insert_entry(self.stream.executor.spawn(self.stream.load_block(block)))
+            }
         };
 
-        self.blocks.insert(block, buf)
+        let mut cx = Context::from_waker(&self.waker);
+        if let Poll::Ready(res) = entry.get_mut().poll(&mut cx) {
+            drop(entry.remove());
+            match res {
+                Ok(buf) => {
+                    log::debug!("Block {block} of {} finished loading", self.stream.file.filename().unwrap_or("<unknown>"));
+                    return self.blocks.insert(block, buf);
+                }
+                Err(e) => {
+                    log::error!("Block {block} of {} failed to load: {}", self.stream.file.filename().unwrap_or("<unknown>"), e);
+                    state.error = Some(e);
+                }
+            }
+        }
+
+        log::trace!("Block {block} of {} is still loading", self.stream.file.filename().unwrap_or("<unknown>"));
+
+        return &[];
     }
 
     fn state(&self) -> StreamState {
         self.stream.state()
     }
 
-    fn reset(&mut self) {
-        let blocks = mem::take(&mut self.blocks).into_map();
-        let mut next_blocks = self.prev_blocks.replace(blocks);
-        next_blocks.clear();
-        self.blocks = FrozenMap::from(next_blocks);
+    fn begin(&mut self, waker: &Waker) {
+        self.waker = waker.clone();
+    }
+
+    fn end(&mut self) {
+        let mut state = self.state.borrow_mut();
+        self.blocks.as_mut().retain(|block, _| state.used.contains(block));
+        state.used.clear();
     }
 }

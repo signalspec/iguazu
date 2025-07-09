@@ -1,4 +1,4 @@
-use std::{mem, sync::Arc};
+use std::{ sync::Arc, task::Waker};
 
 use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess}};
 
@@ -18,25 +18,30 @@ pub use event_view::{ EventView, EventViewIter, Event };
 mod text_view;
 pub use text_view::TextView;
 
-#[derive(Default)]
 pub struct ViewManager {
+    waker: Waker,
     streams: FrozenMap<usize, Box<dyn StreamAccess>>,
 }
 
 impl ViewManager {
-    pub fn new() -> Self {
+    pub fn new(waker: Waker) -> Self {
         ViewManager {
+            waker,
             streams: FrozenMap::default(),
         }
     }
 
-    pub fn update(&mut self) {
-        let mut streams = mem::take(&mut self.streams).into_map();
-        for (_, stream) in streams.iter_mut() {
-            stream.reset();
+    pub fn begin(&mut self) {
+        for (_, stream) in self.streams.as_mut().iter_mut() {
+            stream.begin(&self.waker);
+        }
+    }
+
+    pub fn end(&mut self) {
+        for (_, stream) in self.streams.as_mut().iter_mut() {
+            stream.end();
         }
         // TODO: clear stale streams
-        self.streams = streams.into();
     }
 }
 

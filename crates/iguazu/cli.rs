@@ -1,5 +1,6 @@
 use std::{path::PathBuf, pin::Pin, sync::Arc};
 
+use async_executor::Executor;
 use clap::Args;
 
 use crate::{import::{ImportError, ImportFormats, Importer}, io::{FsFile, ReadableFile}, schema::{EntitySchema, EntityStream}};
@@ -53,9 +54,9 @@ impl ImportOpts {
         }
     }
 
-    pub async fn import(&self, importers: ImportFormats<'_>) -> Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), String> {
+    pub async fn import(&self, importers: ImportFormats<'_>, executor: Arc<Executor<'static>>) -> Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), String> {
         let importer = self.importer(importers).await?;
         let schema = self.schema().await?;
-        importer.import(schema).await.map_err(|e| format!("Failed to import {}: {}", self.filename.display(), e))
+        importer.import(schema, executor).await.map_err(|e| format!("Failed to import {}: {}", self.filename.display(), e))
     }
 }

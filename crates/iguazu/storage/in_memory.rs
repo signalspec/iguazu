@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, task::Waker};
 use std::fmt::Debug;
 
 use append_array::{AppendArrayWriter, AppendArray};
@@ -69,7 +69,8 @@ impl StreamAccess for MemoryStreamAccess {
         self.stream.state()
     }
 
-    fn reset(&mut self) {}
+    fn begin(&mut self, _waker: &Waker) {}
+    fn end(&mut self) {}
 }
 
 pub struct MemoryStreamWriter {

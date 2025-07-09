@@ -8,6 +8,9 @@ use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), eframe::Error> {
+    use std::sync::Arc;
+    use std::future;
+
     use clap::Parser;
     use futures_lite::future::block_on;
 
@@ -26,7 +29,15 @@ fn main() -> Result<(), eframe::Error> {
 
     let cli = Cli::parse();
 
-    let (entity, completion) = block_on(cli.import.import(IMPORTERS)).expect("Failed to load file");
+    let executor = Arc::new(async_executor::Executor::new());
+    std::thread::spawn({
+        let executor = executor.clone();
+        move || {
+            block_on(executor.run(future::pending::<()>()));
+        }
+    });
+
+    let (entity, completion) = block_on(cli.import.import(IMPORTERS, executor)).expect("Failed to load file");
     block_on(completion).expect("Failed to complete import");
 
     let view = entity.display_default();
@@ -131,7 +142,7 @@ impl App {
         App {
             view,
             entity,
-            vctx: ViewerContext::new(),
+            vctx: ViewerContext::new(&cc.egui_ctx),
         }
     }
 }
@@ -142,6 +153,8 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.vctx.begin();
+
         let frame = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
             match self.view {
@@ -153,6 +166,6 @@ impl eframe::App for App {
             }
         });
 
-        self.vctx.update();
+        self.vctx.end();
     }
 }

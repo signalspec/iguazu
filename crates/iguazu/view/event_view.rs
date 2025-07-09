@@ -150,8 +150,9 @@ impl Iterator for EventViewIter<'_, '_> {
 fn test_event_view() {
     use crate::storage::MemoryStream;
     use crate::schema::{ EntityKind, Field };
+    use std::task::Waker;
 
-    let vm = super::ViewManager::new();
+    let vm = super::ViewManager::new(Waker::noop().clone());
 
     let data = MemoryStream::new(&[
         1000u64, 1010,

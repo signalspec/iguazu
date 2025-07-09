@@ -5,6 +5,7 @@ mod csv;
 
 use std::{pin::Pin, sync::Arc};
 
+use async_executor::Executor;
 use thiserror::Error;
 
 use crate::{io::ReadableFile, schema::{EntitySchema, EntityStream}};
@@ -24,7 +25,7 @@ pub enum ImportError {
 pub trait Importer {
     fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>>;
 
-    fn import(self: Box<Self>, schema: Option<EntitySchema>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>>;
+    fn import(self: Box<Self>, schema: Option<EntitySchema>, executor: Arc<Executor<'static>>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>>;
 }
 
 pub struct ImportFormat {
@@ -39,8 +40,8 @@ impl ImportFormat {
         self.extensions.iter().any(|ext| name.ends_with(ext))
     }
 
-    pub fn import(&self, f: Arc<dyn ReadableFile>) -> Box<dyn Importer> {
-        (self.import)(f)
+    pub fn import(&self, file: Arc<dyn ReadableFile>) -> Box<dyn Importer> {
+        (self.import)(file)
     }
 }
 

@@ -1,5 +1,5 @@
 use core::fmt;
-use std::fmt::{Formatter, Write};
+use std::{fmt::{Formatter, Write}};
 
 use crate::{schema::{EntityKind, EntityStream }, stream::StreamState, Idx};
 
@@ -177,8 +177,9 @@ impl std::fmt::Display for FormatValue<'_, '_> {
 #[test]
 fn test_textview() {
     use crate::storage::MemoryStream;
+    use std::task::Waker;
 
-    let vm = super::ViewManager::new();
+    let vm = super::ViewManager::new(Waker::noop().clone());
 
     let bits = EntityStream::new(
         EntityKind::Bits { bits: 2, data: MemoryStream::new::<u8>(&[0b10, 0b01, 0b00]) },

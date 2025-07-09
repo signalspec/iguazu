@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, task::Waker};
 use crate::Idx;
 
 pub trait Stream: Send + Sync + Debug {
@@ -17,7 +17,9 @@ pub trait StreamAccess: Send  {
 
     fn state(&self) -> StreamState;
 
-    fn reset(&mut self);
+    fn begin(&mut self, waker: &Waker);
+
+    fn end(&mut self);
 }
 
 #[derive(Clone)]
