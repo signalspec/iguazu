@@ -99,4 +99,9 @@ impl MemoryStreamWriter {
             self.stream.blocks.push(self.writer.reader());
         }
     }
+
+    pub fn pos(&self) -> u64 {
+        let n_blocks = self.stream.blocks.len();
+        ((n_blocks - 1) * BLOCK_SIZE + (self.writer.len() / self.stream.element_type.bytes())) as u64
+    }
 }

@@ -1621,6 +1621,7 @@ name = "iguazu"
 version = "0.1.0"
 dependencies = [
  "append-array",
+ "arrayvec",
  "async-executor",
  "async-trait",
  "blocking",

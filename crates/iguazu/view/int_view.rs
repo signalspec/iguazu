@@ -1,6 +1,6 @@
-use std::{cell::RefCell, u64};
+use std::{cell::RefCell, marker::PhantomData, u64};
 
-use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess, StreamDesc, StreamState}, Idx, IdxRange};
+use crate::{schema::EntityStream, stream::{ArcStream, Element, StreamAccess, StreamDesc, StreamState}, Idx, IdxRange};
 
 use super::ViewManager;
 
@@ -36,11 +36,7 @@ impl<'a> IntView<'a> {
         IdxRange { min: 0, max: self.state().end }
     }
 
-    pub fn get_u64(&self, idx: Idx) -> Option<u64> {
-        let block = idx / self.desc.block_size as Idx;
-        let pos = idx % self.desc.block_size as Idx;
-        let byte_pos = pos as usize * self.desc.element_type.bytes();
-
+    fn block(&self, block: u64) -> &'a [u8] {
         let mut cache = self.cache.borrow_mut();
 
         if cache.0 != block {
@@ -48,10 +44,22 @@ impl<'a> IntView<'a> {
             cache.1 = self.view.get_block(block);
         }
 
-        let elem = cache.1.get(byte_pos .. byte_pos + self.desc.element_type.bytes())?;
+        cache.1
+    }
+
+    pub fn get_u64(&self, idx: Idx) -> Option<u64> {
+        let block = idx / self.desc.block_size as Idx;
+        let pos = idx % self.desc.block_size as Idx;
+        let byte_pos = pos as usize * self.desc.element_type.bytes();
+
+        let elem = self.block(block).get(byte_pos .. byte_pos + self.desc.element_type.bytes())?;
         let mut data = [0; 8];
         data[..elem.len()].copy_from_slice(elem);
         Some(u64::from_le_bytes(data))
+    }
+    
+    pub fn loaded_chunks<'v, T: Element>(&'v self, range: IdxRange) -> LoadedChunkIter<'v, 'a, T> {
+        LoadedChunkIter::new(self, range)
     }
 
     pub fn for_each_elem(&self, range: IdxRange, mut f: impl FnMut(Idx, Option<u64>)) {
@@ -75,5 +83,56 @@ impl<'a> IntView<'a> {
                 f(i, None)
             }
         }
+    }
+}
+
+
+pub struct LoadedChunkIter<'v, 'a, T> {
+    view: &'v IntView<'a>,
+    block: u64,
+    pos: usize,
+    remaining: u64,
+    dtype: PhantomData<T>,
+}
+
+
+impl<'v, 'a, T: Element> LoadedChunkIter<'v, 'a, T> {
+    fn new(view: &'v IntView<'a>, range: IdxRange) -> Self {
+        assert_eq!(view.desc.element_type, T::ELEMENT_TYPE, "Element type mismatch in ChunkIter");
+        let block_size = view.desc.block_size as u64;
+        let block = range.min / block_size;
+        let pos = (range.min % block_size) as usize;
+        let remaining = range.len();
+        LoadedChunkIter { view, block, pos, remaining, dtype: PhantomData }
+    }
+}
+
+impl<'v, 'a, T: Element> Iterator for LoadedChunkIter<'v, 'a, T> {
+    type Item = &'a [T];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let data = bytemuck::cast_slice::<u8, T>(self.view.block(self.block));
+        let is_fully_loaded = data.len() == self.view.desc.block_size;
+
+        if data.len() <= self.pos {
+            return None;
+        }
+
+        let data = &data[self.pos..];
+        let data = &data[..self.remaining.min(data.len() as u64) as usize];
+
+        if is_fully_loaded {
+            self.block += 1;
+            self.pos = 0;
+            self.remaining -= data.len() as u64;
+        } else {
+            self.remaining = 0;
+        }
+
+        Some(data)
     }
 }

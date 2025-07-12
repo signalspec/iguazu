@@ -48,6 +48,9 @@ fn info_tree_inner<D>(w: &mut impl Write, prefix: &str, name: &str, entity: &Ent
         EntityKind::Logic { .. } => {
             header_line(w, name, "Logic")?;
         }
+        EntityKind::Character { .. } => {
+            header_line(w, name, "Character")?;
+        }
         EntityKind::Number { .. } => {
             header_line(w, name, "Number")?;
         }

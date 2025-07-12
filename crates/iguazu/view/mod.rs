@@ -4,7 +4,7 @@ use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess}};
 
 mod int_view;
 use elsa::FrozenMap;
-pub use int_view::IntView;
+pub use int_view:: { IntView, LoadedChunkIter };
 
 mod number_view;
 pub use number_view::NumberView;

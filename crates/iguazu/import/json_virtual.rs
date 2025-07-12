@@ -108,6 +108,10 @@ pub async fn load(file: Arc<dyn ReadableFile>, io_executor: Arc<Executor<'static
                     let data = create_stream(src_file, io_executor, data).await?;
                     Ok(EntityStream { kind: EntityKind::Logic { bits, data }, attributes })
                 }
+                EntityKind::Character { data } => {
+                    let data = create_stream(src_file, io_executor, data).await?;
+                    Ok(EntityStream { kind: EntityKind::Character { data }, attributes })
+                }
                 EntityKind::Timestamp { data, sample_rate } => {
                     let data = create_stream(src_file, io_executor, data).await?;
                     Ok(EntityStream { kind: EntityKind::Timestamp { sample_rate, data }, attributes })

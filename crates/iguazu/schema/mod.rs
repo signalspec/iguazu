@@ -60,6 +60,9 @@ pub enum EntityKind<S> {
         data: S,
         bits: Vec<Field>,
     },
+    Character {
+        data: S,
+    },
     Timestamp {
         data: S,
         sample_rate: f64,
@@ -195,6 +198,10 @@ impl<S> Entity<S> {
                 let bits = bits.clone();
                 Ok(Entity { kind: EntityKind::Logic { bits, data }, attributes })
             }
+            EntityKind::Character { ref data } => {
+                let data = f(data)?;
+                Ok(Entity { kind: EntityKind::Character { data }, attributes })
+            }
             EntityKind::Timestamp { ref data, sample_rate } => {
                 let data = f(data)?;
                 Ok(Entity { kind: EntityKind::Timestamp { sample_rate, data }, attributes })
@@ -242,7 +249,7 @@ impl EntitySchema {
     pub fn single_stream(&self) -> Option<(&EntityKind<Ignored>, usize)> {
         match self.kind {
             EntityKind::Group { .. } | EntityKind::Record { .. } | EntityKind::VariableArray { .. } => None,
-            EntityKind::Bits { .. } | EntityKind::Number { .. } | EntityKind::Timestamp { .. } | EntityKind::Logic { .. } | EntityKind::Enum { .. } => {
+            EntityKind::Bits { .. } | EntityKind::Logic { .. } | EntityKind::Character { .. } | EntityKind::Number { .. } | EntityKind::Timestamp { .. }  | EntityKind::Enum { .. } => {
                 Some((&self.kind, 1))
             }
             EntityKind::FixedArray { ref child, elements } => {
@@ -262,6 +269,9 @@ impl EntitySchema {
             EntityKind::Group { .. } | EntityKind::Record { .. } | EntityKind::VariableArray { .. } => None,
             EntityKind::Bits { data: Ignored, bits  } => {
                 Some(Entity { kind: EntityKind::Bits { data, bits }, attributes })
+            }
+            EntityKind::Character { data: Ignored } => {
+                Some(Entity { kind: EntityKind::Character { data }, attributes })
             }
             EntityKind::Number { data: Ignored } => {
                 Some(Entity { kind: EntityKind::Number { data }, attributes })

@@ -83,6 +83,7 @@ impl CsvOptions {
 enum ColumnParser {
     Skip,
     Float32(MemoryStreamWriter),
+    String { ends: MemoryStreamWriter, chars: MemoryStreamWriter },
 }
 
 impl ColumnParser {
@@ -95,6 +96,11 @@ impl ColumnParser {
                 let f = lexical_core::parse::<f32>(value)
                     .map_err(|_| "float")?;
                 writer.extend_from_slice(&f.to_ne_bytes());
+                Ok(())
+            }
+            ColumnParser::String { ends, chars } => {
+                chars.extend_from_slice(value);
+                ends.extend_from_slice(&chars.pos().to_ne_bytes());
                 Ok(())
             }
         }
@@ -137,6 +143,31 @@ fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), 
             };
 
             (entity, ColumnParser::Float32(writer))
+        }
+
+        EntityKind::VariableArray { data: Ignored, ref child } => {
+            match child.kind {
+                EntityKind::Character { data: Ignored } => {
+                    let ends = MemoryStreamWriter::new(ElementType::U64);
+                    let chars = MemoryStreamWriter::new(ElementType::U8);
+
+                    let inner = Entity {
+                        kind: EntityKind::Character { data: chars.stream().clone() as Arc<dyn Stream> },
+                        attributes: child.attributes.clone(),
+                    };
+
+                    let entity = Entity {
+                        kind: EntityKind::VariableArray { data: ends.stream().clone() as Arc<dyn Stream>, child: Box::new(inner) },
+                        attributes: schema.attributes.clone(),
+                    };
+
+                    (entity, ColumnParser::String { ends, chars })
+                }
+
+                ref k => {
+                    return Err(ImportError::SchemaMismatch(format!("VariableArray child type {:?} not supported in CSV column", k)));
+                }
+            }
         }
 
         ref k => {

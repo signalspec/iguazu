@@ -1,9 +1,12 @@
 use core::fmt;
-use std::{fmt::{Formatter, Write}};
+use std::fmt::{Formatter, Write};
 
-use crate::{schema::{EntityKind, EntityStream }, stream::StreamState, Idx};
+use arrayvec::ArrayVec;
+
+use crate::{schema::{EntityKind, EntityStream }, stream::{ElementType, StreamState}, Idx, IdxRange};
 
 use super::{EnumView, IntView, NumberView, ViewManager};
+use crate::util::utf8::DisplayUtf8Lossy;
 pub struct TextView<'a>(Vec<Element<'a>>);
 
 enum Element<'a> {
@@ -12,6 +15,8 @@ enum Element<'a> {
     Hex(IntView<'a>, u32),
     Num(NumberView<'a>),
     Enum(EnumView<'a>, Vec<TextView<'a>>),
+    Utf8Char(IntView<'a>),
+    Utf8Str { ends: IntView<'a>, chars: IntView<'a>},
 }
 
 impl<'a> TextView<'a> {
@@ -71,6 +76,9 @@ impl<'a> TextView<'a> {
                 EntityKind::Logic { ref bits, ref data } => {
                     elements.push(Element::Bin(IntView::new_from_stream(vm, data), bits.len() as u32))
                 },
+                EntityKind::Character { ref data } => {
+                    elements.push(Element::Utf8Char(IntView::new_from_stream(vm, data)))
+                },
                 EntityKind::Number { .. } | EntityKind::Timestamp { .. } => {
                     if let Some(num) = vm.number_view(entity) {
                         elements.push(Element::Num(num))
@@ -96,8 +104,16 @@ impl<'a> TextView<'a> {
                 EntityKind::Tuple { .. } => {
                     // TODO
                 }
-                EntityKind::VariableArray { .. } => {
-                    // TODO
+                EntityKind::VariableArray { data: ref ends, ref child } => {
+                    match child.kind {
+                        EntityKind::Character { data: ref chars } if chars.desc().element_type == ElementType::U8 => {
+                            elements.push(Element::Utf8Str {
+                                ends: IntView::new_from_stream(vm, ends),
+                                chars: IntView::new_from_stream(vm, chars)
+                            });
+                        }
+                        _ => {} // TODO
+                    }
                 }
             }
         }
@@ -143,6 +159,36 @@ impl<'a> TextView<'a> {
                         write!(fmt, "…")?;
                     }
                 }
+                Element::Utf8Char(ref view) => {
+                    if let Some(v) = view.get_u64(idx) {
+                        write!(fmt, "{}", (v as u8).escape_ascii())?;
+                    } else {
+                        write!(fmt, "…")?;
+                    }
+                }
+                Element::Utf8Str { ref ends, ref chars} => {
+                    const MAX_LEN: usize = 255;
+                    let start = if idx == 0 { Some(0) } else { ends.get_u64(idx - 1) };
+                    let end = ends.get_u64(idx);
+                    
+                    let (Some(min), Some(max)) = (start, end) else {
+                        write!(fmt, "…")?;
+                        continue;
+                    };
+
+                    let full_len = max - min;
+                    let mut buf = ArrayVec::<_, MAX_LEN>::new();
+
+                    for chunk in chars.loaded_chunks::<u8>(IdxRange { min, max: (min + full_len.min(MAX_LEN as u64)) }) {
+                        buf.try_extend_from_slice(chunk).unwrap();
+                    }
+
+                    if (buf.len() as u64) < full_len {
+                        write!(fmt, "{}…", DisplayUtf8Lossy::truncated(&buf))?;
+                    } else {
+                        write!(fmt, "{}", DisplayUtf8Lossy::new(&buf))?;
+                    }
+                }
             }
         }
 
@@ -159,6 +205,8 @@ impl<'a> TextView<'a> {
             Element::Bin(v, _) | Element::Hex(v, _) => v.state(),
             Element::Num(v) => v.state(),
             Element::Enum(v, _) => v.state(),
+            Element::Utf8Char(v) => v.state(),
+            Element::Utf8Str { ends, .. } => ends.state(),
         }).reduce(|a, b| StreamState {
             end: a.end.max(b.end),
             streaming: a.streaming || b.streaming,
@@ -200,7 +248,18 @@ fn test_textview() {
     let floats = EntityStream::new(
         EntityKind::Number { data: MemoryStream::new::<f32>(&[3333.25, 12.0, 0.5])},
     );
-    
+
+    let chars = EntityStream::new(
+        EntityKind::Character { data: MemoryStream::new::<u8>(b"abc1234") },
+    );
+
+    let strings = EntityStream::new(
+        EntityKind::VariableArray {
+            data: MemoryStream::new::<u64>(&[3, 7]),
+            child: Box::new(chars.clone()),
+        }
+    );
+
     let literal = bits.clone().with_attribute("text", "test");
     let literal_view = vm.text_view(&literal);
     assert_eq!(literal_view.format(0).to_string(), "test");
@@ -237,4 +296,11 @@ fn test_textview() {
     assert_eq!(record_view.format(1).to_string(), "test(10, 01)");
     assert_eq!(record_view.format(2).to_string(), "test(99, 00)");
     assert_eq!(record_view.format(3).to_string(), "test(123, …)");
+
+    let char_view = vm.text_view(&chars);
+    assert_eq!(char_view.format(0).to_string(), "a");
+
+    let str_view = vm.text_view(&strings);
+    assert_eq!(str_view.format(0).to_string(), "abc");
+    assert_eq!(str_view.format(1).to_string(), "1234");
 }
