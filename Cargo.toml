@@ -6,10 +6,11 @@ version = "0.0.0"
 
 [dependencies]
 bytemuck = "1.14.0"
-egui = "0.31"
-egui-wgpu = "0.31"
+egui = "0.32"
+egui-wgpu = "0.32"
 
 [dev-dependencies]
-eframe = { version = "0.31", default-features=false, features = ["accesskit", "default_fonts", "wgpu", "wayland"] }
+eframe = { version = "0.32", default-features=false, features = ["accesskit", "default_fonts", "wgpu", "wayland"] }
+wgpu = "25"
 
 
