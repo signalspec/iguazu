@@ -46,7 +46,7 @@ fn paint_ticks(
 
     let color_from_alpha = |alpha: f32| -> Color32 {
         if dark_mode {
-            Rgba::from_white_alpha(alpha * alpha).into()
+            Rgba::from_white_alpha(alpha).into()
         } else {
             Rgba::from_black_alpha(alpha).into()
         }

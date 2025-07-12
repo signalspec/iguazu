@@ -20,6 +20,6 @@ log.workspace = true
 clap.workspace = true
 serde = "1.0.160"
 time = { version = "0.3.20", features = ["serde", "macros", "formatting"] }
-egui_table = "0.3.0"
+egui_table = "0.4.0"
 itertools = "0.13.0"
 fragile = "2.0.0"

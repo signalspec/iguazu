@@ -7,7 +7,7 @@ mod events_row;
 use std::iter::Sum;
 
 use analog_row::YAxisRow;
-use egui::{emath::GuiRounding, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
+use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
 use iguazu::schema::{attribute::TimelineRow, EntityKind, EntityStream};
 use trace_row::{LogicRow, TraceRow};
@@ -123,8 +123,7 @@ impl TimelineView {
 
             let entity_response = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
-                .drag_to_scroll(false)
-                .enable_scrolling(!streams_response.hovered())
+                .scroll_source(if streams_response.hovered() { ScrollSource::NONE } else { ScrollSource::MOUSE_WHEEL | ScrollSource::SCROLL_BAR })
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(0.0, 0.0);
                     let mut res = TimelineResponse::default();
