@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use num_rational::Ratio;
 use num_traits::Float;
-use time::OffsetDateTime;
 
 /// A duration represented in 128-bit attoseconds
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Debug)]
@@ -174,12 +173,6 @@ impl TryFrom<std::time::SystemTime> for Time {
     fn try_from(time: std::time::SystemTime) -> Result<Time, Self::Error> {
         time.duration_since(std::time::SystemTime::UNIX_EPOCH)
             .map(|duration_since_epoch| duration_since_epoch.as_nanos() as i128 * Self::NANOSECOND)
-    }
-}
-
-impl From<OffsetDateTime> for Time {
-    fn from(datetime: OffsetDateTime) -> Time {
-        datetime.unix_timestamp_nanos() * Self::NANOSECOND
     }
 }
 
