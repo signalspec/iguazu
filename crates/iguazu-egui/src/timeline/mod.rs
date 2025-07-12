@@ -1,3 +1,4 @@
+// Based on rerun.io: © 2023 Rerun Technologies AB under MIT OR Apache-2.0
 mod paint_ticks;
 mod scale;
 mod analog_row;

@@ -1,3 +1,4 @@
+// Based on rerun.io: © 2023 Rerun Technologies AB under MIT OR Apache-2.0
 use egui::{Color32, Rect};
 
 pub fn draw_shadow_line(ui: &mut egui::Ui, rect: Rect, direction: egui::Direction, opacity: f32) {
