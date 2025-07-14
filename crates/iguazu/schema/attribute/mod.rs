@@ -3,6 +3,8 @@ use indexmap::IndexMap;
 use serde::{Serialize, Deserialize};
 use strum::{EnumString, IntoStaticStr};
 
+use crate::schema::{BitField, BitLayout};
+
 use super::{Entity, EntityKind, Field};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
@@ -297,21 +299,42 @@ impl Field {
     }
 }
 
+impl BitField {
+    pub fn accent_color(&self) -> Option<AccentColor> {
+        self.attributes.get("display:accent_color")
+    }
+}
+
 /// Timeline attributes
 impl<D> Entity<D> {
-    pub fn timeline_row(&self) -> Option<TimelineRow> {
-        self.attribute("display:timeline_row").or(
+    pub fn timeline_row(&self) -> TimelineRow {
+        self.attribute("display:timeline_row").unwrap_or_else(|| {
             match self.kind {
-                EntityKind::Record { .. } if self.time().is_some() => Some(TimelineRow::Events),
-                EntityKind::Group { .. }
-                | EntityKind::Record { .. } => Some(TimelineRow::Group),
-                EntityKind::Logic { .. } => Some(TimelineRow::Logic),
-                EntityKind::Number { .. } => Some(TimelineRow::YAxis),
-                EntityKind::Bits { .. }
-                | EntityKind::Enum { .. } => Some(TimelineRow::Trace),
-                _ => None,
+                EntityKind::Record { .. } if self.time().is_some() => TimelineRow::Events,
+                EntityKind::Group { .. } | EntityKind::Record { .. } => TimelineRow::Group,
+                EntityKind::Number { .. } => TimelineRow::YAxis,
+                EntityKind::Bits { ref bits, .. } => bits.default_timeline_row(),
+                EntityKind::Enum { .. } => TimelineRow::Trace,
+                _ => TimelineRow::Hidden,
             }
-        )
+        })
+    }
+}
+
+impl BitLayout {
+    pub fn default_timeline_row(&self) -> TimelineRow {
+        match self {
+            BitLayout::Fields(_) => TimelineRow::Group,
+            BitLayout::Bits(1) => TimelineRow::Logic,
+            BitLayout::Bits(_) => TimelineRow::Trace,
+        }
+    }
+}
+
+impl BitField {
+    pub fn timeline_row(&self) -> TimelineRow {
+        self.attributes.get("display:timeline_row")
+            .unwrap_or(self.bits.default_timeline_row())
     }
 }
 
@@ -353,6 +376,8 @@ string_attribute!(AccentColor);
 #[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub enum TimelineRow {
+    Hidden,
+
     /// Children are displayed as separate timeline rows.
     Group,
 

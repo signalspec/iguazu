@@ -10,7 +10,7 @@ use analog_row::YAxisRow;
 use ecow::EcoString;
 use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
-use iguazu::schema::{attribute::TimelineRow, EntityKind, EntityStream};
+use iguazu::{schema::{attribute::{AccentColor, TimelineRow}, fmt::ValueFormatter, BitField, BitLayout, EntityKind, EntityStream}, view::IntView};
 use trace_row::{LogicRow, TraceRow};
 use crate::{ egui_util:: shadow_line::draw_shadow_line, time::TimeRange, Time, ViewerContext };
 
@@ -257,27 +257,60 @@ enum TimelineRowKind<'a> {
 fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<TimelineRowKind<'a>> {
     let mut rows = Vec::new();
 
-    fn inner<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, entity: &'a EntityStream, label: Option<EcoString>) {
-        match entity.timeline_row() {
-            None | Some(TimelineRow::Group) => {
-                if let EntityKind::Group { children } | EntityKind::Record { children } = &entity.kind {
-                    for (name, child) in children {
-                        inner(vcx, rows, child, Some(name.clone()))
+    fn bit_fields<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, data: IntView<'a>, sample_rate: f64, mut offset: u8, color: Option<AccentColor>, fields: &[BitField]) {
+        for field in fields {
+            let color = field.accent_color().or(color);
+            match field.timeline_row() {
+                TimelineRow::Group => {
+                    if let BitLayout::Fields(fields) = &field.bits {
+                        bit_fields(vcx, rows, data.clone(), sample_rate, offset, color, fields);
                     }
                 }
+                TimelineRow::Logic => {
+                    rows.push(TimelineRowKind::Logic(LogicRow::field(data.clone(), sample_rate, offset, color, field)));
+                }
+                TimelineRow::Trace => {
+                    rows.push(TimelineRowKind::Trace(TraceRow::field(data.clone(), sample_rate, offset, color, field)));
+                }
+                _ => {}
             }
-            Some(TimelineRow::YAxis) => {
+            offset += field.bits.width();
+        }
+    }
+
+    fn inner<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, entity: &'a EntityStream, label: Option<EcoString>) {
+        match entity.timeline_row() {
+            TimelineRow::Group => {
+                match &entity.kind {
+                    EntityKind::Group { children } | EntityKind::Record { children } => {
+                        for (name, child) in children {
+                            inner(vcx, rows, child, Some(name.clone()))
+                        }
+                    }
+
+                    EntityKind::Bits { data, bits: BitLayout::Fields(fields)} => {
+                        let data = IntView::new_from_stream(&vcx.view_manager, data);
+                        let color = entity.accent_color();
+                        let Some(sample_rate) = entity.sample_rate() else { return };
+                        bit_fields(vcx, rows, data, sample_rate, 0, color, fields);
+                    }
+                    
+                    _ => {},
+                }
+            }
+            TimelineRow::YAxis => {
                 rows.extend(YAxisRow::new(vcx, entity, label).map(TimelineRowKind::YAxis));
             }
-            Some(TimelineRow::Trace) => {
+            TimelineRow::Trace => {
                 rows.extend(TraceRow::new(vcx, entity, label).map(TimelineRowKind::Trace));
             }
-            Some(TimelineRow::Logic) => {
-                rows.extend(LogicRow::each_bit(vcx, entity).into_iter().flatten().map(TimelineRowKind::Logic));
+            TimelineRow::Logic => {
+                rows.extend(LogicRow::new(vcx, entity, label).map(TimelineRowKind::Logic));
             }
-            Some(TimelineRow::Events) => {
+            TimelineRow::Events => {
                 rows.extend(EventsRow::new(vcx, entity, label).map(TimelineRowKind::Events));
             }
+            TimelineRow::Hidden => {}
         }
     }
 

@@ -9,8 +9,8 @@ pub struct EntityValueText<'a> {
 
 #[derive(Clone, Copy)]
 pub enum ValueFormatter<'a> {
-    Binary { bits: u32 },
-    Hex { digits: u32 },
+    Binary { bits: u8 },
+    Hex { digits: u8 },
     Unsigned { scale: f64, offset: f64 },
     Signed { bits: u32, scale: f64, offset: f64 },
     Float32,
@@ -19,11 +19,17 @@ pub enum ValueFormatter<'a> {
 }
 
 impl <'a> ValueFormatter<'a> {
+    pub fn bits(bits: u8) -> ValueFormatter<'a> {
+        if bits % 4 == 0 {
+            ValueFormatter::Hex { digits: bits / 4 }
+        } else {
+            ValueFormatter::Binary { bits }
+        }
+    }
+
     pub(in super) fn new(entity: &'a EntityStream) -> Option<ValueFormatter<'a>> {
         match entity.kind {
-            EntityKind::Bits { bits, .. } if bits % 4 == 0 => Some(ValueFormatter::Hex { digits: bits / 4 }),
-            EntityKind::Bits { bits, .. } => Some(ValueFormatter::Binary { bits }),
-            EntityKind::Logic { ref bits, .. } => Some(ValueFormatter::Binary { bits: bits.len() as u32 }),
+            EntityKind::Bits { ref bits, .. } => Some(Self::bits(bits.width())),
             EntityKind::Number { ref data, .. } => {
                 use ElementType::*;
                 let scale = entity.number_scale();

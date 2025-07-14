@@ -1,5 +1,5 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, BitField, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
 use ecow::EcoString;
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
@@ -12,6 +12,8 @@ pub struct TraceRow<'a> {
     formatter: ValueFormatter<'a>,
     label: Option<EcoString>,
     color: AccentColor,
+    offset: u8,
+    width: u8,
 }
 
 impl<'a> TraceRow<'a> {
@@ -20,8 +22,16 @@ impl<'a> TraceRow<'a> {
         let view = vcx.view_manager.int_view(entity)?;
         let color = entity.accent_color().unwrap_or(AccentColor::Green);
         let formatter = entity.formatter()?;
+        let offset = 0;
+        let width = 64;
+        Some(TraceRow { view, sample_rate, label, color, formatter, offset, width })
+    }
 
-        Some(TraceRow { view, sample_rate, label, color, formatter })
+    pub fn field(view: IntView<'a>, sample_rate: f64, offset: u8, color: Option<AccentColor>, field: &BitField) -> TraceRow<'a> {
+        let width = field.bits.width();
+        let color = color.unwrap_or(AccentColor::Green);
+        let formatter = ValueFormatter::bits(width);
+        TraceRow { view, sample_rate, label: Some(field.name.clone()), color, formatter, offset, width }
     }
 
     pub fn time_range(&self) -> TimeRange {
@@ -93,29 +103,23 @@ impl<'a> TraceRow<'a> {
 
 pub struct LogicRow<'a> {
     view: IntView<'a>,
-    bit: u32,
+    offset: u8,
     sample_rate: f64,
     label: Option<EcoString>,
     color: AccentColor,
 }
 
 impl<'a> LogicRow<'a> {
-    pub fn each_bit(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Option<impl Iterator<Item = Self> + 'a> {
-        let EntityKind::Logic { bits, .. } = &entity.kind else {
-            return None;
-        };
-
+    pub fn new(vcx: &'a ViewerContext, entity: &'a EntityStream, label: Option<EcoString>) -> Option<LogicRow<'a>> {
         let sample_rate = entity.sample_rate()?;
         let view = vcx.view_manager.int_view(entity)?;
+        let color = entity.accent_color().unwrap_or(AccentColor::Green);
+        Some(LogicRow { view, sample_rate, offset: 0, label, color })
+    }
 
-        Some(bits.iter().enumerate().map(move |(bit, field)| {
-            let view = view.clone();
-            let bit = bit as u32;
-            let name = field.name.clone();
-            let color = field.accent_color().unwrap_or(AccentColor::Green);
-
-            LogicRow { view, sample_rate, bit: bit as u32, label: Some(name), color }
-        }))
+    pub fn field(view: IntView<'a>, sample_rate: f64, offset: u8, color: Option<AccentColor>, field: &BitField) -> LogicRow<'a> {
+        let color = color.unwrap_or(AccentColor::Green);
+        LogicRow { view, sample_rate, label: Some(field.name.clone()), color, offset }
     }
 
     pub fn time_range(&self) -> TimeRange {
@@ -157,7 +161,7 @@ impl<'a> LogicRow<'a> {
         let stroke_width = 1.0;
         let stroke = Stroke::new(stroke_width, color);
 
-        let mask = 1 << self.bit;
+        let mask = 1 << self.offset;
         let eq = |v1: u64, v2: u64| {
             v1 & mask == v2 & mask
         };

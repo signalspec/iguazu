@@ -55,11 +55,7 @@ pub enum EntityKind<S> {
     },
     Bits {
         data: S,
-        bits: u32
-    },
-    Logic {
-        data: S,
-        bits: Vec<Field>,
+        bits: BitLayout,
     },
     Character {
         data: S,
@@ -93,6 +89,32 @@ pub enum EntityKind<S> {
 pub struct Field {
     pub name: EcoString,
     
+    #[serde(flatten)]
+    pub attributes: AttributeMap,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BitLayout {
+    Bits(u8),
+    Fields(Vec<BitField>)
+}
+
+impl BitLayout {
+    pub fn width(&self) -> u8 {
+        match *self {
+            BitLayout::Bits(bits) => bits,
+            BitLayout::Fields(ref fields) => fields.iter().map(|f| f.bits.width()).fold(0, u8::saturating_add)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BitField {
+    pub name: EcoString,
+    
+    pub bits: BitLayout,
+
     #[serde(flatten)]
     pub attributes: AttributeMap,
 }
@@ -167,7 +189,6 @@ impl<S> Entity<S> {
     pub fn data(&self) -> Option<&S> {
         match &self.kind {
             EntityKind::Bits { data, .. } => Some(data),
-            EntityKind::Logic { data, .. } => Some(data),
             EntityKind::Timestamp { data, .. } => Some(data),
             EntityKind::Number { data, .. } => Some(data),
             EntityKind::Enum { data, .. } => Some(data),
@@ -190,14 +211,10 @@ impl<S> Entity<S> {
                     .collect::<Result<IndexMap<_, _>, E>>()?;
                 Ok(Entity { kind: EntityKind::Record { children }, attributes })
             }
-            EntityKind::Bits { ref data, bits} => {
-                let data = f(data)?;
-                Ok(Entity { kind: EntityKind::Bits { bits, data }, attributes })
-            }
-            EntityKind::Logic { ref data, ref bits, .. } => {
+            EntityKind::Bits { ref data, ref bits} => {
                 let data = f(data)?;
                 let bits = bits.clone();
-                Ok(Entity { kind: EntityKind::Logic { bits, data }, attributes })
+                Ok(Entity { kind: EntityKind::Bits { bits, data }, attributes })
             }
             EntityKind::Character { ref data } => {
                 let data = f(data)?;
@@ -240,17 +257,24 @@ impl<S> Entity<S> {
 
 impl EntitySchema {
     pub fn bytes() -> Self {
-        EntitySchema::new(EntityKind::Bits { data: Ignored, bits: 8 })
+        EntitySchema::new(EntityKind::Bits { data: Ignored, bits: BitLayout::Bits(8) })
     }
 
     pub fn logic8() -> Self {
-        Self::new(EntityKind::Logic { data: Ignored, bits: (0..8).map(|b| Field { name: eco_format!("{b}"), attributes: Default::default() }).collect() })
+        let bits = BitLayout::Fields((0..8).map(|b|
+            BitField {
+                name: ecow::eco_format!("{b}"),
+                attributes: Default::default(),
+                bits: BitLayout::Bits(1)
+            }
+        ).collect());
+        Self::new(EntityKind::Bits { data: Ignored, bits } )
     }
 
     pub fn single_stream(&self) -> Option<(&EntityKind<Ignored>, usize)> {
         match self.kind {
             EntityKind::Group { .. } | EntityKind::Record { .. } | EntityKind::VariableArray { .. } => None,
-            EntityKind::Bits { .. } | EntityKind::Logic { .. } | EntityKind::Character { .. } | EntityKind::Number { .. } | EntityKind::Timestamp { .. }  | EntityKind::Enum { .. } => {
+            EntityKind::Bits { .. } | EntityKind::Character { .. } | EntityKind::Number { .. } | EntityKind::Timestamp { .. }  | EntityKind::Enum { .. } => {
                 Some((&self.kind, 1))
             }
             EntityKind::FixedArray { ref child, elements } => {
@@ -268,8 +292,8 @@ impl EntitySchema {
         let attributes = self.attributes.clone();
         match self.kind {
             EntityKind::Group { .. } | EntityKind::Record { .. } | EntityKind::VariableArray { .. } => None,
-            EntityKind::Bits { data: Ignored, bits  } => {
-                Some(Entity { kind: EntityKind::Bits { data, bits }, attributes })
+            EntityKind::Bits { data: Ignored, ref bits  } => {
+                Some(Entity { kind: EntityKind::Bits { data, bits: bits.clone() }, attributes })
             }
             EntityKind::Character { data: Ignored } => {
                 Some(Entity { kind: EntityKind::Character { data }, attributes })
@@ -279,9 +303,6 @@ impl EntitySchema {
             }
             EntityKind::Timestamp { data: Ignored, sample_rate } => {
                 Some(Entity { kind: EntityKind::Timestamp { data, sample_rate }, attributes })
-            }
-            EntityKind::Logic { data: Ignored, ref bits } => {
-                Some(Entity { kind: EntityKind::Logic { data, bits: bits.clone() }, attributes })
             }
             EntityKind::Enum { data: Ignored, ref values } => {
                 Some(Entity { kind: EntityKind::Enum { data, values: values.clone() }, attributes })

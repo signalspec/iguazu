@@ -4,7 +4,7 @@ use std::fmt::{Formatter, Write};
 use arrayvec::ArrayVec;
 use ecow::EcoString;
 
-use crate::{schema::{EntityKind, EntityStream }, stream::{ElementType, StreamState}, Idx, IdxRange};
+use crate::{schema::{BitLayout, EntityKind, EntityStream }, stream::{ElementType, StreamState}, Idx, IdxRange};
 
 use super::{EnumView, IntView, NumberView, ViewManager};
 use crate::util::utf8::DisplayUtf8Lossy;
@@ -67,15 +67,13 @@ impl<'a> TextView<'a> {
         fn this<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream) {
             match entity.kind {
                 EntityKind::Group { .. } | EntityKind::Record { .. } => {}
-                EntityKind::Bits { bits, ref data } => {
+                EntityKind::Bits { ref bits, ref data } => {
+                    let bits = bits.width() as u32;
                     if bits % 4 == 0 {
                         elements.push(Element::Hex(IntView::new_from_stream(vm, data), bits / 4))
                     } else {
                         elements.push(Element::Bin(IntView::new_from_stream(vm, data), bits))
                     }
-                },
-                EntityKind::Logic { ref bits, ref data } => {
-                    elements.push(Element::Bin(IntView::new_from_stream(vm, data), bits.len() as u32))
                 },
                 EntityKind::Character { ref data } => {
                     elements.push(Element::Utf8Char(IntView::new_from_stream(vm, data)))
@@ -231,7 +229,7 @@ fn test_textview() {
     let vm = super::ViewManager::new(Waker::noop().clone());
 
     let bits = EntityStream::new(
-        EntityKind::Bits { bits: 2, data: MemoryStream::new::<u8>(&[0b10, 0b01, 0b00]) },
+        EntityKind::Bits { bits: BitLayout::Bits(2), data: MemoryStream::new::<u8>(&[0b10, 0b01, 0b00]) },
     );
 
     let ints = EntityStream::new(

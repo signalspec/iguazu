@@ -101,13 +101,9 @@ pub async fn load(file: Arc<dyn ReadableFile>, io_executor: Arc<Executor<'static
                     let children = create_children(ex, io_executor, src_file, children).await?;
                     Ok(EntityStream { kind: EntityKind::Record { children }, attributes })
                 }
-                EntityKind::Bits { data, bits } => {
+                EntityKind::Bits { data, ref bits } => {
                     let data = create_stream(src_file, io_executor, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Bits { bits, data }, attributes })
-                }
-                EntityKind::Logic { data, bits } => {
-                    let data = create_stream(src_file, io_executor, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Logic { bits, data }, attributes })
+                    Ok(EntityStream { kind: EntityKind::Bits { bits: bits.clone(), data }, attributes })
                 }
                 EntityKind::Character { data } => {
                     let data = create_stream(src_file, io_executor, data).await?;
