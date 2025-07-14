@@ -7,6 +7,7 @@ mod events_row;
 use std::iter::Sum;
 
 use analog_row::YAxisRow;
+use ecow::EcoString;
 use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
 use iguazu::schema::{attribute::TimelineRow, EntityKind, EntityStream};
@@ -256,12 +257,12 @@ enum TimelineRowKind<'a> {
 fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<TimelineRowKind<'a>> {
     let mut rows = Vec::new();
 
-    fn inner<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, entity: &'a EntityStream, label: Option<&str>) {
+    fn inner<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, entity: &'a EntityStream, label: Option<EcoString>) {
         match entity.timeline_row() {
             None | Some(TimelineRow::Group) => {
                 if let EntityKind::Group { children } | EntityKind::Record { children } = &entity.kind {
                     for (name, child) in children {
-                        inner(vcx, rows, child, Some(name))
+                        inner(vcx, rows, child, Some(name.clone()))
                     }
                 }
             }

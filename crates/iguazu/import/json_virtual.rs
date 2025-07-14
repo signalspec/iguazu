@@ -1,6 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 
 use async_executor::{ Executor, Task };
+use ecow::EcoString;
 use futures_lite::{stream, StreamExt};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -77,8 +78,8 @@ pub async fn load(file: Arc<dyn ReadableFile>, io_executor: Arc<Executor<'static
         }
     }
 
-    async fn create_children(ex: Arc<Executor<'static>>, io_executor: Arc<Executor<'static>>,src_file: Arc<dyn ReadableFile>, children: IndexMap<String, Entity<StreamRef>>) -> Result<IndexMap<String, EntityStream>, ImportError> {
-        let child_tasks: Vec<(String, Task<_>)> = children.into_iter().map(|(k, v)| {
+    async fn create_children(ex: Arc<Executor<'static>>, io_executor: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, children: IndexMap<EcoString, Entity<StreamRef>>) -> Result<IndexMap<EcoString, EntityStream>, ImportError> {
+        let child_tasks: Vec<(EcoString, Task<_>)> = children.into_iter().map(|(k, v)| {
             (k, ex.spawn(create(ex.clone(), io_executor.clone(), src_file.clone(), v)))
         }).collect();
 

@@ -1,5 +1,6 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
 use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
+use ecow::EcoString;
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
@@ -9,16 +10,15 @@ pub struct TraceRow<'a> {
     view: IntView<'a>,
     sample_rate: f64,
     formatter: ValueFormatter<'a>,
-    label: Option<String>,
+    label: Option<EcoString>,
     color: AccentColor,
 }
 
 impl<'a> TraceRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, entity: &'a EntityStream, label: Option<&str>) -> Option<Self> {
+    pub fn new(vcx: &'a ViewerContext, entity: &'a EntityStream, label: Option<EcoString>) -> Option<Self> {
         let sample_rate = entity.sample_rate()?;
         let view = vcx.view_manager.int_view(entity)?;
         let color = entity.accent_color().unwrap_or(AccentColor::Green);
-        let label = label.map(|s| s.to_string());
         let formatter = entity.formatter()?;
 
         Some(TraceRow { view, sample_rate, label, color, formatter })
@@ -95,7 +95,7 @@ pub struct LogicRow<'a> {
     view: IntView<'a>,
     bit: u32,
     sample_rate: f64,
-    label: Option<String>,
+    label: Option<EcoString>,
     color: AccentColor,
 }
 

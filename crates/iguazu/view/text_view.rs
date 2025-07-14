@@ -2,6 +2,7 @@ use core::fmt;
 use std::fmt::{Formatter, Write};
 
 use arrayvec::ArrayVec;
+use ecow::EcoString;
 
 use crate::{schema::{EntityKind, EntityStream }, stream::{ElementType, StreamState}, Idx, IdxRange};
 
@@ -10,7 +11,7 @@ use crate::util::utf8::DisplayUtf8Lossy;
 pub struct TextView<'a>(Vec<Element<'a>>);
 
 enum Element<'a> {
-    Literal(String),
+    Literal(EcoString),
     Bin(IntView<'a>, u32),
     Hex(IntView<'a>, u32),
     Num(NumberView<'a>),
@@ -20,7 +21,7 @@ enum Element<'a> {
 }
 
 impl<'a> TextView<'a> {
-    pub fn literal(v: String) -> TextView<'a> {
+    pub fn literal(v: EcoString) -> TextView<'a> {
         TextView(vec![Element::Literal(v)])
     }
 
@@ -36,7 +37,7 @@ impl<'a> TextView<'a> {
         fn parse<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream, mut text: &str) {
             while let Some((before, rest)) = text.split_once('{') {
                 if !before.is_empty() {
-                    elements.push(Element::Literal(before.replace("}}", "}")));
+                    elements.push(Element::Literal(EcoString::from(before).replace("}}", "}")));
                 }
 
                 if let Some(rest) = rest.strip_prefix('{') {
@@ -59,7 +60,7 @@ impl<'a> TextView<'a> {
             }
 
             if !text.is_empty() {
-                elements.push(Element::Literal(text.replace("}}", "}")));
+                elements.push(Element::Literal(text.replace("}}", "}").into()));
             }
         }
 

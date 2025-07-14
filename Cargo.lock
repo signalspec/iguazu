@@ -1659,6 +1659,7 @@ name = "iguazu-egui"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "ecow",
  "egui",
  "egui_table",
  "fragile",

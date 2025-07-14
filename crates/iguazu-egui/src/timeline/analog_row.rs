@@ -1,3 +1,4 @@
+use ecow::EcoString;
 use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
 use iguazu::{schema::{attribute::{AccentColor, NumberRange}, EntityStream}, view::NumberView, IdxRange};
 
@@ -31,11 +32,11 @@ pub(crate) struct YAxisRow<'a> {
     y_range: NumberRange,
     view: NumberView<'a>,
     color: AccentColor,
-    label: Option<String>,
+    label: Option<EcoString>,
 }
 
 impl<'a> YAxisRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, entity: &EntityStream, label: Option<&str>) -> Option<Self> {
+    pub fn new(vcx: &'a ViewerContext, entity: &EntityStream, label: Option<EcoString>) -> Option<Self> {
         let sample_rate = entity.sample_rate()?;
         let y_range = entity.number_range()?;
         let view = vcx.view_manager.number_view(entity)?;
@@ -46,7 +47,7 @@ impl<'a> YAxisRow<'a> {
             y_range,
             view,
             color,
-            label: label.map(|s| s.to_string()),
+            label,
         })
     }
 

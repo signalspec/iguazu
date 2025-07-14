@@ -1,3 +1,4 @@
+use ecow::EcoString;
 use egui::{emath::GuiRounding, Align2, Color32, Rect, Stroke, Vec2};
 use iguazu::{schema::{attribute::AccentColor, EntityStream}, view::{EventView, TextView}, IdxRange};
 
@@ -9,11 +10,11 @@ pub struct EventsRow<'a> {
     event_view: EventView<'a>,
     text_view: TextView<'a>,
     color: AccentColor,
-    label: Option<String>,
+    label: Option<EcoString>,
 }
 
 impl<'a> EventsRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, entity: &EntityStream, label: Option<&str>) -> Option<Self> {
+    pub fn new(vcx: &'a ViewerContext, entity: &EntityStream, label: Option<EcoString>) -> Option<Self> {
         let event_view = vcx.view_manager.event_view(entity)?;
         let text_view = vcx.view_manager.text_view(entity);
         let color = entity.accent_color().unwrap_or(AccentColor::Green);
@@ -22,7 +23,7 @@ impl<'a> EventsRow<'a> {
             event_view,
             text_view,
             color,
-            label: label.map(|s| s.to_string()),
+            label,
         })
     }
 

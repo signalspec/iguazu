@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use ecow::EcoString;
 use egui::Margin;
 use iguazu::{schema::EntityStream, view::{TextView, ViewManager}};
 use itertools::Itertools;
@@ -35,7 +36,7 @@ enum Column<'a> {
 
 struct Delegate<'a> {
     columns: Vec<Column<'a>>,
-    headers: BTreeMap<(usize, usize, usize), String>,
+    headers: BTreeMap<(usize, usize, usize), EcoString>,
     n_rows: u64,
 }
 
@@ -52,7 +53,7 @@ impl<'a> Delegate<'a> {
             vm: &'a ViewManager,
             depth: usize,
             data: &mut Vec<Column<'a>>,
-            headers: &mut BTreeMap<(usize, usize, usize), String>,
+            headers: &mut BTreeMap<(usize, usize, usize), EcoString>,
             n_rows: &mut u64,
             entity: &EntityStream,
         ) {
@@ -116,7 +117,7 @@ impl<'a> egui_table::TableDelegate for Delegate<'a> {
         egui::Frame::new()
             .inner_margin(Margin::symmetric(4, 0))
             .show(ui, |ui| {
-                ui.heading(label.to_owned());
+                ui.heading(label.to_string());
             });
     }
 

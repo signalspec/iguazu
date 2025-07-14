@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 
 use attribute::AttributeValue;
+use ecow::{eco_format, EcoString};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -47,10 +48,10 @@ pub struct Entity<S> {
 #[serde(tag = "type", rename_all="snake_case")]
 pub enum EntityKind<S> {
     Group {
-        children: IndexMap<String, Entity<S>>,
+        children: IndexMap<EcoString, Entity<S>>,
     },
     Record {
-        children: IndexMap<String, Entity<S>>,
+        children: IndexMap<EcoString, Entity<S>>,
     },
     Bits {
         data: S,
@@ -90,7 +91,7 @@ pub enum EntityKind<S> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Field {
-    pub name: String,
+    pub name: EcoString,
     
     #[serde(flatten)]
     pub attributes: AttributeMap,
@@ -153,7 +154,7 @@ impl<S> Entity<S> {
         }
     }
 
-    pub fn with_child(mut self, name: String, child: Entity<S>) -> Self {
+    pub fn with_child(mut self, name: EcoString, child: Entity<S>) -> Self {
         match &mut self.kind {
             EntityKind::Group { children } | EntityKind::Record { children } => {
                 children.insert(name, child);
@@ -243,7 +244,7 @@ impl EntitySchema {
     }
 
     pub fn logic8() -> Self {
-        Self::new(EntityKind::Logic { data: Ignored, bits: (0..8).map(|b| Field { name: format!("{b}"), attributes: Default::default() }).collect() })
+        Self::new(EntityKind::Logic { data: Ignored, bits: (0..8).map(|b| Field { name: eco_format!("{b}"), attributes: Default::default() }).collect() })
     }
 
     pub fn single_stream(&self) -> Option<(&EntityKind<Ignored>, usize)> {
