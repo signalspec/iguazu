@@ -1,5 +1,5 @@
 use std::mem;
-use crate::{schema::{EntityKind, EntityStream}, Idx, IdxRange};
+use crate::{schema::{Entity, EntityStream, FieldKind}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
@@ -14,11 +14,15 @@ impl<'v> EventView<'v> {
             entity = entity.child(&*time_field)?;
         };
 
-        let EntityKind::Tuple { child, .. } = &entity.kind else { return None };
+        let Entity::Tuple { child, .. } = &entity else { return None };
 
-        let EntityKind::Timestamp { sample_rate, .. } = child.kind else { return None };
+        let Entity::Data { field, data} = &**child else {
+            return None;
+        };
 
-        let view = vm.int_view(child)?;
+        let FieldKind::Timestamp { sample_rate } = field.kind else { return None };
+
+        let view = IntView::new_from_stream(vm, data);
 
         Some(EventView { view, sample_rate })
     }
@@ -149,8 +153,9 @@ impl Iterator for EventViewIter<'_, '_> {
 #[test]
 fn test_event_view() {
     use crate::storage::MemoryStream;
-    use crate::schema::{ EntityKind, Field };
+    use crate::schema:: FieldKind;
     use std::task::Waker;
+    use indexmap::indexmap;
 
     let vm = super::ViewManager::new(Waker::noop().clone());
 
@@ -162,13 +167,13 @@ fn test_event_view() {
         4000, 4100,
     ]);
 
-    let ts = EntityStream::new(
-        EntityKind::Timestamp { data, sample_rate: 1e6 },
+    let ts = EntityStream::field_data(
+        FieldKind::Timestamp { sample_rate: 1e6 }, data
     );
 
-    let tuple = EntityStream::tuple(ts, vec![
-        Field { name: "start".into(), attributes: Default::default() },
-        Field { name: "end".into(), attributes: Default::default() }
+    let tuple = EntityStream::tuple(ts, indexmap![
+        "start".into() => Default::default(),
+        "end".into() => Default::default(),
     ]);
 
     let ev = vm.event_view(&tuple).unwrap();

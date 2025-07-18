@@ -1,6 +1,6 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, NumberRange}, EntityStream}, view::NumberView, IdxRange};
+use iguazu::{schema::{attribute::{AccentColor, NumberRange}, Field}, stream::ArcStream, view::NumberView, IdxRange};
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
@@ -32,16 +32,18 @@ pub(crate) struct YAxisRow<'a> {
     y_range: NumberRange,
     view: NumberView<'a>,
     color: AccentColor,
-    label: Option<EcoString>,
+    label: EcoString,
 }
 
 impl<'a> YAxisRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, entity: &EntityStream, label: Option<EcoString>) -> Option<Self> {
-        let sample_rate = entity.sample_rate()?;
-        let y_range = entity.number_range()?;
-        let view = vcx.view_manager.number_view(entity)?;
-        let color = entity.accent_color().unwrap_or(AccentColor::Green);
-        
+    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, field: &Field) -> Option<YAxisRow<'a>> {
+        if offset != 0 {
+            return None;
+        }
+        let view = NumberView::new(&vcx.view_manager, stream, field)?;
+        let color = color.unwrap_or(AccentColor::Green);
+        let y_range = field.number_range()?;
+
         Some(YAxisRow {
             sample_rate,
             y_range,
@@ -50,7 +52,7 @@ impl<'a> YAxisRow<'a> {
             label,
         })
     }
-
+    
     pub fn time_range(&self) -> TimeRange {
         TimeRange {
             min: Time::ZERO,
@@ -60,7 +62,7 @@ impl<'a> YAxisRow<'a> {
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse{
         label_frame(ui, |ui| {
-            ui.label(self.label.as_deref().unwrap_or(""));
+            ui.label(self.label.as_str());
         });
         let rect = stream_rect(ui, scale);
 

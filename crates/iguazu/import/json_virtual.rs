@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use num_traits::Zero;
 
-use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntityKind, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream }, stream::{ArcStream, ElementType}};
+use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream }, stream::{ArcStream, ElementType}};
 
 use super::{ImportError, Importer};
 
@@ -90,49 +90,36 @@ pub async fn load(file: Arc<dyn ReadableFile>, io_executor: Arc<Executor<'static
 
     fn create(ex: Arc<Executor<'static>>, io_executor: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, schema: Entity<StreamRef>) -> impl Future<Output = Result<EntityStream, ImportError>> + Send {
         async move {
-            let attributes = schema.attributes;
-
-            match schema.kind {
-                EntityKind::Group { children } => {
+            match schema {
+                Entity::Group { children, attributes } => {
                     let children = create_children(ex, io_executor, src_file, children).await?;
-                    Ok(EntityStream { kind: EntityKind::Group { children }, attributes })
+                    Ok(Entity::Group { children, attributes: attributes.clone() })
                 }
-                EntityKind::Record { children } => {
+                Entity::Record { children, attributes } => {
                     let children = create_children(ex, io_executor, src_file, children).await?;
-                    Ok(EntityStream { kind: EntityKind::Record { children }, attributes })
+                    Ok(Entity::Record { children, attributes: attributes.clone() })
                 }
-                EntityKind::Bits { data, ref bits } => {
+                Entity::Data { data, ref field } => {
                     let data = create_stream(src_file, io_executor, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Bits { bits: bits.clone(), data }, attributes })
+                    Ok(Entity::Data { field: field.clone(), data })
                 }
-                EntityKind::Character { data } => {
-                    let data = create_stream(src_file, io_executor, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Character { data }, attributes })
+                Entity::Union { data, variants, attributes } => {
+                    let data = create_stream(src_file.clone(), io_executor.clone(), data).await?;
+                    let variants = create_children(ex, io_executor, src_file, variants).await?;
+                    Ok(Entity::Union { data, variants, attributes: attributes.clone() })
                 }
-                EntityKind::Timestamp { data, sample_rate } => {
-                    let data = create_stream(src_file, io_executor, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Timestamp { sample_rate, data }, attributes })
-                }
-                EntityKind::Number { data } => {
-                    let data = create_stream(src_file, io_executor, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Number { data }, attributes })
-                }
-                EntityKind::Enum { data, values } => {
-                    let data = create_stream(src_file, io_executor, data).await?;
-                    Ok(EntityStream { kind: EntityKind::Enum { data, values }, attributes })
-                }
-                EntityKind::FixedArray { elements, child } => {
+                Entity::FixedArray { elements, child, attributes } => {
                     let child = Box::new(ex.spawn(create(ex.clone(), io_executor, src_file, *child)).await?);
-                    Ok(EntityStream { kind: EntityKind::FixedArray { elements, child }, attributes })
+                    Ok(Entity::FixedArray { elements, child, attributes: attributes.clone() })
                 }
-                EntityKind::Tuple { fields, child } => {
+                Entity::Tuple { fields, child, attributes } => {
                     let child = Box::new(ex.spawn(create(ex.clone(), io_executor, src_file, *child)).await?);
-                    Ok(EntityStream { kind: EntityKind::Tuple { fields, child }, attributes })
+                    Ok(Entity::Tuple { fields, child, attributes: attributes.clone() })
                 }
-                EntityKind::VariableArray { data, child } => {
+                Entity::VariableArray { data, child, attributes } => {
                     let data = create_stream(src_file.clone(), io_executor.clone(), data).await?;
                     let child = Box::new(ex.spawn(create(ex.clone(), io_executor, src_file, *child)).await?);
-                    Ok(EntityStream { kind: EntityKind::VariableArray { data, child }, attributes })
+                    Ok(Entity::VariableArray { data, child, attributes: attributes.clone() })
                 }
             }
         }

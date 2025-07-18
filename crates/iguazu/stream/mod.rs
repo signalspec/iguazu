@@ -40,12 +40,6 @@ pub enum ElementType {
     U16,
     U32,
     U64,
-    I8,
-    I16,
-    I32,
-    I64,
-    F32,
-    F64,
 }
 
 impl ElementType {
@@ -56,12 +50,6 @@ impl ElementType {
             ElementType::U16 => 2,
             ElementType::U32 => 4,
             ElementType::U64 => 8,
-            ElementType::I8 => 1,
-            ElementType::I16 => 2,
-            ElementType::I32 => 4,
-            ElementType::I64 => 8,
-            ElementType::F32 => 4,
-            ElementType::F64 => 8,
         }
     }
 
@@ -71,7 +59,7 @@ impl ElementType {
     }
 
     #[inline]
-    pub fn unsigned_from_bits(bits: u8) -> Option<Self> {
+    pub fn from_bits(bits: u8) -> Option<Self> {
         match bits {
             ..=8 => Some(ElementType::U8),
             ..=16 => Some(ElementType::U16),
@@ -99,20 +87,20 @@ impl Element for u64 {
     const ELEMENT_TYPE: ElementType = ElementType::U64;
 }
 impl Element for i8 {
-    const ELEMENT_TYPE: ElementType = ElementType::I8;
+    const ELEMENT_TYPE: ElementType = ElementType::U8;
 }
 impl Element for i16 {
-    const ELEMENT_TYPE: ElementType = ElementType::I16;
+    const ELEMENT_TYPE: ElementType = ElementType::U16;
 }
 impl Element for i32 {
-    const ELEMENT_TYPE: ElementType = ElementType::I32;
+    const ELEMENT_TYPE: ElementType = ElementType::U32;
 }
 impl Element for i64 {
-    const ELEMENT_TYPE: ElementType = ElementType::I64;
+    const ELEMENT_TYPE: ElementType = ElementType::U64;
 }
 impl Element for f32 {
-    const ELEMENT_TYPE: ElementType = ElementType::F32;
+    const ELEMENT_TYPE: ElementType = ElementType::U32;
 }
 impl Element for f64 {
-    const ELEMENT_TYPE: ElementType = ElementType::F64;
+    const ELEMENT_TYPE: ElementType = ElementType::U64;
 }

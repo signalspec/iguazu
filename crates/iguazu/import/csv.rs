@@ -7,7 +7,7 @@ use csv_core::ReadRecordResult;
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
 
-use crate::schema::{Entity, EntityKind, EntityStream, Ignored};
+use crate::schema::{Entity, FieldKind, EntityStream, Ignored};
 use crate::storage::MemoryStreamWriter;
 use crate::stream::{ElementType, Stream};
 use crate::{io::ReadableFile, schema::EntitySchema};
@@ -110,8 +110,8 @@ impl ColumnParser {
 fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<ColumnParser>, EntityStream), ImportError> {
     let mut parsers = (0..headers.len()).map(|_| ColumnParser::Skip).collect::<Vec<_>>();
     
-    let entity = match schema.kind {
-        EntityKind::Record { ref children } => {
+    let entity = match schema {
+        Entity::Record { children, attributes } => {
             let children = children.iter().map(|(name, child)| {
                 let column = headers.iter().position(|h| h == name)
                     .ok_or_else(|| ImportError::SchemaMismatch(format!("No column found for field `{}`", name)))?;
@@ -120,48 +120,58 @@ fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<Colu
                 Ok((name.clone(), entity))
             }).collect::<Result<IndexMap<_, _>, ImportError>>()?;
 
-            Entity { 
-                kind: EntityKind::Record { children },
-                attributes: schema.attributes.clone(),
-            }
+            Entity::Record { children, attributes: attributes.clone() }
         }
-        _ => return Err(ImportError::SchemaMismatch(format!("CSV import expects top-level entity to be a record, not {:?}", schema.kind))),
+        _ => return Err(ImportError::SchemaMismatch(format!("CSV import expects top-level entity to be a record, not {:?}", schema))),
     };
 
     Ok((parsers, entity))
 }
 
 fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), ImportError>{
-    Ok(match schema.kind {
-        EntityKind::Number { data: Ignored } => {
-            let writer = MemoryStreamWriter::new(ElementType::F32);
-            let data = writer.stream().clone() as Arc<dyn Stream>;
-
-            let entity = Entity { 
-                kind: EntityKind::Number { data },
-                attributes: schema.attributes.clone(),
+    Ok(match schema {
+        Entity::Data { data: Ignored, field } => {
+            let (data, parser) = match &field.kind {
+                FieldKind::Float32 => {
+                    let writer = MemoryStreamWriter::new(ElementType::U32);
+                    let data = writer.stream().clone() as Arc<dyn Stream>;
+                    (data, ColumnParser::Float32(writer))
+                }
+                k => {
+                    return Err(ImportError::SchemaMismatch(format!("Field type {:?} not supported in CSV column", k)));
+                }
             };
 
-            (entity, ColumnParser::Float32(writer))
+            let entity = Entity::Data { data, field: field.clone() };
+            (entity, parser)
         }
 
-        EntityKind::VariableArray { data: Ignored, ref child } => {
-            match child.kind {
-                EntityKind::Character { data: Ignored } => {
+        Entity::VariableArray { data: Ignored, child, attributes } => {
+            match **child {
+                Entity::Data { data: Ignored, ref field} => {
                     let ends = MemoryStreamWriter::new(ElementType::U64);
-                    let chars = MemoryStreamWriter::new(ElementType::U8);
+                    let ends_stream = ends.stream().clone() as Arc<dyn Stream>;
 
-                    let inner = Entity {
-                        kind: EntityKind::Character { data: chars.stream().clone() as Arc<dyn Stream> },
-                        attributes: child.attributes.clone(),
+                    let (data, parser) = match &field.kind {
+                        FieldKind::Character => {
+                            let chars = MemoryStreamWriter::new(ElementType::U8);
+                            let data = chars.stream().clone() as Arc<dyn Stream>;
+                            (data, ColumnParser::String { ends, chars })
+                        }
+                        k => {
+                            return Err(ImportError::SchemaMismatch(format!("Field type {:?} not supported in CSV column", k)));
+                        }
                     };
 
-                    let entity = Entity {
-                        kind: EntityKind::VariableArray { data: ends.stream().clone() as Arc<dyn Stream>, child: Box::new(inner) },
-                        attributes: schema.attributes.clone(),
+                    let inner = Entity::Data { data, field: field.clone() };
+
+                    let entity = Entity::VariableArray {
+                        data: ends_stream,
+                        child: Box::new(inner),
+                        attributes: attributes.clone(),
                     };
 
-                    (entity, ColumnParser::String { ends, chars })
+                    (entity, parser)
                 }
 
                 ref k => {

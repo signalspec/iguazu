@@ -10,11 +10,11 @@ pub struct EventsRow<'a> {
     event_view: EventView<'a>,
     text_view: TextView<'a>,
     color: AccentColor,
-    label: Option<EcoString>,
+    label: EcoString,
 }
 
 impl<'a> EventsRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, entity: &EntityStream, label: Option<EcoString>) -> Option<Self> {
+    pub fn new(vcx: &'a ViewerContext, label: EcoString, entity: &EntityStream) -> Option<Self> {
         let event_view = vcx.view_manager.event_view(entity)?;
         let text_view = vcx.view_manager.text_view(entity);
         let color = entity.accent_color().unwrap_or(AccentColor::Green);
@@ -36,7 +36,7 @@ impl<'a> EventsRow<'a> {
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
         label_frame(ui, |ui| {
-            ui.label(self.label.as_deref().unwrap_or(""));
+            ui.label(self.label.as_str());
         });
         
         let rect = stream_rect(ui, scale);

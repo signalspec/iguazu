@@ -56,7 +56,7 @@ impl FlatFileStream {
     }
 
     pub async fn entity(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
-        let _ = schema.single_stream()
+        let (_field, _stride) = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
         let stream = Self::new(file, executor, opts).await.map_err(ImportError::Io)?;
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())

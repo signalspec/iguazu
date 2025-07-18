@@ -1,4 +1,4 @@
-use crate::{schema::{EntityKind, EntityStream}, stream::{ElementType, StreamState}, Idx, IdxRange};
+use crate::{schema::{Field, FieldKind}, stream::{ArcStream, StreamState}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
@@ -34,22 +34,19 @@ impl Format {
 }
 
 impl<'a> NumberView<'a> {
-    pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Option<Self> {
-        let view = vm.int_view(entity)?;
-        let format = match entity.kind {
-            EntityKind::Number { ref data, .. } => {
-                let scale = entity.number_scale();
-                let offset = entity.number_offset();
-                use ElementType::*;
-                match data.desc().element_type {
-                    U8 | U16 | U32 | U64 => Some(Format::UInt { scale, offset }),
-                    t @ (I8 | I16 | I32 | I64) => Some(Format::SInt { shift: 64 - t.bits() as u8, scale, offset }),
-                    F32 => Some(Format::F32 { scale, offset}),
-                    F64 => Some(Format::F64 { scale, offset}),
-                }
-            }
-            EntityKind::Timestamp { sample_rate, .. } => {
-                Some(Format::UInt { scale: 1.0 / sample_rate, offset: 0.0 })
+    pub fn new(vm: &'a ViewManager, stream: &ArcStream, field: &Field) -> Option<Self> {
+        let view = IntView::new_from_stream(vm, stream);
+
+        let scale = field.number_scale();
+        let offset = field.number_offset();
+
+        let format = match field.kind {
+            FieldKind::Int { .. } => Some(Format::UInt { scale, offset }),
+            FieldKind::Signed { bits } => Some(Format::SInt { shift: 64 - bits, scale, offset }),
+            FieldKind::Float32 => Some(Format::F32 { scale, offset }),
+            FieldKind::Float64 => Some(Format::F64 { scale, offset }),
+            FieldKind::Timestamp { .. } => {
+                Some(Format::UInt { scale, offset: 0.0 })
             }
             _ => None,
         }?;

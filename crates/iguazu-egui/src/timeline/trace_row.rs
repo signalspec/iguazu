@@ -1,5 +1,5 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::AccentColor, fmt::ValueFormatter, BitField, EntityKind, EntityStream}, view::IntView, Idx, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, fmt::TextFormat, Field}, stream::ArcStream, view::IntView, Idx, IdxRange};
 use ecow::EcoString;
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
@@ -9,29 +9,20 @@ use super::{label_frame, scale::IdxScale, stream_rect, TimelineResponse};
 pub struct TraceRow<'a> {
     view: IntView<'a>,
     sample_rate: f64,
-    formatter: ValueFormatter<'a>,
-    label: Option<EcoString>,
+    formatter: TextFormat,
+    label: EcoString,
     color: AccentColor,
     offset: u8,
     width: u8,
 }
 
 impl<'a> TraceRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, entity: &'a EntityStream, label: Option<EcoString>) -> Option<Self> {
-        let sample_rate = entity.sample_rate()?;
-        let view = vcx.view_manager.int_view(entity)?;
-        let color = entity.accent_color().unwrap_or(AccentColor::Green);
-        let formatter = entity.formatter()?;
-        let offset = 0;
-        let width = 64;
-        Some(TraceRow { view, sample_rate, label, color, formatter, offset, width })
-    }
-
-    pub fn field(view: IntView<'a>, sample_rate: f64, offset: u8, color: Option<AccentColor>, field: &BitField) -> TraceRow<'a> {
-        let width = field.bits.width();
+    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, field: &Field) -> TraceRow<'a> {
+        let view = IntView::new_from_stream(&vcx.view_manager, stream);
+        let width = field.kind.width();
         let color = color.unwrap_or(AccentColor::Green);
-        let formatter = ValueFormatter::bits(width);
-        TraceRow { view, sample_rate, label: Some(field.name.clone()), color, formatter, offset, width }
+        let formatter = TextFormat::new(offset, field);
+        TraceRow { view, sample_rate, label, color, formatter, offset, width }
     }
 
     pub fn time_range(&self) -> TimeRange {
@@ -43,7 +34,7 @@ impl<'a> TraceRow<'a> {
 
     pub fn render(&self, ui: &mut Ui, scale: &super::scale::Scale) -> TimelineResponse {
         label_frame(ui, |ui| {
-            ui.label(self.label.as_deref().unwrap_or(""));
+            ui.label(self.label.as_str());
         });
         let rect = stream_rect(ui, scale);
         let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0))
@@ -68,8 +59,10 @@ impl<'a> TraceRow<'a> {
             min: idx_scale.visible.min,
             max: idx_scale.visible.max.min(state.end),
         };
-    
-        scan(&idx_scale, &self.view, range, |a, b| a==b, |x1, x2, _idx1, _idx2, val | {
+
+        let mask = ((1 << self.width) - 1) << self.offset;
+
+        scan(&idx_scale, &self.view, range, mask, |x1, x2, _idx1, _idx2, val | {
             let h_pad = 5.0;
             let text_min_width = 8.0;
             let tx = x1.max(padded_rect.left()) + h_pad;
@@ -105,21 +98,15 @@ pub struct LogicRow<'a> {
     view: IntView<'a>,
     offset: u8,
     sample_rate: f64,
-    label: Option<EcoString>,
+    label: EcoString,
     color: AccentColor,
 }
 
 impl<'a> LogicRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, entity: &'a EntityStream, label: Option<EcoString>) -> Option<LogicRow<'a>> {
-        let sample_rate = entity.sample_rate()?;
-        let view = vcx.view_manager.int_view(entity)?;
-        let color = entity.accent_color().unwrap_or(AccentColor::Green);
-        Some(LogicRow { view, sample_rate, offset: 0, label, color })
-    }
-
-    pub fn field(view: IntView<'a>, sample_rate: f64, offset: u8, color: Option<AccentColor>, field: &BitField) -> LogicRow<'a> {
+    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, _field: &Field) -> LogicRow<'a> {
+        let view = IntView::new_from_stream(&vcx.view_manager, stream);
         let color = color.unwrap_or(AccentColor::Green);
-        LogicRow { view, sample_rate, label: Some(field.name.clone()), color, offset }
+        LogicRow { view, sample_rate, label, color, offset }
     }
 
     pub fn time_range(&self) -> TimeRange {
@@ -131,7 +118,7 @@ impl<'a> LogicRow<'a> {
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
         label_frame(ui, |ui| {
-            ui.label(self.label.as_deref().unwrap_or(""));
+            ui.label(self.label.as_str());
         });
         let rect = stream_rect(ui, scale);
         let idx_scale = scale.idx_scale(self.sample_rate);
@@ -162,16 +149,13 @@ impl<'a> LogicRow<'a> {
         let stroke = Stroke::new(stroke_width, color);
 
         let mask = 1 << self.offset;
-        let eq = |v1: u64, v2: u64| {
-            v1 & mask == v2 & mask
-        };
 
         let hover_x = ui.input(|i| i.pointer.interact_pos())
             .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
             .map(|pos| pos.x);
 
         let mut prev_idx = None;
-        scan(&idx_scale, &self.view, range, eq, |x1, x2, idx1, idx2, val | {
+        scan(&idx_scale, &self.view, range, mask, |x1, x2, idx1, idx2, val | {
             if val & mask != 0 {
                 painter.hline(x1..=x2, padded_rect.top(), stroke);
             } else {
@@ -232,7 +216,7 @@ fn scan(
     idx_scale: &IdxScale,
     view: &IntView,
     range: IdxRange,
-    eq: impl Fn(u64, u64) -> bool,
+    mask: u64,
     mut render: impl FnMut(f32, f32, Option<Idx>, Option<Idx>, u64)
 ) {
     let mut prev_v_opt: Option<u64> = None;
@@ -244,9 +228,9 @@ fn scan(
             let next_v = value;
 
             if let Some(prev_v) = prev_v_opt {
-                if !eq(prev_v, next_v) {
+                if !(prev_v & mask == next_v & mask) {
                     let x2: f32 = idx_scale.x_from_idx(idx);
-                    render(x1, x2, idx1, Some(idx), prev_v);
+                    render(x1, x2, idx1, Some(idx), prev_v & mask);
                     x1 = x2;
                     idx1 = Some(idx);
                 }

@@ -10,7 +10,7 @@ use analog_row::YAxisRow;
 use ecow::EcoString;
 use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
-use iguazu::{schema::{attribute::{AccentColor, TimelineRow}, fmt::ValueFormatter, BitField, BitLayout, EntityKind, EntityStream}, view::IntView};
+use iguazu::{schema::{attribute::{AccentColor, TimelineRow}, Entity, EntityStream, Field, FieldKind}, stream::ArcStream};
 use trace_row::{LogicRow, TraceRow};
 use crate::{ egui_util:: shadow_line::draw_shadow_line, time::TimeRange, Time, ViewerContext };
 
@@ -257,64 +257,68 @@ enum TimelineRowKind<'a> {
 fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<TimelineRowKind<'a>> {
     let mut rows = Vec::new();
 
-    fn bit_fields<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, data: IntView<'a>, sample_rate: f64, mut offset: u8, color: Option<AccentColor>, fields: &[BitField]) {
-        for field in fields {
-            let color = field.accent_color().or(color);
-            match field.timeline_row() {
-                TimelineRow::Group => {
-                    if let BitLayout::Fields(fields) = &field.bits {
-                        bit_fields(vcx, rows, data.clone(), sample_rate, offset, color, fields);
+    fn add_field<'a>(
+        vcx: &'a ViewerContext,
+        rows: &mut Vec<TimelineRowKind<'a>>,
+        stream: &ArcStream,
+        sample_rate: f64,
+        offset: u8,
+        color: Option<AccentColor>,
+        name: EcoString,
+        field: &Field,
+    ) {
+        let color = field.accent_color().or(color);
+        match field.timeline_row() {
+            TimelineRow::Group => {
+                if let FieldKind::BitStruct { children } = &field.kind {
+                    let mut offset = offset;
+                    for (name, field) in children {
+                        add_field(vcx, rows, stream, sample_rate, offset, color, name.clone(), field);
+                        offset += field.kind.width();
                     }
                 }
-                TimelineRow::Logic => {
-                    rows.push(TimelineRowKind::Logic(LogicRow::field(data.clone(), sample_rate, offset, color, field)));
+            }
+            TimelineRow::Logic => {
+                rows.push(TimelineRowKind::Logic(LogicRow::field(vcx, stream, sample_rate, offset, color, name, field)));
+            }
+            TimelineRow::Trace => {
+                rows.push(TimelineRowKind::Trace(TraceRow::field(vcx, stream, sample_rate, offset, color, name, field)));
+            }
+            TimelineRow::YAxis => {
+                rows.extend(YAxisRow::field(vcx, stream, sample_rate, offset, color, name, field).map(TimelineRowKind::YAxis));
+            }
+            _ => {}
+        }
+    }
+
+    fn add_entity<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, name: EcoString, entity: &'a EntityStream) {
+        if let Entity::Data { field, data } = entity {
+            let color = entity.accent_color();
+            let Some(sample_rate) = entity.sample_rate() else { return };
+            add_field(vcx, rows, data, sample_rate, 0, color, name, field);
+        } else {
+            match entity.timeline_row() {
+                TimelineRow::Group => {
+                    match &entity {
+                        Entity::Group { children, .. } | Entity::Record { children, .. } => {
+                            for (name, child) in children {
+                                add_entity(vcx, rows, name.clone(), child)
+                            }
+                        }
+                        
+                        _ => {},
+                    }
                 }
-                TimelineRow::Trace => {
-                    rows.push(TimelineRowKind::Trace(TraceRow::field(data.clone(), sample_rate, offset, color, field)));
+                TimelineRow::Events => {
+                    rows.extend(EventsRow::new(vcx, name, entity).map(TimelineRowKind::Events));
                 }
                 _ => {}
             }
-            offset += field.bits.width();
+
         }
     }
 
-    fn inner<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, entity: &'a EntityStream, label: Option<EcoString>) {
-        match entity.timeline_row() {
-            TimelineRow::Group => {
-                match &entity.kind {
-                    EntityKind::Group { children } | EntityKind::Record { children } => {
-                        for (name, child) in children {
-                            inner(vcx, rows, child, Some(name.clone()))
-                        }
-                    }
-
-                    EntityKind::Bits { data, bits: BitLayout::Fields(fields)} => {
-                        let data = IntView::new_from_stream(&vcx.view_manager, data);
-                        let color = entity.accent_color();
-                        let Some(sample_rate) = entity.sample_rate() else { return };
-                        bit_fields(vcx, rows, data, sample_rate, 0, color, fields);
-                    }
-                    
-                    _ => {},
-                }
-            }
-            TimelineRow::YAxis => {
-                rows.extend(YAxisRow::new(vcx, entity, label).map(TimelineRowKind::YAxis));
-            }
-            TimelineRow::Trace => {
-                rows.extend(TraceRow::new(vcx, entity, label).map(TimelineRowKind::Trace));
-            }
-            TimelineRow::Logic => {
-                rows.extend(LogicRow::new(vcx, entity, label).map(TimelineRowKind::Logic));
-            }
-            TimelineRow::Events => {
-                rows.extend(EventsRow::new(vcx, entity, label).map(TimelineRowKind::Events));
-            }
-            TimelineRow::Hidden => {}
-        }
-    }
-
-    inner(vcx, &mut rows, entity, None);
+    add_entity(vcx, &mut rows, EcoString::new(), entity);
     rows
 }
 

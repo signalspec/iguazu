@@ -35,91 +35,125 @@ impl serde::Serialize for Ignored {
 pub type EntitySchema = Entity<Ignored>;
 pub type EntityStream = Entity<ArcStream>;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct Entity<S> {
-    #[serde(flatten)]
-    pub kind: EntityKind<S>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all="snake_case")]
+pub enum Entity<S> {
+    Group {
+        children: IndexMap<EcoString, Entity<S>>,
 
+        #[serde(flatten)]
+        attributes: AttributeMap,
+    },
+    Record {
+        children: IndexMap<EcoString, Entity<S>>,
+
+        #[serde(flatten)]
+        attributes: AttributeMap,
+    },
+    Union {
+        data: S,
+        variants: IndexMap<EcoString, Entity<S>>,
+
+        #[serde(flatten)]
+        attributes: AttributeMap,
+    },
+    FixedArray {
+        elements: u32,
+        child: Box<Entity<S>>,
+
+        #[serde(flatten)]
+        attributes: AttributeMap,
+    },
+    Tuple {
+        fields: IndexMap<EcoString, AttributeMap>,
+        child: Box<Entity<S>>,
+
+        #[serde(flatten)]
+        attributes: AttributeMap,
+    },
+    VariableArray {
+        data: S,
+        child: Box<Entity<S>>,
+
+        #[serde(flatten)]
+        attributes: AttributeMap,
+    },
+    #[serde(untagged)]
+    Data {
+        #[serde(flatten)]
+        field: Field,
+        data: S,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Field {
+    #[serde(flatten)]
+    pub kind: FieldKind,
+    
     #[serde(flatten)]
     pub attributes: AttributeMap,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all="snake_case")]
-pub enum EntityKind<S> {
-    Group {
-        children: IndexMap<EcoString, Entity<S>>,
-    },
-    Record {
-        children: IndexMap<EcoString, Entity<S>>,
-    },
+pub enum FieldKind {
+    Null,
     Bits {
-        data: S,
-        bits: BitLayout,
+        bits: u8,
     },
-    Character {
-        data: S,
-    },
+    Character,
     Timestamp {
-        data: S,
         sample_rate: f64,
     },
-    Number {
-        data: S,
+    Int {
+        bits: u8,
     },
+    Signed {
+        bits: u8,
+    },
+    Float32,
+    Float64,
     Enum {
-        data: S,
-        values: Vec<Field>,
+        bits: u8,
+        values: Vec<EcoString>,
     },
-    FixedArray {
-        elements: u32,
-        child: Box<Entity<S>>,
+    Tagged {
+        tag_bits: u8,
+        values: IndexMap<EcoString, Field>,
     },
-    Tuple {
-        fields: Vec<Field>,
-        child: Box<Entity<S>>,
+    BitStruct {
+        children: IndexMap<EcoString, Field>,
     },
-    VariableArray {
-        data: S,
-        child: Box<Entity<S>>,
-    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Field {
-    pub name: EcoString,
-    
-    #[serde(flatten)]
-    pub attributes: AttributeMap,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum BitLayout {
-    Bits(u8),
-    Fields(Vec<BitField>)
-}
-
-impl BitLayout {
+impl FieldKind {
     pub fn width(&self) -> u8 {
         match *self {
-            BitLayout::Bits(bits) => bits,
-            BitLayout::Fields(ref fields) => fields.iter().map(|f| f.bits.width()).fold(0, u8::saturating_add)
+            FieldKind::Null => 0,
+            FieldKind::Bits { bits } => bits,
+            FieldKind::Character => 8,
+            FieldKind::Timestamp { .. } => 64,
+            FieldKind::Int { bits } => bits,
+            FieldKind::Signed { bits } => bits,
+            FieldKind::Float32 => 32,
+            FieldKind::Float64 => 64,
+            FieldKind::Enum { bits, .. } => bits,
+            FieldKind::Tagged { tag_bits, ref values } => {
+                tag_bits + values.values().map(|v| v.kind.width()).fold(0, u8::max)
+            }
+            FieldKind::BitStruct { ref children } => {
+                children.values().map(|f| f.kind.width()).fold(0, u8::saturating_add)
+            }
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BitField {
-    pub name: EcoString,
-    
-    pub bits: BitLayout,
-
-    #[serde(flatten)]
-    pub attributes: AttributeMap,
-}
-
 impl Field {
+    pub fn new(kind: FieldKind) -> Self {
+        Field { kind, attributes: Default::default() }
+    }
+
     pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
         self.attributes.get(attr)
     }
@@ -132,31 +166,71 @@ impl Field {
         self.set_attribute(attr, val);
         self
     }
+
+    pub fn child(&self, child: &str) -> Option<(u8, &Field)> {
+        match self.kind {
+            FieldKind::BitStruct { ref children, .. } => {
+                let (i, _, child) = children.get_full(child)?;
+                let offset = children.values().take(i).map(|f| f.kind.width()).sum::<u8>();
+                Some((offset, child))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl<S> Entity<S> {
-    pub fn new(kind: EntityKind<S>) -> Self {
-        Self { kind, attributes: Default::default() }
-    }
-
     pub fn record() -> Self {
-        Self::new(EntityKind::Record { children: IndexMap::new() })
+        Entity::Record { children: IndexMap::new(), attributes: Default::default() }
     }
 
     pub fn group() -> Self {
-        Self::new(EntityKind::Group { children: IndexMap::new() })
+        Entity::Group { children: IndexMap::new(), attributes: Default::default() }
     }
 
-    pub fn tuple(child: Entity<S>, fields: Vec<Field>) -> Self {
-        Self::new(EntityKind::Tuple { child: Box::new(child), fields })
+    pub fn field_data(kind: FieldKind, data: S) -> Self {
+        Entity::Data { data, 
+            field: Field {
+                kind,
+                attributes: Default::default(),
+            }
+        }
+    }
+
+    pub fn attributes(&self) -> &AttributeMap {
+        match self {
+            Entity::Group { attributes, .. }
+            | Entity::Record { attributes, .. }
+            | Entity::Union { attributes, .. }
+            | Entity::FixedArray { attributes, .. }
+            | Entity::Tuple { attributes, .. }
+            | Entity::VariableArray { attributes, .. } => attributes,
+            Entity::Data { field, .. } => &field.attributes,
+        }
+    }
+
+    pub fn attributes_mut(&mut self) -> &mut AttributeMap {
+        match self {
+            Entity::Group { attributes, .. }
+            | Entity::Record { attributes, .. }
+            | Entity::Union { attributes, .. }
+            | Entity::FixedArray { attributes, .. }
+            | Entity::Tuple { attributes, .. }
+            | Entity::VariableArray { attributes, .. } => attributes,
+            Entity::Data { field, .. } => &mut field.attributes,
+        }
+    }
+
+    pub fn tuple(child: Entity<S>, fields: IndexMap<EcoString, AttributeMap>) -> Self {
+        Entity::Tuple { child: Box::new(child), fields, attributes: Default::default() }
     }
 
     pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
-        self.attributes.get(attr)
+        self.attributes().get(attr)
     }
     
     pub fn set_attribute(&mut self, attr: &str, val: impl Into<AttributeValue>) {
-        self.attributes.insert(attr, val);
+        self.attributes_mut().insert(attr, val);
     }
     
     pub fn with_attribute(mut self, attr: &str, val: impl Into<AttributeValue>) -> Self {
@@ -165,11 +239,13 @@ impl<S> Entity<S> {
     }
 
     pub fn child(&self, child: &str) -> Option<&Entity<S>> {
-        match self.kind {
-            EntityKind::Group { ref children } | EntityKind::Record { ref children } => {
+        match *self {
+            Entity::Group { ref children, .. } | Entity::Record { ref children, .. } => {
                 children.get(child)
             }
-            EntityKind::FixedArray { ref child, .. } | EntityKind::Tuple { ref child, .. } | EntityKind::VariableArray { ref child, .. } => {
+            Entity::FixedArray { ref child, .. }
+            | Entity::Tuple { ref child, .. }
+            | Entity::VariableArray { ref child, .. } => {
                 Some(child)
             }
             _ => None,
@@ -177,8 +253,9 @@ impl<S> Entity<S> {
     }
 
     pub fn with_child(mut self, name: EcoString, child: Entity<S>) -> Self {
-        match &mut self.kind {
-            EntityKind::Group { children } | EntityKind::Record { children } => {
+        match &mut self {
+            Entity::Group { children, .. }
+            | Entity::Record { children, .. } => {
                 children.insert(name, child);
             }
             _ => panic!("Cannot add child to non-group or non-record entity"),
@@ -187,65 +264,52 @@ impl<S> Entity<S> {
     }
 
     pub fn data(&self) -> Option<&S> {
-        match &self.kind {
-            EntityKind::Bits { data, .. } => Some(data),
-            EntityKind::Timestamp { data, .. } => Some(data),
-            EntityKind::Number { data, .. } => Some(data),
-            EntityKind::Enum { data, .. } => Some(data),
+        match &self {
+            Entity::Data { data, .. } => Some(data),
+            Entity::Union { data, .. } => Some(data),
+            Entity::VariableArray { data, .. } => Some(data),
             _ => None,
         }
     }
 
     pub fn try_map_data<T, E>(&self, f: &mut impl FnMut(&S) -> Result<T, E>) -> Result<Entity<T>, E> {
-        let attributes = self.attributes.clone();
-        match self.kind {
-            EntityKind::Group { ref children } => {
+        match self {
+            Entity::Group { children, attributes } => {
                 let children = children.iter()
                     .map(|(name, child)| child.try_map_data(f).map(|c| (name.clone(), c)))
                     .collect::<Result<IndexMap<_, _>, E>>()?;
-                Ok(Entity { kind: EntityKind::Group { children }, attributes })
+                Ok(Entity::Group { children, attributes: attributes.clone() })
             }
-            EntityKind::Record { ref children } => {
+            Entity::Record { children, attributes } => {
                 let children = children.iter()
                     .map(|(name, child)| child.try_map_data(f).map(|c| (name.clone(), c)))
                     .collect::<Result<IndexMap<_, _>, E>>()?;
-                Ok(Entity { kind: EntityKind::Record { children }, attributes })
+                Ok(Entity::Record { children, attributes: attributes.clone() })
             }
-            EntityKind::Bits { ref data, ref bits} => {
+            Entity::Union { data, variants, attributes } => {
                 let data = f(data)?;
-                let bits = bits.clone();
-                Ok(Entity { kind: EntityKind::Bits { bits, data }, attributes })
-            }
-            EntityKind::Character { ref data } => {
-                let data = f(data)?;
-                Ok(Entity { kind: EntityKind::Character { data }, attributes })
-            }
-            EntityKind::Timestamp { ref data, sample_rate } => {
-                let data = f(data)?;
-                Ok(Entity { kind: EntityKind::Timestamp { sample_rate, data }, attributes })
-            }
-            EntityKind::Number { ref data } => {
-                let data = f(data)?;
-                Ok(Entity { kind: EntityKind::Number { data }, attributes })
+                let variants = variants.iter()
+                    .map(|(name, variant)| variant.try_map_data(f).map(|c| (name.clone(), c)))
+                    .collect::<Result<IndexMap<_, _>, E>>()?;
+                Ok(Entity::Union { data, variants, attributes: attributes.clone() })
             },
-            EntityKind::Enum { ref data, ref values } => {
-                let data = f(data)?;
-                let values = values.clone();
-                Ok(Entity { kind: EntityKind::Enum { data, values }, attributes })
-            },
-            EntityKind::FixedArray { elements, ref child } => {
+            Entity::FixedArray { elements, child, attributes } => {
                 let child = Box::new(child.try_map_data(f)?);
-                Ok(Entity { kind: EntityKind::FixedArray { elements, child }, attributes })
+                Ok(Entity::FixedArray { elements: *elements, child, attributes: attributes.clone() })
             }
-            EntityKind::Tuple { ref fields, ref child } => {
+            Entity::Tuple { fields, child, attributes } => {
                 let child = Box::new(child.try_map_data(f)?);
                 let fields = fields.clone();
-                Ok(Entity { kind: EntityKind::Tuple { fields, child }, attributes })
+                Ok(Entity::Tuple { fields, child, attributes: attributes.clone() })
             }
-            EntityKind::VariableArray { ref data, ref child } => {
+            Entity::VariableArray { data, child, attributes } => {
                 let data = f(data)?;
                 let child = Box::new(child.try_map_data(f)?);
-                Ok(Entity { kind: EntityKind::VariableArray { data, child }, attributes })
+                Ok(Entity::VariableArray { data, child, attributes: attributes.clone() })
+            }
+            Entity::Data { data, field } => {
+                let data = f(data)?;
+                Ok(Entity::Data { data, field: field.clone() })
             }
         }
     }
@@ -257,72 +321,59 @@ impl<S> Entity<S> {
 
 impl EntitySchema {
     pub fn bytes() -> Self {
-        EntitySchema::new(EntityKind::Bits { data: Ignored, bits: BitLayout::Bits(8) })
+        Self::field(FieldKind::Bits { bits: 8 })
     }
 
     pub fn logic8() -> Self {
-        let bits = BitLayout::Fields((0..8).map(|b|
-            BitField {
-                name: ecow::eco_format!("{b}"),
+        let children = (0..8).map(|b| (
+            eco_format!("bit{b}"),
+            Field {
                 attributes: Default::default(),
-                bits: BitLayout::Bits(1)
+                kind: FieldKind::Bits { bits: 1 },
             }
-        ).collect());
-        Self::new(EntityKind::Bits { data: Ignored, bits } )
+        )).collect();
+        Self::field(FieldKind::BitStruct { children })
     }
 
-    pub fn single_stream(&self) -> Option<(&EntityKind<Ignored>, usize)> {
-        match self.kind {
-            EntityKind::Group { .. } | EntityKind::Record { .. } | EntityKind::VariableArray { .. } => None,
-            EntityKind::Bits { .. } | EntityKind::Character { .. } | EntityKind::Number { .. } | EntityKind::Timestamp { .. }  | EntityKind::Enum { .. } => {
-                Some((&self.kind, 1))
+    pub fn field(kind: FieldKind) -> Self {
+        Entity::Data { data: Ignored, 
+            field: Field {
+                kind,
+                attributes: Default::default(),
             }
-            EntityKind::FixedArray { ref child, elements } => {
-                let (kind, stride) = child.single_stream()?;
-                Some((kind, stride * elements as usize))
+        }
+    }
+
+    pub fn single_stream(&self) -> Option<(&Field, usize)> {
+        match self {
+            Entity::Group { .. } | Entity::Record { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
+            Entity::FixedArray { elements, child, .. } => {
+                let (field, stride) = child.single_stream()?;
+                Some((field, stride * (*elements as usize)))
             }
-            EntityKind::Tuple { ref child, ref fields } => {
-                let (kind, stride) = child.single_stream()?;
-                Some((kind, stride * fields.len()))
+            Entity::Tuple { fields, child, .. } => {
+                let (field, stride) = child.single_stream()?;
+                Some((field, stride * fields.len()))
             }
+            Entity::Data { data: Ignored, field } => Some((field, 1)),
         }
     }
 
     pub fn wrap_single(&self, data: ArcStream) -> Option<EntityStream> {
-        let attributes = self.attributes.clone();
-        match self.kind {
-            EntityKind::Group { .. } | EntityKind::Record { .. } | EntityKind::VariableArray { .. } => None,
-            EntityKind::Bits { data: Ignored, ref bits  } => {
-                Some(Entity { kind: EntityKind::Bits { data, bits: bits.clone() }, attributes })
+        match *self {
+            Entity::Group { .. } | Entity::Record { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
+            Entity::Data { data: Ignored, ref field  } => {
+                Some(Entity::Data { data, field: field.clone() })
             }
-            EntityKind::Character { data: Ignored } => {
-                Some(Entity { kind: EntityKind::Character { data }, attributes })
-            }
-            EntityKind::Number { data: Ignored } => {
-                Some(Entity { kind: EntityKind::Number { data }, attributes })
-            }
-            EntityKind::Timestamp { data: Ignored, sample_rate } => {
-                Some(Entity { kind: EntityKind::Timestamp { data, sample_rate }, attributes })
-            }
-            EntityKind::Enum { data: Ignored, ref values } => {
-                Some(Entity { kind: EntityKind::Enum { data, values: values.clone() }, attributes })
-            }
-            EntityKind::FixedArray { ref child, elements } => {
+            Entity::FixedArray { ref child, elements, ref attributes } => {
                 let child = Box::new(child.wrap_single(data)?);
-                Some(Entity { kind: EntityKind::FixedArray { elements, child }, attributes })
+                Some(Entity::FixedArray { elements, child, attributes: attributes.clone() })
             }
-            EntityKind::Tuple { ref child, ref fields } => {
+            Entity::Tuple { ref fields, ref child, ref attributes } => {
                 let child = Box::new(child.wrap_single(data)?);
-                Some(Entity { kind: EntityKind::Tuple { fields: fields.clone(), child }, attributes })
-
+                Some(Entity::Tuple { fields: fields.clone(), child, attributes: attributes.clone() })
             }
         }
-    }
-}
-
-impl EntityStream {
-    pub fn formatter(&self) -> Option<fmt::ValueFormatter> {
-        fmt::ValueFormatter::new(self)
     }
 }
 

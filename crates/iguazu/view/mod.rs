@@ -1,6 +1,6 @@
 use std::{ sync::Arc, task::Waker};
 
-use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess}};
+use crate::{schema::{Entity, EntityStream}, stream::{ArcStream, StreamAccess}};
 
 mod int_view;
 use elsa::FrozenMap;
@@ -63,7 +63,11 @@ impl ViewManager {
     }
 
     pub fn number_view<'a>(&'a self, entity: &EntityStream) -> Option<NumberView<'a>> {
-        NumberView::new(self, entity)
+        if let Entity::Data { field, data, .. } = entity {
+            NumberView::new(self, data, field)
+        } else {
+            None
+        }
     }
 
     pub fn enum_view<'a>(&'a self, entity: &EntityStream) -> Option<EnumView<'a>> {

@@ -1,114 +1,246 @@
-use crate::{schema::Field, stream::ElementType};
+use core::fmt;
+use std::fmt::{Formatter, Write};
+use ecow::EcoString;
 
-use super::{EntityKind, EntityStream};
+use crate::schema::{Field, FieldKind};
+pub struct TextFormat(Vec<Element>);
 
-pub struct EntityValueText<'a> {
-    value: u64,
-    kind: ValueFormatter<'a>,
-}
-
-#[derive(Clone, Copy)]
-pub enum ValueFormatter<'a> {
-    Binary { bits: u8 },
-    Hex { digits: u8 },
-    Unsigned { scale: f64, offset: f64 },
-    Signed { bits: u32, scale: f64, offset: f64 },
-    Float32,
+enum Element {
+    Literal(String),
+    Bin { pos: u8, bits: u8 },
+    Hex { pos: u8, bits: u8 },
+    Character { pos: u8 },
+    Unsigned { pos: u8, bits: u8, offset: f64, scale: f64 },
+    Signed { pos: u8, bits: u8, offset: f64, scale: f64 },
+    Float32 { pos: u8 },
     Float64,
-    Enum { values: &'a Vec<Field> },
+    Enum { pos: u8, bits: u8, values: Vec<EcoString> },
+    Tagged { pos: u8, tag_bits: u8, inner: Vec<TextFormat> },
 }
 
-impl <'a> ValueFormatter<'a> {
-    pub fn bits(bits: u8) -> ValueFormatter<'a> {
-        if bits % 4 == 0 {
-            ValueFormatter::Hex { digits: bits / 4 }
-        } else {
-            ValueFormatter::Binary { bits }
+impl TextFormat {
+    pub fn new(pos: u8, spec: &Field) -> TextFormat {
+        fn inner(components: &mut Vec<Element>, pos: u8, spec: &Field) {
+            if let Some(text) = spec.text() {
+                parse(components, pos, spec, text)
+            } else {
+                this(components, pos, spec)
+            }
         }
-    }
 
-    pub(in super) fn new(entity: &'a EntityStream) -> Option<ValueFormatter<'a>> {
-        match entity.kind {
-            EntityKind::Bits { ref bits, .. } => Some(Self::bits(bits.width())),
-            EntityKind::Number { ref data, .. } => {
-                use ElementType::*;
-                let scale = entity.number_scale();
-                let offset = entity.number_offset();
-                match data.desc().element_type {
-                    U8 | U16 | U32 | U64 => Some(ValueFormatter::Unsigned { scale, offset }),
-                    t @ (I8 | I16 | I32 | I64) => Some(ValueFormatter::Signed { bits: t.bits() as u32, scale, offset }),
-                    F32 => Some(ValueFormatter::Float32),
-                    F64 => Some(ValueFormatter::Float64),
+        fn parse(components: &mut Vec<Element>, pos: u8, spec: &Field, text: EcoString) {
+            let mut text = text.as_str();
+            while let Some((before, rest)) = text.split_once('{') {
+                if !before.is_empty() {
+                    components.push(Element::Literal(before.replace("}}", "}")));
+                }
+
+                if let Some(rest) = rest.strip_prefix('{') {
+                    components.push(Element::Literal("{".into()));
+                    text = rest;
+                } else if let Some((key, rest)) = rest.split_once('}') {
+                    if key.is_empty() {
+                        this(components, pos, spec);
+                    } else if let Some((child_offset, child)) = spec.child(key) {
+                        inner(components, pos + child_offset, child);
+                    } else {
+                        // unknown key
+                        components.push(Element::Literal("‽".into()));
+                    }
+                    text = rest;
+                } else {
+                    text = rest;
+                    // unmatched '}'
                 }
             }
-            EntityKind::Enum { ref values, .. } => Some(ValueFormatter::Enum { values }),
-            _ => None,
+
+            if !text.is_empty() {
+                components.push(Element::Literal(text.replace("}}", "}")));
+            }
         }
+
+        fn this(components: &mut Vec<Element>, pos: u8, spec: &Field) {
+            match spec.kind {
+                FieldKind::Null => {}
+                FieldKind::Bits { bits } => {
+                    if bits <= 8 {
+                        components.push(Element::Bin { pos, bits })
+                    } else {
+                        components.push(Element::Hex { pos, bits })
+                    }
+                }
+                FieldKind::Int { bits } => {
+                    // TODO: precision
+                    let offset = spec.number_offset();
+                    let scale = spec.number_scale();
+                    components.push(Element::Unsigned { pos, bits, offset, scale })
+                }
+                FieldKind::Signed { bits } => {
+                    // TODO: precision
+                    let offset = spec.number_offset();
+                    let scale = spec.number_scale();
+                    components.push(Element::Signed { pos, bits, offset, scale })
+                }
+                FieldKind::Timestamp { sample_rate } => {
+                    // TODO: epoch
+                    components.push(Element::Unsigned { pos, bits: 64, offset: 0.0, scale: 1.0 / sample_rate });
+                }
+                FieldKind::Float32 => {
+                    // TODO: precision
+                    components.push(Element::Float32 { pos })
+                }
+                FieldKind::Float64 => {
+                    // TODO: precision
+                    components.push(Element::Float64)
+                }
+                FieldKind::Enum { bits, ref values } => {
+                    components.push(Element::Enum{ pos, bits, values: values.clone() });
+                }
+                FieldKind::Tagged { tag_bits, ref values } => {
+                    let inner = values.values()
+                        .map(|f| TextFormat::new(pos + tag_bits, f))
+                        .collect();
+                    components.push(Element::Tagged { pos, tag_bits, inner })
+                }
+                FieldKind::Character => {
+                    components.push(Element::Character { pos });
+                }
+                FieldKind::BitStruct { .. } => {}
+            }
+        }
+
+        let mut components = Vec::new();
+        inner(&mut components, pos, spec);
+        TextFormat(components)
     }
 
-    pub fn format(&self, value: u64) -> EntityValueText<'a> {
-        EntityValueText { kind: *self, value }
+    pub fn write(&self, fmt: &mut impl Write, val: u64) -> fmt::Result {
+        fn extract(val: u64, pos: u8, bits: u8) -> u64 {
+            (val >> pos) & ((1 << bits) - 1)
+        }
+
+        for e in &self.0 {
+            match *e {
+                Element::Literal(ref s) => write!(fmt, "{}", s)?,
+                Element::Bin { pos, bits } => {
+                    write!(fmt, "{:0width$b}", extract(val, pos, bits), width = bits as usize)?
+                }
+                Element::Hex { pos, bits } => {
+                    write!(fmt, "{:0width$x}", extract(val, pos, bits), width = bits as usize / 4)?
+                }
+                Element::Unsigned { pos, bits, scale, offset } => {
+                    let i = extract(val, pos, bits);
+                    write!(fmt, "{}", (i as f64) * scale + offset)?
+                }
+                Element::Character { pos } => {
+                    let i = extract(val, pos, 8);
+                    write!(fmt, "{}", (i as u8).escape_ascii())?;
+                }
+                Element::Signed { pos, bits, scale, offset } => {
+                    let i = extract(val, pos, bits);
+                    let a = u64::BITS - bits as u32;
+                    let s = ((i << a) as i64) >> a;
+                    write!(fmt, "{}", (s as f64) * scale + offset)?;
+                }
+                Element::Float32 { pos } => {
+                    let i = extract(val, pos, 32);
+                    write!(fmt, "{}", f32::from_bits(i as u32))?;
+                }
+                Element::Float64 => {
+                    write!(fmt, "{}", f64::from_bits(val as u64))?;
+                }
+                Element::Enum { pos, bits, ref values } => {
+                    let i = extract(val, pos, bits);
+                    if let Some(v) = values.get(i as usize) {
+                        write!(fmt, "{}", v)?;
+                    } else {
+                        write!(fmt, "‽")?;
+                    }
+                }
+                Element::Tagged { pos, tag_bits, ref inner } => {
+                    let tag = extract(val, pos, tag_bits);
+                    if let Some(e) = inner.get(tag as usize) {
+                        e.write(fmt, val)?;
+                    } else {
+                        write!(fmt, "‽")?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn format<'a>(&'a self, val: u64) -> FormatValue<'a> {
+        FormatValue(self, val)
     }
 }
 
+pub struct FormatValue<'a>(pub &'a TextFormat, pub u64);
 
-fn get_i64(v: u64, bits: u32) -> i64 {
-    let shift = bits - u64::BITS;
-    (v << shift) as i64 >> shift
-}
-
-impl<'a> std::fmt::Display for EntityValueText<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.kind {            
-            ValueFormatter::Binary { bits, .. } => {
-                write!(f, "{:0width$b}", self.value, width = bits as usize)
-            }
-
-            ValueFormatter::Hex { digits } => {
-                write!(f, "{:0width$X}", self.value, width = digits as usize)
-            }
-
-            ValueFormatter::Unsigned { scale, offset, .. } => {
-                let d = self.value as f64 * scale + offset;
-                write!(f, "{d}")
-            }
-
-            ValueFormatter::Signed { bits, scale, offset, .. } => {
-                let d = get_i64(self.value, bits) as f64 * offset + scale;
-                write!(f, "{d}")
-            }
-
-            ValueFormatter::Float32 => {
-                let v = f32::from_bits(self.value as u32);
-                write!(f, "{v}")
-            }
-
-            ValueFormatter::Float64 => {
-                let v = f64::from_bits(self.value);
-                write!(f, "{v}")
-            }
-
-            ValueFormatter::Enum { ref values, .. } => {
-                let name = values.get(self.value as usize).map_or("‽", |f| &f.name);
-                write!(f, "{name}")
-            }
-        }
+impl std::fmt::Display for FormatValue<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        self.0.write(f, self.1)
     }
 }
 
 #[test]
-fn test_format() {
-    use crate::schema::Field;
+fn test_textformat() {
+    use indexmap::indexmap;
 
-    assert_eq!(ValueFormatter::Hex { digits: 4 }.format(0x1234).to_string(), "1234");
-    assert_eq!(ValueFormatter::Binary { bits: 3 }.format(0x5).to_string(), "101");
+    assert_eq!(
+        TextFormat::new(0, &Field::new(FieldKind::Bits { bits: 4 })).format(0b10).to_string(),
+        "0010"
+    );
 
-    assert_eq!(ValueFormatter::Unsigned { scale: 1.0, offset: 0.0 }.format(5).to_string(), "5");
-    assert_eq!(ValueFormatter::Unsigned { scale: 0.25, offset: -0.5 }.format(5).to_string(), "0.75");
-    assert_eq!(ValueFormatter::Unsigned { scale: 1.0, offset: 0.0 }.format(0x0505).to_string(), "1285");
+    assert_eq!(
+        TextFormat::new(0, &Field::new(FieldKind::Int { bits: 8 })).format(123).to_string(),
+        "123"
+    );
 
-    assert_eq!(ValueFormatter::Enum { values: &vec![
-        Field { name: "a".into(), attributes: Default::default()},
-        Field { name: "b".into(), attributes: Default::default()},
-    ]}.format(1).to_string(), "b");
+    assert_eq!(
+        TextFormat::new(0, &Field::new(FieldKind::Int { bits: 8, }).with_attribute("number:scale", 0.01)).format(123).to_string(),
+        "1.23"
+    );
+
+    assert_eq!(
+        TextFormat::new(0, &Field::new(FieldKind::Signed { bits: 8 })).format(-123i8 as u8 as u64).to_string(),
+        "-123"
+    );
+
+    assert_eq!(
+        TextFormat::new(0, &Field::new(FieldKind::Float32)).format(3333.25f32.to_bits() as u64).to_string(),
+        "3333.25"
+    );
+
+    assert_eq!(
+        TextFormat::new(0,
+            &Field::new(
+                FieldKind::BitStruct { children: indexmap! {
+                    "a".into() => Field::new(FieldKind::Bits { bits: 2 }),
+                    "b".into() => Field::new(FieldKind::Bits { bits: 3 }),
+                }}
+            ).with_attribute("text", "test({b}, {a})")
+        ).format(0b10111).to_string(),
+        "test(101, 11)"
+    );
+
+    assert_eq!(
+        TextFormat::new(0, &Field::new(FieldKind::Enum { bits: 2, values: vec!["a".into(), "b".into(), "c".into()] })).format(1).to_string(),
+        "b"
+    );
+
+    let f = TextFormat::new(0,
+        &Field::new(
+            FieldKind::Tagged { tag_bits: 1, values: indexmap! {
+                "a".into() => Field::new(FieldKind::Null)
+                    .with_attribute("text", "a"),
+                "b".into() => Field::new(FieldKind::Bits { bits: 2 }),
+            }}
+        ).with_attribute("text", "e:{}")
+    );
+
+    assert_eq!(f.format(0b000).to_string(), "e:a");
+    assert_eq!(f.format(0b001).to_string(), "e:00");
+    assert_eq!(f.format(0b101).to_string(), "e:10");
 }

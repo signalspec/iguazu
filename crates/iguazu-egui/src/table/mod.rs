@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use ecow::EcoString;
 use egui::Margin;
-use iguazu::{schema::EntityStream, view::{TextView, ViewManager}};
+use iguazu::{schema::{Entity, EntityStream}, view::{TextView, ViewManager}};
 use itertools::Itertools;
 
 use crate::ViewerContext;
@@ -57,9 +57,9 @@ impl<'a> Delegate<'a> {
             n_rows: &mut u64,
             entity: &EntityStream,
         ) {
-            match entity.kind {
-                iguazu::schema::EntityKind::Group { .. } => {}
-                iguazu::schema::EntityKind::Record { ref children, ..}=> {
+            match entity {
+                Entity::Group { .. } => {}
+                Entity::Record { children, .. } => {
                     for (name, child) in children {
                         let start = data.len();
                         inner(vm, depth + 1, data, headers, n_rows, child);

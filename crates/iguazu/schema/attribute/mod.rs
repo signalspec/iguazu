@@ -3,9 +3,7 @@ use indexmap::IndexMap;
 use serde::{Serialize, Deserialize};
 use strum::{EnumString, IntoStaticStr};
 
-use crate::schema::{BitField, BitLayout};
-
-use super::{Entity, EntityKind, Field};
+use super::{Entity, Field, FieldKind};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AttributeMap {
@@ -250,22 +248,6 @@ impl<D> Entity<D> {
     pub fn text(&self) -> Option<EcoString> {
         self.attribute("text")
     }
-
-    pub fn number_range(&self) -> Option<NumberRange> {
-        let o: AttributeMap = self.attribute("number:range")?;
-        Some(NumberRange {
-            min: o.get("min")?,
-            max: o.get("max")?,
-        })
-    }
-
-    pub fn number_scale(&self) -> f64 {
-        self.attribute("number:scale").unwrap_or(1.0)
-    }
-
-    pub fn number_offset(&self) -> f64 {
-        self.attribute("number:offset").unwrap_or(0.0)
-    }
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -280,7 +262,7 @@ impl<D> Entity<D> {
         o.and_then(|o| o.get("view")).or(
             if self.time().is_some() || self.sample_rate().is_some() {
                 Some(DefaultView::Timeline)
-            } else if matches!(self.kind, EntityKind::Record {..}) {
+            } else if matches!(self, Entity::Record {..}) {
                 Some(DefaultView::Table)
             } else {
                 None
@@ -297,11 +279,25 @@ impl Field {
     pub fn accent_color(&self) -> Option<AccentColor> {
         self.attribute("display:accent_color")
     }
-}
 
-impl BitField {
-    pub fn accent_color(&self) -> Option<AccentColor> {
-        self.attributes.get("display:accent_color")
+    pub fn number_range(&self) -> Option<NumberRange> {
+        let o: AttributeMap = self.attribute("number:range")?;
+        Some(NumberRange {
+            min: o.get("min")?,
+            max: o.get("max")?,
+        })
+    }
+
+    pub fn number_scale(&self) -> f64 {
+        self.attribute("number:scale").unwrap_or(1.0)
+    }
+
+    pub fn number_offset(&self) -> f64 {
+        self.attribute("number:offset").unwrap_or(0.0)
+    }
+
+    pub fn text(&self) -> Option<EcoString> {
+        self.attribute("text")
     }
 }
 
@@ -309,32 +305,29 @@ impl BitField {
 impl<D> Entity<D> {
     pub fn timeline_row(&self) -> TimelineRow {
         self.attribute("display:timeline_row").unwrap_or_else(|| {
-            match self.kind {
-                EntityKind::Record { .. } if self.time().is_some() => TimelineRow::Events,
-                EntityKind::Group { .. } | EntityKind::Record { .. } => TimelineRow::Group,
-                EntityKind::Number { .. } => TimelineRow::YAxis,
-                EntityKind::Bits { ref bits, .. } => bits.default_timeline_row(),
-                EntityKind::Enum { .. } => TimelineRow::Trace,
+            match self {
+                Entity::Record { .. } if self.time().is_some() => TimelineRow::Events,
+                Entity::Group { .. } | Entity::Record { .. } => TimelineRow::Group,
+                Entity::Data { field, .. } => field.timeline_row(),
                 _ => TimelineRow::Hidden,
             }
         })
     }
 }
 
-impl BitLayout {
-    pub fn default_timeline_row(&self) -> TimelineRow {
-        match self {
-            BitLayout::Fields(_) => TimelineRow::Group,
-            BitLayout::Bits(1) => TimelineRow::Logic,
-            BitLayout::Bits(_) => TimelineRow::Trace,
-        }
-    }
-}
-
-impl BitField {
+impl Field {
     pub fn timeline_row(&self) -> TimelineRow {
         self.attributes.get("display:timeline_row")
-            .unwrap_or(self.bits.default_timeline_row())
+            .unwrap_or_else(|| {
+                match &self.kind {
+                    FieldKind::Null => TimelineRow::Hidden,
+                    FieldKind::BitStruct { .. } => TimelineRow::Group,
+                    FieldKind::Bits { bits: 1 } => TimelineRow::Logic,
+                    FieldKind::Bits { .. } | FieldKind::Character | FieldKind::Enum { .. } | FieldKind::Tagged { .. } => TimelineRow::Trace,
+                    FieldKind::Timestamp { .. } => TimelineRow::Hidden,
+                    FieldKind::Int { .. } | FieldKind::Signed { .. } | FieldKind::Float32 | FieldKind::Float64 => TimelineRow::YAxis,
+                }
+            })
     }
 }
 
