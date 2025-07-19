@@ -1,10 +1,10 @@
-use std::{cell::RefCell, collections::{hash_map, HashMap, HashSet}, fmt::Debug, future::Future, io, sync::Arc, task::{Context, Poll, Waker}};
+use std::{cell::RefCell, collections::{hash_map, HashMap, HashSet}, fmt::Debug, future::Future, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker}};
 
 use async_executor::{Executor, Task};
 use elsa::FrozenMap;
-use futures_lite::FutureExt;
+use futures_lite::{AsyncBufRead, FutureExt};
 
-use crate::{import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{ElementType, Stream, StreamAccess, StreamDesc, StreamState}};
+use crate::{ElementType, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{Stream, StreamAccess, StreamDesc, StreamIter, StreamState}};
 
 pub struct FlatFileOpts {
     pub offset: u64,
@@ -67,6 +67,7 @@ impl FlatFileStream {
     }
 
     fn load_block(&self, block: u64) -> impl Future<Output = Result<Vec<u8>, io::Error>> + Send + 'static {
+        log::debug!("Loading block {block} of {}", self.file.filename().unwrap_or("<unknown>"));
         let offset = self.block_offset(block);
         self.file.clone().read_at(offset, self.block_size_bytes)
     }
@@ -97,6 +98,14 @@ impl Stream for FlatFileStream {
                 error: None
             }),
             waker: Waker::noop().clone(),
+        })
+    }
+    
+    fn iter(self: Arc<Self>) -> Box<dyn crate::stream::StreamIter> {
+        Box::new(FileStreamIter {
+            stream: self.clone(),
+            file_stream: self.file.clone().stream(),
+            last: 0,
         })
     }
 }
@@ -132,9 +141,6 @@ impl StreamAccess for FileStreamAccess {
                 if is_error {
                     return &[];
                 }
-
-                log::debug!("Loading block {block} of {}", self.stream.file.filename().unwrap_or("<unknown>"));
-
                 entry.insert_entry(self.stream.executor.spawn(self.stream.load_block(block)))
             }
         };
@@ -171,5 +177,29 @@ impl StreamAccess for FileStreamAccess {
         let mut state = self.state.borrow_mut();
         self.blocks.as_mut().retain(|block, _| state.used.contains(block));
         state.used.clear();
+    }
+}
+
+struct FileStreamIter {
+    stream: Arc<FlatFileStream>,
+    file_stream: Pin<Box<dyn AsyncBufRead + Send + Sync>>,
+    last: usize,
+}
+
+impl StreamIter for FileStreamIter {
+    fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
+        self.file_stream.as_mut().consume(self.last);
+        self.last = 0;
+        match self.file_stream.as_mut().poll_fill_buf(cx) {
+            Poll::Ready(Ok(buf)) => {
+                self.last = buf.len();
+                Poll::Ready(Ok(buf))
+            }
+            Poll::Ready(Err(e)) => {
+                log::error!("Error reading from file {}: {}", self.stream.file.filename().unwrap_or("<unknown>"), e);
+                Poll::Ready(Err(e.to_string()))
+            }
+            Poll::Pending => Poll::Pending
+        }
     }
 }

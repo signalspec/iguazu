@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 
 use crate::schema::{Entity, FieldKind, EntityStream, Ignored};
 use crate::storage::MemoryStreamWriter;
-use crate::stream::{ElementType, Stream};
+use crate::{ ElementType, stream::Stream };
 use crate::{io::ReadableFile, schema::EntitySchema};
 
 use super::{ImportError, Importer};

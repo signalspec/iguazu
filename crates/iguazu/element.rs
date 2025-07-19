@@ -1,37 +1,5 @@
+
 use serde::{Deserialize, Serialize};
-use std::{fmt::Debug, sync::Arc, task::Waker};
-use crate::Idx;
-
-pub trait Stream: Send + Sync + Debug {
-    fn desc(&self) -> StreamDesc;
-
-    fn state(&self) -> StreamState;
-
-    fn access(self: Arc<Self>) -> Box<dyn StreamAccess>;
-}
-
-pub type ArcStream = Arc<dyn Stream>;
-
-pub trait StreamAccess: Send  {
-    fn get_block(&self, block: u64) -> &[u8];
-
-    fn state(&self) -> StreamState;
-
-    fn begin(&mut self, waker: &Waker);
-
-    fn end(&mut self);
-}
-
-#[derive(Clone)]
-pub struct StreamDesc {
-    pub element_type: ElementType,
-    pub block_size: usize,
-}
-
-pub struct StreamState {
-    pub end: Idx,
-    pub streaming: bool,
-}
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -70,7 +38,7 @@ impl ElementType {
     }
 }
 
-pub trait Element: bytemuck::Pod + bytemuck::NoUninit + bytemuck::Zeroable + bytemuck::AnyBitPattern {
+pub trait Element: Send + Sync + bytemuck::Pod + bytemuck::NoUninit + bytemuck::Zeroable + bytemuck::AnyBitPattern + bytemuck::NoUninit {
     const ELEMENT_TYPE: ElementType;
 }
 

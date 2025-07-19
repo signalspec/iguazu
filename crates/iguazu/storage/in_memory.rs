@@ -1,10 +1,10 @@
-use std::sync::atomic::AtomicBool;
-use std::{sync::Arc, task::Waker};
+use std::task::{Context, Poll};
+use std::{sync::{Arc, atomic::AtomicBool}, task::Waker};
 use std::fmt::Debug;
 
 use append_array::{AppendArrayWriter, AppendArray};
 use elsa::sync::FrozenVec;
-use crate::stream::{Element, ElementType, Stream, StreamAccess, StreamDesc, StreamState};
+use crate::{Element, ElementType, stream::{Stream, StreamAccess, StreamDesc, StreamIter, StreamState}};
 
 const BLOCK_SIZE: usize = 1<<16;
 
@@ -23,6 +23,10 @@ impl MemoryStream {
         let mut writer = MemoryStreamWriter::new(element_type);
         writer.extend_from_slice(data);
         writer.stream.clone()
+    }
+
+    fn streaming(&self) -> bool {
+        self.streaming.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -46,13 +50,21 @@ impl Stream for MemoryStream {
         let end = ((n_blocks - 1) * BLOCK_SIZE + last_block) as u64;
 
         StreamState {
-            streaming: self.streaming.load(std::sync::atomic::Ordering::Relaxed),
+            streaming: self.streaming(),
             end,
         }
     }
     
     fn access(self: Arc<Self>) -> Box<dyn StreamAccess> {
         Box::new(MemoryStreamAccess { stream: self })
+    }
+
+    fn iter(self: Arc<Self>) -> Box<dyn StreamIter> {
+        Box::new(MemoryStreamIter {
+            stream: self,
+            block: 0,
+            pos: 0,
+        })
     }
 }
 
@@ -73,6 +85,41 @@ impl StreamAccess for MemoryStreamAccess {
 
     fn begin(&mut self, _waker: &Waker) {}
     fn end(&mut self) {}
+}
+
+pub struct MemoryStreamIter {
+    stream: Arc<MemoryStream>,
+    block: usize,
+    pos: usize,
+}
+
+impl StreamIter for MemoryStreamIter {
+    fn poll_next(&mut self, _cx: &mut Context) -> Poll<Result<&[u8], String>> {
+        let Some(block) = self.stream.blocks.get(self.block) else {
+            if self.stream.streaming() {
+                return Poll::Pending;
+            } else {
+                return Poll::Ready(Ok(&[]));
+            }
+        };
+
+        let Some(data) = block.get(self.pos..) else {
+            if self.stream.streaming() {
+                return Poll::Pending;
+            } else {
+                return Poll::Ready(Ok(&[]));
+            }
+        };
+
+        self.pos += data.len();
+
+        if self.pos >= self.stream.element_type.bytes() * BLOCK_SIZE {
+            self.block += 1;
+            self.pos = 0;
+        }
+
+        Poll::Ready(Ok(data))
+    }
 }
 
 pub struct MemoryStreamWriter {

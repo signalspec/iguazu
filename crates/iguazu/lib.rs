@@ -5,6 +5,8 @@ pub mod storage;
 pub mod io;
 pub mod view;
 mod util;
+mod element;
+pub use element::{Element, ElementType};
 
 #[cfg(all(feature="clap", any(target_family = "unix", target_family = "windows")))]
 pub mod cli;

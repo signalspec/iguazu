@@ -1,6 +1,6 @@
 use std::{cell::RefCell, marker::PhantomData, u64};
 
-use crate::{schema::EntityStream, stream::{ArcStream, Element, StreamAccess, StreamDesc, StreamState}, Idx, IdxRange};
+use crate::{Element, schema::EntityStream, stream::{ArcStream, StreamAccess, StreamDesc, StreamState}, Idx, IdxRange};
 
 use super::ViewManager;
 
