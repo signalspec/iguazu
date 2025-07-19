@@ -1,13 +1,13 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::AccentColor, fmt::TextFormat, Field}, stream::ArcStream, view::IntView, Idx, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, fmt::TextFormat, Field}, stream::ArcStream, view::{TraceElement, TraceView}, IdxRange};
 use ecow::EcoString;
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
-use super::{label_frame, scale::IdxScale, stream_rect, TimelineResponse};
+use super::{label_frame, stream_rect, TimelineResponse};
 
 pub struct TraceRow<'a> {
-    view: IntView<'a>,
+    view: TraceView<'a>,
     sample_rate: f64,
     formatter: TextFormat,
     label: EcoString,
@@ -18,7 +18,7 @@ pub struct TraceRow<'a> {
 
 impl<'a> TraceRow<'a> {
     pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, field: &Field) -> TraceRow<'a> {
-        let view = IntView::new_from_stream(&vcx.view_manager, stream);
+        let view = TraceView::new(&vcx.view_manager, stream.clone(), &[]);
         let width = field.kind.width();
         let color = color.unwrap_or(AccentColor::Green);
         let formatter = TextFormat::new(offset, field);
@@ -61,31 +61,58 @@ impl<'a> TraceRow<'a> {
         };
 
         let mask = ((1 << self.width) - 1) << self.offset;
+        let mut last = TraceElement::Loading;
 
-        scan(&idx_scale, &self.view, range, mask, |x1, x2, _idx1, _idx2, val | {
-            let h_pad = 5.0;
-            let text_min_width = 8.0;
-            let tx = x1.max(padded_rect.left()) + h_pad;
-            if x2 - tx > text_min_width {
-                let opacity = ((x2 - tx - text_min_width) / 4.0).clamp(0.0, 1.0);
-                painter
-                    .with_clip_rect(
-                        Rect::from_x_y_ranges(
-                            Rangef::new(tx, x2 - h_pad),
-                            padded_rect.y_range()
-                        )
-                    )
-                    .text(
-                        Pos2::new(tx, padded_rect.y_range().center()),
-                        Align2::LEFT_CENTER,
-                        self.formatter.format(val).to_string(),
-                        font_id.clone(), 
-                        font_color.gamma_multiply(opacity)
-                    );
+        self.view.scan(range, mask, idx_scale.min_visible_width(), |range, elem| {
+            let x1 = idx_scale.x_from_idx(range.min);
+            let x2 = idx_scale.x_from_idx(range.max);
+
+            match elem {
+                TraceElement::Loading => {
+                }
+                TraceElement::Dense => {
+                    let xr = Rangef::new(x1, x2);
+                    if xr.span() <= stroke_width {
+                        painter.vline(xr.center(), padded_rect.y_range(), stroke);
+                    } else {
+                        painter.rect_filled(
+                            Rect::from_x_y_ranges(xr, padded_rect.y_range().expand(stroke_width / 2.0)),
+                            0.0,
+                            color,
+                        );
+                    }
+                }
+                TraceElement::Value(val) => {
+                    let h_pad = 5.0;
+                    let text_min_width = 8.0;
+                    let tx = x1.max(padded_rect.left()) + h_pad;
+                    if x2 - tx > text_min_width {
+                        let opacity = ((x2 - tx - text_min_width) / 4.0).clamp(0.0, 1.0);
+                        painter
+                            .with_clip_rect(
+                                Rect::from_x_y_ranges(
+                                    Rangef::new(tx, x2 - h_pad),
+                                    padded_rect.y_range()
+                                )
+                            )
+                            .text(
+                                Pos2::new(tx, padded_rect.y_range().center()),
+                                Align2::LEFT_CENTER,
+                                self.formatter.format(val).to_string(),
+                                font_id.clone(), 
+                                font_color.gamma_multiply(opacity)
+                            );
+                    }
+            
+                    painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+                    painter.hline(x1..=x2, padded_rect.top(), stroke);
+
+                    if matches!(last, TraceElement::Value(_)) {
+                        painter.vline(x1, padded_rect.y_range(), stroke);
+                    }
+                }
             }
-            painter.hline(x1..=x2, padded_rect.bottom(), stroke);
-            painter.hline(x1..=x2, padded_rect.top(), stroke);
-            painter.vline(x2, padded_rect.y_range(), stroke);
+            last = elem;
         });
     
         TimelineResponse {
@@ -95,7 +122,7 @@ impl<'a> TraceRow<'a> {
 }
 
 pub struct LogicRow<'a> {
-    view: IntView<'a>,
+    view: TraceView<'a>,
     offset: u8,
     sample_rate: f64,
     label: EcoString,
@@ -104,7 +131,7 @@ pub struct LogicRow<'a> {
 
 impl<'a> LogicRow<'a> {
     pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, _field: &Field) -> LogicRow<'a> {
-        let view = IntView::new_from_stream(&vcx.view_manager, stream);
+        let view = TraceView::new(&vcx.view_manager, stream.clone(), &[]);
         let color = color.unwrap_or(AccentColor::Green);
         LogicRow { view, sample_rate, label, color, offset }
     }
@@ -129,6 +156,7 @@ impl<'a> LogicRow<'a> {
             min: idx_scale.visible.min,
             max: idx_scale.visible.max.min(state.end),
         };
+        let min_width = idx_scale.min_visible_width();
     
         let font_id = egui::TextStyle::Body.resolve(ui.style());
         let font_color = ui.style().visuals.text_color();
@@ -154,22 +182,48 @@ impl<'a> LogicRow<'a> {
             .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
             .map(|pos| pos.x);
 
-        let mut prev_idx = None;
-        scan(&idx_scale, &self.view, range, mask, |x1, x2, idx1, idx2, val | {
-            if val & mask != 0 {
-                painter.hline(x1..=x2, padded_rect.top(), stroke);
-            } else {
-                painter.hline(x1..=x2, padded_rect.bottom(), stroke);
-            }
+        let mut idx0 = 0;
+        let mut prev_val = TraceElement::Loading;
 
-            painter.vline(x2, padded_rect.y_range(), stroke);
+        self.view.scan(range, mask, min_width, |IdxRange { min: idx1, max: idx2 }, elem|{
+            let x1 = idx_scale.x_from_idx(idx1);
+            let x2 = idx_scale.x_from_idx(idx2);
+
+            match elem {
+                TraceElement::Loading => {
+
+                }
+                TraceElement::Dense => {
+                    let xr = Rangef::new(x1, x2);
+                    if xr.span() <= stroke_width {
+                        painter.vline(xr.center(), padded_rect.y_range(), stroke);
+                    } else {
+                        painter.rect_filled(
+                            Rect::from_x_y_ranges(xr, padded_rect.y_range().expand(stroke_width / 2.0)),
+                            0.0,
+                            color,
+                        );
+                    }
+                }
+                TraceElement::Value(val) => {
+                    if matches!(prev_val, TraceElement::Value(_)) {
+                        painter.vline(x1, padded_rect.y_range(), stroke);
+                    }
+
+                    if val != 0 {
+                        painter.hline(x1..=x2, padded_rect.top(), stroke);
+                    } else {
+                        painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+                    }
+                }
+            }
 
             if let Some(hover_x) = hover_x {
                 if (hover_x - x1).abs() < interact_radius {
                     // Hovering the left edge of this span
-                    snap_to_idx = idx1;
+                    snap_to_idx = Some(idx1);
 
-                    if let (Some(idx0), Some(idx2)) = (prev_idx, idx2) {
+                    if matches!(prev_val, TraceElement::Value(_)) && idx0 > range.min && idx2 < range.max {
                         let x0 = idx_scale.x_from_idx(idx0);
 
                         let anchor = if x2 - x1 > 80.0 {
@@ -187,7 +241,7 @@ impl<'a> LogicRow<'a> {
                     }
                 } else if (x1..x2 - interact_radius).contains(&hover_x) {
                     // hovering within the span
-                    if let (Some(idx1), Some(idx2)) = (idx1, idx2) {
+                    if idx1 > range.min && idx2 < range.max {
                         if x2 - x1 > 80.0 {
                             let span_rect = Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range());
                             let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx1);
@@ -198,7 +252,8 @@ impl<'a> LogicRow<'a> {
                 }
             }
 
-            prev_idx = idx1;
+            idx0 = idx1;
+            prev_val = elem;
         });
         
         let snap_to_time = snap_to_idx.map(|idx| {
@@ -208,40 +263,6 @@ impl<'a> LogicRow<'a> {
         TimelineResponse {
             snap_to_time,
         }
-    }
-}
-
-
-fn scan(
-    idx_scale: &IdxScale,
-    view: &IntView,
-    range: IdxRange,
-    mask: u64,
-    mut render: impl FnMut(f32, f32, Option<Idx>, Option<Idx>, u64)
-) {
-    let mut prev_v_opt: Option<u64> = None;
-    let mut idx1 = None;
-    let mut x1 = idx_scale.x_from_idx(idx_scale.visible.min);
-
-    view.for_each_elem(range, |idx, value| {
-        if let Some(value) = value {
-            let next_v = value;
-
-            if let Some(prev_v) = prev_v_opt {
-                if !(prev_v & mask == next_v & mask) {
-                    let x2: f32 = idx_scale.x_from_idx(idx);
-                    render(x1, x2, idx1, Some(idx), prev_v & mask);
-                    x1 = x2;
-                    idx1 = Some(idx);
-                }
-            }        
-        }
-        prev_v_opt = value;
-    });
-
-    if let Some(prev_v) = prev_v_opt {
-        let x2 = idx_scale.x_from_idx(range.max);
-        render(x1, x2, idx1, None, prev_v);
     }
 }
 

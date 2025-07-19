@@ -1,9 +1,10 @@
 use std::{ sync::Arc, task::Waker};
 
+use elsa::sync::FrozenMap;
+
 use crate::{schema::{Entity, EntityStream}, stream::{ArcStream, StreamAccess}};
 
 mod int_view;
-use elsa::FrozenMap;
 pub use int_view:: { IntView, LoadedChunkIter };
 
 mod number_view;
@@ -17,6 +18,9 @@ pub use event_view::{ EventView, EventViewIter, Event };
 
 mod text_view;
 pub use text_view::TextView;
+
+mod trace_view;
+pub use trace_view::{TraceView, TraceElement};
 
 pub struct ViewManager {
     waker: Waker,

@@ -4,6 +4,7 @@ pub mod import;
 pub mod storage;
 pub mod io;
 pub mod view;
+pub mod summary;
 mod util;
 mod element;
 pub use element::{Element, ElementType};
