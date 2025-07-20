@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicBool;
 use std::{sync::Arc, task::Waker};
 use std::fmt::Debug;
 
@@ -10,6 +11,7 @@ const BLOCK_SIZE: usize = 1<<16;
 pub struct MemoryStream {
     element_type: ElementType,
     blocks: FrozenVec<Arc<AppendArray<u8>>>,
+    streaming: AtomicBool,
 }
 
 impl MemoryStream {
@@ -20,7 +22,7 @@ impl MemoryStream {
     pub fn raw(element_type: ElementType, data: &[u8]) -> Arc<Self> {
         let mut writer = MemoryStreamWriter::new(element_type);
         writer.extend_from_slice(data);
-        writer.stream
+        writer.stream.clone()
     }
 }
 
@@ -44,7 +46,7 @@ impl Stream for MemoryStream {
         let end = ((n_blocks - 1) * BLOCK_SIZE + last_block) as u64;
 
         StreamState {
-            streaming: true,
+            streaming: self.streaming.load(std::sync::atomic::Ordering::Relaxed),
             end,
         }
     }
@@ -83,7 +85,7 @@ impl MemoryStreamWriter {
         let writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * element_type.bytes());
         let blocks = FrozenVec::new();
         blocks.push(writer.reader());
-        let stream = Arc::new(MemoryStream { blocks, element_type });
+        let stream = Arc::new(MemoryStream { blocks, element_type, streaming: AtomicBool::new(true) });
         MemoryStreamWriter { stream, writer }
     }
 
@@ -103,5 +105,11 @@ impl MemoryStreamWriter {
     pub fn pos(&self) -> u64 {
         let n_blocks = self.stream.blocks.len();
         ((n_blocks - 1) * BLOCK_SIZE + (self.writer.len() / self.stream.element_type.bytes())) as u64
+    }
+}
+
+impl Drop for MemoryStreamWriter {
+    fn drop(&mut self) {
+        self.stream.streaming.store(false, std::sync::atomic::Ordering::Relaxed);
     }
 }
