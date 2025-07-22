@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::{egui, CreationContext};
-use egui::Frame;
+use egui::{frame, util::History, Direction, Frame, Layout, Rect, UiBuilder};
 
 use iguazu::{schema::{attribute::DefaultView, Entity, EntityStream}, stream::ArcStream};
 use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
@@ -132,6 +132,8 @@ struct App {
     entity: EntityStream,
     view: Option<DefaultView>,
     vctx: ViewerContext,
+
+    frame_time_history: History<f32>,
 }
 impl App {
     fn new(cc: &CreationContext, entity: Entity<ArcStream>, view: Option<DefaultView>) -> Self {
@@ -141,10 +143,14 @@ impl App {
             o.round_rects_to_pixels = false;
         });
 
+        let max_age: f32 = 1.0;
+        let max_len = (max_age * 300.0).round() as usize;
+
         App {
             view,
             entity,
             vctx: ViewerContext::new(&cc.egui_ctx),
+            frame_time_history: History::new(0..max_len, max_age),
         }
     }
 }
@@ -154,11 +160,11 @@ impl eframe::App for App {
         [0.0; 4]
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.vctx.begin();
 
-        let frame = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
-        egui::CentralPanel::default().frame(frame).show(ctx, |ui| {
+        let central_panel = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
+        egui::CentralPanel::default().frame(central_panel).show(ctx, |ui| {
             match self.view {
                 Some(DefaultView::Table) => TableView::new().show(&mut self.vctx, ui, &mut self.entity),
                 Some(DefaultView::Timeline) => TimelineView::new().show(&mut self.vctx, ui, &mut self.entity),
@@ -166,8 +172,45 @@ impl eframe::App for App {
                     ui.label("unknown view");
                 }
             }
+
+            let debug = Rect::from_x_y_ranges(ui.max_rect().x_range(), (ui.max_rect().bottom() - 20.0)..=ui.max_rect().bottom());
+            ui.scope_builder(
+                UiBuilder::new()
+                    .max_rect(debug)
+                    .layout(Layout::centered_and_justified(Direction::TopDown)),
+                |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Debug:");
+                        self.frame_time_ui(ui);
+                    });
+                }
+            );
         });
 
         self.vctx.end();
+        
+        self.update_frame_time(ctx, frame);
+    }
+}
+
+impl App {
+    fn update_frame_time(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let now = ctx.input(|i| i.time);
+        let previous_frame_time = frame.info().cpu_usage;
+
+        let previous_frame_time = previous_frame_time.unwrap_or_default();
+        if let Some(latest) = self.frame_time_history.latest_mut() {
+            *latest = previous_frame_time; // rewrite history now that we know
+        }
+        self.frame_time_history.add(now, previous_frame_time);
+    }
+
+    fn frame_time_ui(&self, ui: &mut egui::Ui) {
+        if let Some(frame_time) = self.frame_time_history.average() {
+            ui.label(format!(
+                "Mean CPU usage: {:.2} ms / frame",
+                1e3 * frame_time
+            ));
+        }
     }
 }
