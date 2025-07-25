@@ -1,6 +1,6 @@
 use std::{cell::RefCell, marker::PhantomData, u64};
 
-use crate::{Element, schema::EntityStream, stream::{ArcStream, StreamAccess, StreamDesc, StreamState}, Idx, IdxRange};
+use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess, StreamDesc, StreamState}, Element, ElementType, Idx, IdxRange};
 
 use super::ViewManager;
 
@@ -52,10 +52,13 @@ impl<'a> IntView<'a> {
         let pos = idx % self.desc.block_size as Idx;
         let byte_pos = pos as usize * self.desc.element_type.bytes();
 
-        let elem = self.block(block).get(byte_pos .. byte_pos + self.desc.element_type.bytes())?;
-        let mut data = [0; 8];
-        data[..elem.len()].copy_from_slice(elem);
-        Some(u64::from_le_bytes(data))
+        let block = self.block(block);
+        Some(match self.desc.element_type {
+            ElementType::U8 => *(block.get(byte_pos)?) as u64,
+            ElementType::U16 => u16::from_le_bytes(block.get(byte_pos..byte_pos + 2)?.try_into().unwrap()) as u64,
+            ElementType::U32 => u32::from_le_bytes(block.get(byte_pos..byte_pos + 4)?.try_into().unwrap()) as u64,
+            ElementType::U64 => u64::from_le_bytes(block.get(byte_pos..byte_pos + 8)?.try_into().unwrap()),
+        })
     }
     
     pub fn loaded_chunks<'v, T: Element>(&'v self, range: IdxRange) -> LoadedChunkIter<'v, 'a, T> {
