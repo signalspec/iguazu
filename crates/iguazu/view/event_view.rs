@@ -16,7 +16,7 @@ impl<'v> EventView<'v> {
 
         let Entity::Tuple { child, .. } = &entity else { return None };
 
-        let Entity::Data { field, data} = &**child else {
+        let Entity::Data { field, data, .. } = &**child else {
             return None;
         };
 

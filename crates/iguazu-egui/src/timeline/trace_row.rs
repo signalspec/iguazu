@@ -1,6 +1,7 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::AccentColor, fmt::TextFormat, Field}, stream::ArcStream, view::{TraceElement, TraceView}, IdxRange};
+use iguazu::{schema::{attribute::AccentColor, fmt::TextFormat, Field, Summary}, stream::ArcStream, view::{TraceElement, TraceView}, IdxRange};
 use ecow::EcoString;
+use indexmap::IndexMap;
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
@@ -17,8 +18,9 @@ pub struct TraceRow<'a> {
 }
 
 impl<'a> TraceRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, field: &Field) -> TraceRow<'a> {
-        let view = TraceView::new(&vcx.view_manager, stream.clone(), &[]);
+    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, field: &Field, summaries: &IndexMap<EcoString, Summary<ArcStream>>) -> TraceRow<'a> {
+        let summary = summaries.get("bit_and_or".into()).unwrap_or(const { &Summary::empty() });
+        let view = TraceView::new(&vcx.view_manager, stream.clone(), summary);
         let width = field.kind.width();
         let color = color.unwrap_or(AccentColor::Green);
         let formatter = TextFormat::new(offset, field);
@@ -63,7 +65,7 @@ impl<'a> TraceRow<'a> {
         let mask = ((1 << self.width) - 1) << self.offset;
         let mut last = TraceElement::Loading;
 
-        self.view.scan(range, mask, idx_scale.min_visible_width(), |range, elem| {
+        self.view.scan(range, mask, idx_scale.min_visible_width(ui.pixels_per_point()), |range, elem| {
             let x1 = idx_scale.x_from_idx(range.min);
             let x2 = idx_scale.x_from_idx(range.max);
 
@@ -130,8 +132,9 @@ pub struct LogicRow<'a> {
 }
 
 impl<'a> LogicRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, _field: &Field) -> LogicRow<'a> {
-        let view = TraceView::new(&vcx.view_manager, stream.clone(), &[]);
+    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, _field: &Field, summaries: &IndexMap<EcoString, Summary<ArcStream>>) -> LogicRow<'a> {
+        let summary = summaries.get("bit_and_or".into()).unwrap_or(const { &Summary::empty() });
+        let view = TraceView::new(&vcx.view_manager, stream.clone(), summary);
         let color = color.unwrap_or(AccentColor::Green);
         LogicRow { view, sample_rate, label, color, offset }
     }
@@ -156,8 +159,8 @@ impl<'a> LogicRow<'a> {
             min: idx_scale.visible.min,
             max: idx_scale.visible.max.min(state.end),
         };
-        let min_width = idx_scale.min_visible_width();
-    
+        let min_width = idx_scale.min_visible_width(ui.pixels_per_point());
+
         let font_id = egui::TextStyle::Body.resolve(ui.style());
         let font_color = ui.style().visuals.text_color();
     
@@ -218,7 +221,7 @@ impl<'a> LogicRow<'a> {
                 }
             }
 
-            if let Some(hover_x) = hover_x {
+            if let Some(hover_x) = hover_x && matches!(elem, TraceElement::Value(_)){
                 if (hover_x - x1).abs() < interact_radius {
                     // Hovering the left edge of this span
                     snap_to_idx = Some(idx1);

@@ -130,7 +130,7 @@ fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<Colu
 
 fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), ImportError>{
     Ok(match schema {
-        Entity::Data { data: Ignored, field } => {
+        Entity::Data { data: Ignored, field, .. } => {
             let (data, parser) = match &field.kind {
                 FieldKind::Float32 => {
                     let writer = MemoryStreamWriter::new(ElementType::U32);
@@ -142,13 +142,13 @@ fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), 
                 }
             };
 
-            let entity = Entity::Data { data, field: field.clone() };
+            let entity = Entity::Data { data, field: field.clone(), summaries: Default::default() };
             (entity, parser)
         }
 
         Entity::VariableArray { data: Ignored, child, attributes } => {
             match **child {
-                Entity::Data { data: Ignored, ref field} => {
+                Entity::Data { data: Ignored, ref field, ..} => {
                     let ends = MemoryStreamWriter::new(ElementType::U64);
                     let ends_stream = ends.stream().clone() as Arc<dyn Stream>;
 
@@ -163,7 +163,7 @@ fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), 
                         }
                     };
 
-                    let inner = Entity::Data { data, field: field.clone() };
+                    let inner = Entity::Data { data, field: field.clone(), summaries: Default::default() };
 
                     let entity = Entity::VariableArray {
                         data: ends_stream,

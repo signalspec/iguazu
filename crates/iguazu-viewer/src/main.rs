@@ -37,8 +37,10 @@ fn main() -> Result<(), eframe::Error> {
         }
     });
 
-    let (entity, completion) = block_on(cli.import.import(IMPORTERS, executor)).expect("Failed to load file");
+    let (mut entity, completion) = block_on(cli.import.import(IMPORTERS, executor.clone())).expect("Failed to load file");
     block_on(completion).expect("Failed to complete import");
+
+    entity.build_summaries(&executor);
 
     let view = entity.display_default();
 

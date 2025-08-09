@@ -64,7 +64,7 @@ impl<'a> TextView<'a> {
         fn this<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream) {
             match *entity {
                 Entity::Group { .. } | Entity::Record { .. } => {}
-                Entity::Data { ref data, ref field } => {
+                Entity::Data { ref data, ref field, .. } => {
                     elements.push(Element::Field(IntView::new_from_stream(vm, data), TextFormat::new(0, field)));
                 },
                 Entity::Union { ref variants, .. } => {
@@ -87,7 +87,7 @@ impl<'a> TextView<'a> {
                 }
                 Entity::VariableArray { data: ref ends, ref child, .. } => {
                     match **child {
-                        Entity::Data { data: ref inner_data, ref field } => {
+                        Entity::Data { data: ref inner_data, ref field, .. } => {
                             match field.kind {
                                 FieldKind::Character => {
                                     elements.push(Element::Utf8Str {

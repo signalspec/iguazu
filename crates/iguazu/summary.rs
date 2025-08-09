@@ -1,12 +1,41 @@
 use std::{future::poll_fn, ops::{BitAnd, BitOr}, task::Poll};
 
 use async_executor::{Executor, Task};
+use ecow::EcoString;
 use futures_lite::ready;
+use indexmap::IndexMap;
 
-use crate::{storage::MemoryStreamWriter, stream::ArcStream, Element, ElementType};
+use crate::{schema::{Field, FieldKind, Summary}, storage::MemoryStreamWriter, stream::ArcStream, Element, ElementType};
 
+pub fn build_default_summaries(executor: &Executor, stream: &ArcStream, field: &Field, summaries: &mut IndexMap<EcoString, Summary<ArcStream>>) {
+    match field.kind {
+        FieldKind::Bits{..} | FieldKind::BitStruct{..} => {
+            let wanted_levels = stream.state().end.ilog2().saturating_sub(8) as usize;
+            let summary = summaries.entry("bit_and_or".into()).or_insert(Summary::empty());
+
+            log::info!("Building bitwise summary to level {}", wanted_levels);
+
+            if summary.levels.is_empty() && wanted_levels > 0 {
+                log::info!("Building initial bitwise summary at level 2");
+                let (task, stream) = bit_summary1(executor, stream.clone());
+                task.detach();
+                summary.levels.push(stream);
+                summary.base_level = 2;
+            }
+
+            while summary.base_level as usize + summary.levels.len() < wanted_levels {
+                log::info!("Building bitwise summary at level {}", summary.base_level as usize + summary.levels.len());
+                let (task, stream) = bit_summary_reduce(executor, summary.levels.last().unwrap().clone());
+                task.detach();
+                summary.levels.push(stream);
+            }
+        }
+        _ => { log::info!("No summaries for field kind {:?}", field.kind); }
+    }
+}
 
 fn make_summary<T: Element + Default, const N: usize, const R: usize>(executor: &Executor, stream: ArcStream, mut f: impl FnMut([T; N]) -> [T; R] + Send + 'static) -> (Task<Result<(), String>>, ArcStream) {
+    let input_len = stream.state().end;
     let mut iter = stream.iter();
     let mut buffer = [T::default(); N];
     let mut pos = 0;
@@ -17,14 +46,17 @@ fn make_summary<T: Element + Default, const N: usize, const R: usize>(executor: 
         loop {
             let r = ready!(iter.poll_next(cx));
             match r {
-                Ok(data) if data.is_empty() => return Poll::Ready(Ok(())),
+                Ok(data) if data.is_empty() => {
+                    log::info!("Summary task completed, input={}, len = {}", input_len, output.pos());
+                    return Poll::Ready(Ok(()));
+                }
                 Err(e) => return Poll::Ready(Err(e)),
                 Ok(mut src) => {
                     loop {
                         let (copy, rest) = src.split_at((N * size_of::<T>() - pos).min(src.len()));
                         bytemuck::cast_slice_mut(&mut buffer)[pos..(pos + copy.len())].copy_from_slice(copy);
                         pos = pos + copy.len();
-                        if pos == N {
+                        if pos == N * size_of::<T>() {
                             let r = f(buffer);
                             output.extend_from_slice(bytemuck::cast_slice(&r[..]));
                             pos = 0;

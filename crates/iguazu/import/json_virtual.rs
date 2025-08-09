@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use num_traits::Zero;
 
-use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream }, stream::ArcStream, ElementType};
+use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntitySchema, EntityStream, Summary}, storage::{ FlatFileOpts, FlatFileStream }, stream::ArcStream, ElementType};
 
 use super::{ImportError, Importer};
 
@@ -88,6 +88,27 @@ pub async fn load(file: Arc<dyn ReadableFile>, io_executor: Arc<Executor<'static
             .try_collect().await
     }
 
+    async fn create_summary(ex: Arc<Executor<'static>>, io_executor: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, summary: Summary<StreamRef>) -> Result<Summary<ArcStream>, ImportError> {
+        let Summary { base_level, levels } = summary;
+        let child_tasks: Vec<Task<_>> = levels.into_iter().map(|s| {
+            ex.spawn(create_stream(src_file.clone(), io_executor.clone(), s))
+        }).collect();
+
+        let levels = stream::iter(child_tasks).then(|f| f).try_collect().await?;
+        Ok(Summary { base_level, levels })
+    }
+
+
+    async fn create_summaries(ex: Arc<Executor<'static>>, io_executor: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, summaries: IndexMap<EcoString, Summary<StreamRef>>) -> Result<IndexMap<EcoString, Summary<ArcStream>>, ImportError> {
+        let child_tasks: Vec<(EcoString, Task<_>)> = summaries.into_iter().map(|(k, v)| {
+            (k, ex.spawn(create_summary(ex.clone(), io_executor.clone(), src_file.clone(), v)))
+        }).collect();
+
+        stream::iter(child_tasks)
+            .then(|(k, f_v)| async move { Ok::<_, ImportError>((k, f_v.await?)) })
+            .try_collect().await
+    }
+
     fn create(ex: Arc<Executor<'static>>, io_executor: Arc<Executor<'static>>, src_file: Arc<dyn ReadableFile>, schema: Entity<StreamRef>) -> impl Future<Output = Result<EntityStream, ImportError>> + Send {
         async move {
             match schema {
@@ -99,9 +120,10 @@ pub async fn load(file: Arc<dyn ReadableFile>, io_executor: Arc<Executor<'static
                     let children = create_children(ex, io_executor, src_file, children).await?;
                     Ok(Entity::Record { children, attributes: attributes.clone() })
                 }
-                Entity::Data { data, ref field } => {
-                    let data = create_stream(src_file, io_executor, data).await?;
-                    Ok(Entity::Data { field: field.clone(), data })
+                Entity::Data { data, ref field, summaries } => {
+                    let data = create_stream(src_file.clone(), io_executor.clone(), data).await?;
+                    let summaries = create_summaries(ex, io_executor, src_file, summaries).await?;
+                    Ok(Entity::Data { field: field.clone(), data, summaries })
                 }
                 Entity::Union { data, variants, attributes } => {
                     let data = create_stream(src_file.clone(), io_executor.clone(), data).await?;

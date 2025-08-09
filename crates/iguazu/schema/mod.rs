@@ -1,5 +1,6 @@
 use std::convert::Infallible;
 
+use async_executor::Executor;
 use attribute::AttributeValue;
 use ecow::{eco_format, EcoString};
 use indexmap::IndexMap;
@@ -83,6 +84,9 @@ pub enum Entity<S> {
         #[serde(flatten)]
         field: Field,
         data: S,
+
+        #[serde(skip_serializing_if = "IndexMap::is_empty", default = "Default::default")]
+        summaries: IndexMap<EcoString, Summary<S>>,
     }
 }
 
@@ -189,11 +193,13 @@ impl<S> Entity<S> {
     }
 
     pub fn field_data(kind: FieldKind, data: S) -> Self {
-        Entity::Data { data, 
+        Entity::Data {
+            data, 
             field: Field {
                 kind,
                 attributes: Default::default(),
-            }
+            },
+            summaries: Default::default(),
         }
     }
 
@@ -307,9 +313,14 @@ impl<S> Entity<S> {
                 let child = Box::new(child.try_map_data(f)?);
                 Ok(Entity::VariableArray { data, child, attributes: attributes.clone() })
             }
-            Entity::Data { data, field } => {
+            Entity::Data { data, field, summaries } => {
                 let data = f(data)?;
-                Ok(Entity::Data { data, field: field.clone() })
+                let summaries = summaries.iter()
+                    .map(|(name, summary)| {
+                        summary.try_map_data(f).map(|s| (name.clone(), s))
+                    })
+                    .collect::<Result<IndexMap<_, _>, E>>()?;
+                Ok(Entity::Data { data, field: field.clone(), summaries })
             }
         }
     }
@@ -336,11 +347,13 @@ impl EntitySchema {
     }
 
     pub fn field(kind: FieldKind) -> Self {
-        Entity::Data { data: Ignored, 
+        Entity::Data {
+            data: Ignored, 
             field: Field {
                 kind,
                 attributes: Default::default(),
-            }
+            },
+            summaries: Default::default(),
         }
     }
 
@@ -355,15 +368,15 @@ impl EntitySchema {
                 let (field, stride) = child.single_stream()?;
                 Some((field, stride * fields.len()))
             }
-            Entity::Data { data: Ignored, field } => Some((field, 1)),
+            Entity::Data { data: Ignored, field, .. } => Some((field, 1)),
         }
     }
 
     pub fn wrap_single(&self, data: ArcStream) -> Option<EntityStream> {
         match *self {
             Entity::Group { .. } | Entity::Record { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
-            Entity::Data { data: Ignored, ref field  } => {
-                Some(Entity::Data { data, field: field.clone() })
+            Entity::Data { data: Ignored, ref field, .. } => {
+                Some(Entity::Data { data, field: field.clone(), summaries: Default::default() })
             }
             Entity::FixedArray { ref child, elements, ref attributes } => {
                 let child = Box::new(child.wrap_single(data)?);
@@ -377,4 +390,47 @@ impl EntitySchema {
     }
 }
 
+impl EntityStream {
+    pub fn build_summaries(&mut self, executor: &Executor) {
+        match *self {
+            Entity::Group { ref mut children, .. } | Entity::Record { ref mut children, .. } => {
+                for child in children.values_mut() {
+                    child.build_summaries(executor);
+                }
+            }
+            Entity::Union { ref mut variants, .. } => {
+                for variant in variants.values_mut() {
+                    variant.build_summaries(executor);
+                }
+            }
+            Entity::FixedArray { ref mut child, .. } | Entity::Tuple { ref mut child, .. } => {
+                child.build_summaries(executor);
+            }
+            Entity::VariableArray { ref mut child, .. } => {
+                child.build_summaries(executor);
+            }
+            Entity::Data { ref mut summaries, ref field, ref data } => {
+                crate::summary::build_default_summaries(executor, data, field, summaries);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Summary<S> {
+    pub base_level: u8,
+    pub levels: Vec<S>,
+}
+
+impl<S> Summary<S> {
+    pub const fn empty() -> Self {
+        Summary { base_level: 255, levels: Vec::new() }
+    }
+
+    fn try_map_data<T, E>(&self, f: &mut impl FnMut(&S) -> Result<T, E>) -> Result<Summary<T>, E> {
+        let base_level = self.base_level;
+        let levels = self.levels.iter().map(|level| f(level)).collect::<Result<Vec<_>, _>>()?;
+        Ok(Summary { base_level, levels })
+    }
+}
 
