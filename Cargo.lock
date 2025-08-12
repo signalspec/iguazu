@@ -1113,9 +1113,9 @@ checksum = "a5d9305ccc6942a704f4335694ecd3de2ea531b114ac2d51f5f843750787a92f"
 
 [[package]]
 name = "event-listener"
-version = "5.4.0"
+version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3492acde4c3fc54c845eaab3eed8bd00c7a7d881f78bfc801e43a93dec1331ae"
+checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
 dependencies = [
  "concurrent-queue",
  "parking",
@@ -1624,6 +1624,7 @@ dependencies = [
  "arrayvec",
  "async-executor",
  "async-trait",
+ "atomic-waker",
  "blocking",
  "bytemuck",
  "clap",
@@ -1640,6 +1641,7 @@ dependencies = [
  "piper 0.2.4 (git+https://github.com/kevinmehall/piper.git?rev=5ef4e1324232adda03a2932c24c83432038ee397)",
  "serde",
  "serde_json",
+ "slab",
  "strum 0.27.1",
  "thiserror 2.0.12",
 ]
@@ -2877,12 +2879,9 @@ checksum = "d66dc143e6b11c1eddc06d5c423cfc97062865baf299914ab64caa38182078fe"
 
 [[package]]
 name = "slab"
-version = "0.4.9"
+version = "0.4.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
-dependencies = [
- "autocfg",
-]
+checksum = "7a2ae44ef20feb57a68b23d846850f861394c2e02dc425a50098ae8c90267589"
 
 [[package]]
 name = "slotmap"

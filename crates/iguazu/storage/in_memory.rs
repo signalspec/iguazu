@@ -1,9 +1,12 @@
+use std::sync::RwLock;
 use std::task::{Context, Poll};
 use std::{sync::{Arc, atomic::AtomicBool}, task::Waker};
 use std::fmt::Debug;
 
 use append_array::{AppendArrayWriter, AppendArray};
+use atomic_waker::AtomicWaker;
 use elsa::sync::FrozenVec;
+use slab::Slab;
 use crate::{Element, ElementType, stream::{Stream, StreamAccess, StreamDesc, StreamIter, StreamState}};
 
 const BLOCK_SIZE: usize = 1<<16;
@@ -12,6 +15,7 @@ pub struct MemoryStream {
     element_type: ElementType,
     blocks: FrozenVec<Arc<AppendArray<u8>>>,
     streaming: AtomicBool,
+    wakers: RwLock<Slab<AtomicWaker>>,
 }
 
 impl MemoryStream {
@@ -27,6 +31,18 @@ impl MemoryStream {
 
     fn streaming(&self) -> bool {
         self.streaming.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn register(&self, id: usize, waker: &Waker) {
+        let wakers = self.wakers.read().unwrap();
+        wakers.get(id).unwrap().register(waker);
+    }
+
+    fn notify_all(&self) {
+        let wakers = self.wakers.read().unwrap();
+        for (_, waker) in wakers.iter() {
+            waker.wake();
+        }
     }
 }
 
@@ -56,20 +72,24 @@ impl Stream for MemoryStream {
     }
     
     fn access(self: Arc<Self>) -> Box<dyn StreamAccess> {
-        Box::new(MemoryStreamAccess { stream: self })
+        let id = self.wakers.write().unwrap().insert(AtomicWaker::new());
+        Box::new(MemoryStreamAccess { stream: self, id })
     }
 
     fn iter(self: Arc<Self>) -> Box<dyn StreamIter> {
+        let id = self.wakers.write().unwrap().insert(AtomicWaker::new());
         Box::new(MemoryStreamIter {
             stream: self,
             block: 0,
             pos: 0,
+            id,
         })
     }
 }
 
 pub struct MemoryStreamAccess {
     stream: Arc<MemoryStream>,
+    id: usize,
 }
 
 impl StreamAccess for MemoryStreamAccess {
@@ -87,14 +107,24 @@ impl StreamAccess for MemoryStreamAccess {
     fn end(&mut self) {}
 }
 
+impl Drop for MemoryStreamAccess {
+    fn drop(&mut self) {
+        let mut wakers = self.stream.wakers.write().unwrap();
+        wakers.remove(self.id);
+    }
+}
+
 pub struct MemoryStreamIter {
     stream: Arc<MemoryStream>,
     block: usize,
     pos: usize,
+    id: usize,
 }
 
 impl StreamIter for MemoryStreamIter {
-    fn poll_next(&mut self, _cx: &mut Context) -> Poll<Result<&[u8], String>> {
+    fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
+        self.stream.register(self.id, cx.waker());
+
         let Some(block) = self.stream.blocks.get(self.block) else {
             if self.stream.streaming() {
                 return Poll::Pending;
@@ -111,6 +141,10 @@ impl StreamIter for MemoryStreamIter {
             }
         };
 
+        if data.is_empty() && self.stream.streaming() {
+            return Poll::Pending;
+        }
+
         self.pos += data.len();
 
         if self.pos >= self.stream.element_type.bytes() * BLOCK_SIZE {
@@ -119,6 +153,13 @@ impl StreamIter for MemoryStreamIter {
         }
 
         Poll::Ready(Ok(data))
+    }
+}
+
+impl Drop for MemoryStreamIter {
+    fn drop(&mut self) {
+        let mut wakers = self.stream.wakers.write().unwrap();
+        wakers.remove(self.id);
     }
 }
 
@@ -132,7 +173,7 @@ impl MemoryStreamWriter {
         let writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * element_type.bytes());
         let blocks = FrozenVec::new();
         blocks.push(writer.reader());
-        let stream = Arc::new(MemoryStream { blocks, element_type, streaming: AtomicBool::new(true) });
+        let stream = Arc::new(MemoryStream { blocks, element_type, streaming: AtomicBool::new(true), wakers: RwLock::new(Slab::new()) });
         MemoryStreamWriter { stream, writer }
     }
 
@@ -147,6 +188,7 @@ impl MemoryStreamWriter {
             self.writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * self.stream.element_type.bytes());
             self.stream.blocks.push(self.writer.reader());
         }
+        self.stream.notify_all();
     }
 
     pub fn pos(&self) -> u64 {
@@ -158,5 +200,6 @@ impl MemoryStreamWriter {
 impl Drop for MemoryStreamWriter {
     fn drop(&mut self) {
         self.stream.streaming.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.stream.notify_all();
     }
 }

@@ -29,6 +29,8 @@ clap = { workspace = true, optional = true, features = ["derive"] }
 strum = { version = "0.27.1", features = ["derive"] }
 ecow.workspace = true
 arrayvec = "0.7.6"
+atomic-waker = "1.1.2"
+slab = "0.4.11"
 
 [features]
 fs = ["dep:blocking", "dep:piper"]
