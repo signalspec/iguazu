@@ -214,7 +214,7 @@ impl CsvParser {
         Ok(())
     }
 
-    async fn read_row(&mut self) -> Result<Option<Row>, ImportError> {
+    async fn read_row(&mut self) -> Result<Option<Row<'_>>, ImportError> {
         let mut input = &[][..];
         let mut consumed = 0;
         let mut outlen = 0;

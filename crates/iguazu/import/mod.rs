@@ -48,7 +48,7 @@ impl ImportFormat {
 pub struct ImportFormats<'a>(&'a [ImportFormat]);
 
 impl ImportFormats<'_> {
-    pub fn iter(&self) -> std::slice::Iter<ImportFormat> {
+    pub fn iter(&self) -> std::slice::Iter<'_, ImportFormat> {
         self.0.as_ref().iter()
     }
 

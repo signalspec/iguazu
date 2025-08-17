@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::{egui, CreationContext};
-use egui::{frame, util::History, Direction, Frame, Layout, Rect, UiBuilder};
+use egui::{util::History, Direction, Frame, Layout, Rect, UiBuilder};
 
 use iguazu::{schema::{attribute::DefaultView, Entity, EntityStream}, stream::ArcStream};
 use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
