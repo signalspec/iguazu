@@ -287,7 +287,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
                 rows.push(TimelineRowKind::Trace(TraceRow::field(vcx, stream, sample_rate, offset, color, name, field, summaries)));
             }
             TimelineRow::YAxis => {
-                rows.extend(YAxisRow::field(vcx, stream, sample_rate, offset, color, name, field).map(TimelineRowKind::YAxis));
+                rows.extend(YAxisRow::field(vcx, stream, sample_rate, offset, color, name, field, summaries).map(TimelineRowKind::YAxis));
             }
             _ => {}
         }

@@ -22,6 +22,9 @@ pub use text_view::TextView;
 mod trace_view;
 pub use trace_view::{TraceView, TraceElement};
 
+mod range_view;
+pub use range_view::{ RangeView, RangeElement };
+
 pub struct ViewManager {
     waker: Waker,
     streams: FrozenMap<usize, Box<dyn StreamAccess>>,
