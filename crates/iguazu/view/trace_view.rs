@@ -154,7 +154,7 @@ pub enum TraceElement {
 
 #[test]
 fn test_traceview() {
-    use crate::{ stream::ArcStream, storage::MemoryStreamWriter };
+    use crate::{ stream::ArcStream, schema::{Field, FieldKind}, storage::{MemoryStorage, MemoryStreamWriter} };
     use std::task::Waker;
     use async_executor::Executor;
     use futures_lite::future::block_on;
@@ -187,11 +187,13 @@ fn test_traceview() {
     ]);
 
     let executor = Executor::new();
+    let storage = &MemoryStorage;
+    let field = Field { kind: FieldKind::Bits { bits: 8 }, attributes: Default::default() };
 
-    let (task, summary1) = crate::summary::bit_summary1(&executor, stream.clone());
+    let (task, summary1) = crate::summary::bit_summary1(&executor, storage, stream.clone(), &field).unwrap();
     block_on(executor.run(task)).unwrap();
 
-    let (task, summary2) = crate::summary::bit_summary_reduce(&executor, summary1.clone());
+    let (task, summary2) = crate::summary::bit_summary_reduce(&executor, storage, summary1.clone(), &field).unwrap();
     block_on(executor.run(task)).unwrap();
 
     let summary = Summary { levels: vec![summary1, summary2], base_level: 2 };

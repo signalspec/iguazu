@@ -7,6 +7,9 @@ use append_array::{AppendArrayWriter, AppendArray};
 use atomic_waker::AtomicWaker;
 use elsa::sync::FrozenVec;
 use slab::Slab;
+use crate::storage::Storage;
+use crate::stream::{ArcStream, StreamWriter};
+use crate::Idx;
 use crate::{Element, ElementType, stream::{Stream, StreamAccess, StreamDesc, StreamIter, StreamState}};
 
 const BLOCK_SIZE: usize = 1<<16;
@@ -184,19 +187,24 @@ impl MemoryStreamWriter {
         &self.stream
     }
 
+    fn new_block(&mut self) {
+        debug_assert!(self.writer.remaining_capacity() == 0, "Cannot extend when there is remaining capacity");
+        self.writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * self.stream.element_type.bytes());
+        self.stream.blocks.push(self.writer.reader());
+    }
+
     pub fn extend_from_slice(&mut self, mut data: &[u8]) {
         loop {
             data = self.writer.extend_from_slice(data);
             if data.is_empty() { break }
-            self.writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * self.stream.element_type.bytes());
-            self.stream.blocks.push(self.writer.reader());
+            self.new_block();
         }
         self.stream.notify_all();
     }
 
-    pub fn pos(&self) -> u64 {
+    pub fn pos(&self) -> Idx {
         let n_blocks = self.stream.blocks.len();
-        ((n_blocks - 1) * BLOCK_SIZE + (self.writer.len() / self.stream.element_type.bytes())) as u64
+        ((n_blocks - 1) * BLOCK_SIZE + (self.writer.len() / self.stream.element_type.bytes())) as Idx
     }
 }
 
@@ -204,5 +212,40 @@ impl Drop for MemoryStreamWriter {
     fn drop(&mut self) {
         self.stream.streaming.store(false, std::sync::atomic::Ordering::Relaxed);
         self.stream.notify_all();
+    }
+}
+
+impl StreamWriter for MemoryStreamWriter {
+    fn stream(&self) -> ArcStream {
+        self.stream.clone()
+    }
+
+    fn pos(&self) -> Idx {
+        self.pos()
+    }
+
+    fn desc(&self) -> StreamDesc {
+        self.stream.desc()
+    }
+
+    fn poll_buf(&mut self, _cx: &mut Context) -> Poll<Result<&mut AppendArrayWriter<u8>, String>> {
+        if self.writer.remaining_capacity() == 0 {
+            // If the block is full, create a new block
+            self.new_block();
+        }
+
+        Poll::Ready(Ok(&mut self.writer))
+    }
+
+    fn commit(&mut self) {
+        self.stream.notify_all();
+    }
+}
+
+pub struct MemoryStorage;
+
+impl Storage for MemoryStorage {
+    fn create_stream(&self, element_type: ElementType) -> Box<dyn StreamWriter> {
+        Box::new(MemoryStreamWriter::new(element_type))
     }
 }

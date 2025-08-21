@@ -16,6 +16,7 @@ fn main() -> Result<(), eframe::Error> {
 
     use iguazu::cli::ImportOpts;
     use iguazu::import::IMPORTERS;
+    use iguazu::storage::MemoryStorage;
 
     #[derive(Parser)]
     #[command(author, version, about, long_about = None)]
@@ -39,8 +40,9 @@ fn main() -> Result<(), eframe::Error> {
 
     let (mut entity, completion) = block_on(cli.import.import(IMPORTERS, executor.clone())).expect("Failed to load file");
     block_on(completion).expect("Failed to complete import");
+    let storage = MemoryStorage;
 
-    entity.build_summaries(&executor);
+    entity.build_summaries(&executor, &storage);
 
     let view = entity.display_default();
 

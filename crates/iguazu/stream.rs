@@ -1,4 +1,6 @@
 use std::{fmt::Debug, sync::Arc, task::{Context, Poll, Waker}};
+use append_array::AppendArrayWriter;
+
 use crate::{Idx, ElementType};
 
 pub trait Stream: Send + Sync + Debug {
@@ -39,4 +41,22 @@ pub struct StreamDesc {
 pub struct StreamState {
     pub end: Idx,
     pub streaming: bool,
+}
+
+pub trait StreamWriter: Send {
+    fn stream(&self) -> ArcStream;
+
+    fn pos(&self) -> Idx;
+
+    /// Get the stream descriptor.
+    fn desc(&self) -> StreamDesc;
+    
+    /// Access the writable buffer for the current block.
+    /// 
+    /// This can return `Poll::Pending` to apply backpressure, or an error if previous writes
+    /// have failed.
+    fn poll_buf(&mut self, cx: &mut Context) -> Poll<Result<&mut AppendArrayWriter<u8>, String>>;
+
+    /// Notify readers that data has been written.
+    fn commit(&mut self);
 }

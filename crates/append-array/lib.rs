@@ -106,6 +106,10 @@ impl<T> AppendArrayWriter<T> {
         self.inner.clone()
     }
 
+    pub fn remaining_capacity(&self) -> usize {
+        self.inner.cap - self.inner.len.load(Ordering::Relaxed)
+    }
+
     pub fn try_push(&mut self, val: T) -> Result<usize, T> {
         let len = self.inner.len.load(Ordering::Relaxed);
         if len < self.inner.cap {

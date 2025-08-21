@@ -11,7 +11,7 @@ pub use attribute::AttributeMap;
 
 pub mod fmt;
 
-use crate::stream::ArcStream;
+use crate::{storage::Storage, stream::ArcStream};
 
 pub type Name = String;
 pub type Path = String;
@@ -391,26 +391,26 @@ impl EntitySchema {
 }
 
 impl EntityStream {
-    pub fn build_summaries(&mut self, executor: &Executor) {
+    pub fn build_summaries(&mut self, executor: &Executor<'static>, storage: &dyn Storage) {
         match *self {
             Entity::Group { ref mut children, .. } | Entity::Record { ref mut children, .. } => {
                 for child in children.values_mut() {
-                    child.build_summaries(executor);
+                    child.build_summaries(executor, storage);
                 }
             }
             Entity::Union { ref mut variants, .. } => {
                 for variant in variants.values_mut() {
-                    variant.build_summaries(executor);
+                    variant.build_summaries(executor, storage);
                 }
             }
             Entity::FixedArray { ref mut child, .. } | Entity::Tuple { ref mut child, .. } => {
-                child.build_summaries(executor);
+                child.build_summaries(executor, storage);
             }
             Entity::VariableArray { ref mut child, .. } => {
-                child.build_summaries(executor);
+                child.build_summaries(executor, storage);
             }
             Entity::Data { ref mut summaries, ref field, ref data } => {
-                crate::summary::build_default_summaries(executor, data, field, summaries);
+                crate::summary::build_default_summaries(executor, storage, data, field, summaries);
             }
         }
     }
