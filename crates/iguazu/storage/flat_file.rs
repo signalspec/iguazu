@@ -105,7 +105,6 @@ impl Stream for FlatFileStream {
         Box::new(FileStreamIter {
             stream: self.clone(),
             file_stream: self.file.clone().stream(),
-            last: 0,
         })
     }
 }
@@ -183,16 +182,12 @@ impl StreamAccess for FileStreamAccess {
 struct FileStreamIter {
     stream: Arc<FlatFileStream>,
     file_stream: Pin<Box<dyn AsyncBufRead + Send + Sync>>,
-    last: usize,
 }
 
 impl StreamIter for FileStreamIter {
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
-        self.file_stream.as_mut().consume(self.last);
-        self.last = 0;
         match self.file_stream.as_mut().poll_fill_buf(cx) {
             Poll::Ready(Ok(buf)) => {
-                self.last = buf.len();
                 Poll::Ready(Ok(buf))
             }
             Poll::Ready(Err(e)) => {
@@ -201,5 +196,9 @@ impl StreamIter for FileStreamIter {
             }
             Poll::Pending => Poll::Pending
         }
+    }
+
+    fn consume(&mut self, len: usize) {
+        self.file_stream.as_mut().consume(len * self.stream.element_type.bytes());
     }
 }

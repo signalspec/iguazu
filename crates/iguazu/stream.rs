@@ -25,6 +25,8 @@ pub trait StreamAccess: Send  {
 
 pub trait StreamIter: Send {
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>>;
+
+    fn consume(&mut self, len: usize);
 }
 
 #[derive(Clone)]

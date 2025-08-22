@@ -133,7 +133,7 @@ impl StreamIter for MemoryStreamIter {
             }
         };
 
-        let Some(data) = block.get(self.pos..) else {
+        let Some(data) = block.get(self.pos * self.stream.element_type.bytes()..) else {
             if self.stream.streaming() {
                 return Poll::Pending;
             } else {
@@ -145,14 +145,17 @@ impl StreamIter for MemoryStreamIter {
             return Poll::Pending;
         }
 
-        self.pos += data.len();
+        Poll::Ready(Ok(data))
+    }
 
-        if self.pos >= self.stream.element_type.bytes() * BLOCK_SIZE {
+    fn consume(&mut self, len: usize) {
+        debug_assert!(self.pos + len <= BLOCK_SIZE);
+        self.pos += len;
+
+        if self.pos >= BLOCK_SIZE {
             self.block += 1;
             self.pos = 0;
         }
-
-        Poll::Ready(Ok(data))
     }
 }
 

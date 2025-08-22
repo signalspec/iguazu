@@ -78,10 +78,13 @@ fn make_summary<T: Element + Default, const N: usize, const R: usize>(executor: 
                 }
                 Err(e) => return Poll::Ready(Err(e)),
                 Ok(mut src) => {
+                    let mut consumed = 0;
                     loop {
                         let (copy, rest) = src.split_at((N * size_of::<T>() - pos).min(src.len()));
                         bytemuck::cast_slice_mut(&mut buffer)[pos..(pos + copy.len())].copy_from_slice(copy);
                         pos = pos + copy.len();
+                        debug_assert_eq!(copy.len() % size_of::<T>(), 0);
+                        consumed += copy.len() / size_of::<T>();
                         if pos == N * size_of::<T>() {
                             let r = f(buffer);
                             output.extend_from_slice(bytemuck::cast_slice(&r[..]));
@@ -91,6 +94,7 @@ fn make_summary<T: Element + Default, const N: usize, const R: usize>(executor: 
                             break;
                         }
                     }
+                    iter.consume(consumed);
                 }
             }
         }
