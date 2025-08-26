@@ -41,7 +41,7 @@ impl<'a> YAxisRow<'a> {
         if offset != 0 {
             return None;
         }
-        let summary = summaries.get("range".into()).unwrap_or(const { &Summary::empty() });
+        let summary = summaries.get("range").unwrap_or(const { &Summary::empty() });
         let view = RangeView::new(&vcx.view_manager, stream, field, summary)?;
         let color = color.unwrap_or(AccentColor::Green);
         let y_range = field.number_range()?;

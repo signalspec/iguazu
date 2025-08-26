@@ -19,7 +19,7 @@ pub struct TraceRow<'a> {
 
 impl<'a> TraceRow<'a> {
     pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, field: &Field, summaries: &IndexMap<EcoString, Summary<ArcStream>>) -> TraceRow<'a> {
-        let summary = summaries.get("bit_and_or".into()).unwrap_or(const { &Summary::empty() });
+        let summary = summaries.get("bit_and_or").unwrap_or(const { &Summary::empty() });
         let view = TraceView::new(&vcx.view_manager, stream.clone(), summary);
         let width = field.kind.width();
         let color = color.unwrap_or(AccentColor::Green);
@@ -133,7 +133,7 @@ pub struct LogicRow<'a> {
 
 impl<'a> LogicRow<'a> {
     pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, _field: &Field, summaries: &IndexMap<EcoString, Summary<ArcStream>>) -> LogicRow<'a> {
-        let summary = summaries.get("bit_and_or".into()).unwrap_or(const { &Summary::empty() });
+        let summary = summaries.get("bit_and_or").unwrap_or(const { &Summary::empty() });
         let view = TraceView::new(&vcx.view_manager, stream.clone(), summary);
         let color = color.unwrap_or(AccentColor::Green);
         LogicRow { view, sample_rate, label, color, offset }
