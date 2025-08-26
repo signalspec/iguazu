@@ -30,7 +30,7 @@ impl<'a> EventsRow<'a> {
     pub fn time_range(&self) -> TimeRange {
         TimeRange {
             min: Time::ZERO,
-            max: (self.event_view.latest_idx() as i128) * Time::period_float(self.event_view.sample_rate()),
+            max: (self.event_view.latest_idx() as i128) * Time::period_float(self.event_view.time_rate()),
         }
     }
 
@@ -46,7 +46,7 @@ impl<'a> EventsRow<'a> {
             return TimelineResponse::default();
         }
 
-        let idx_scale = scale.idx_scale(self.event_view.sample_rate());
+        let idx_scale = scale.idx_scale(self.event_view.time_rate());
 
         let color = named_color(self.color);
 

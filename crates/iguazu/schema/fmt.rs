@@ -81,9 +81,10 @@ impl TextFormat {
                     let scale = spec.number_scale();
                     components.push(Element::Signed { pos, bits, offset, scale })
                 }
-                FieldKind::Timestamp { sample_rate } => {
+                FieldKind::Timestamp => {
                     // TODO: epoch
-                    components.push(Element::Unsigned { pos, bits: 64, offset: 0.0, scale: 1.0 / sample_rate });
+                    let time_rate = spec.time_rate().unwrap_or(1.0);
+                    components.push(Element::Unsigned { pos, bits: 64, offset: 0.0, scale: 1.0 / time_rate });
                 }
                 FieldKind::Float32 => {
                     // TODO: precision

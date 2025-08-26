@@ -107,9 +107,7 @@ pub enum FieldKind {
         bits: u8,
     },
     Character,
-    Timestamp {
-        sample_rate: f64,
-    },
+    Timestamp,
     Int {
         bits: u8,
     },

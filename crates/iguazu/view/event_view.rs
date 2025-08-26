@@ -1,11 +1,11 @@
 use std::mem;
-use crate::{schema::{Entity, EntityStream, FieldKind}, Idx, IdxRange};
+use crate::{schema::{Entity, EntityStream, Field, FieldKind}, Idx, IdxRange};
 
 use super::{IntView, ViewManager};
 
 pub struct EventView<'v> {
     view: IntView<'v>,
-    sample_rate: f64,
+    time_rate: f64,
 }
 
 impl<'v> EventView<'v> {
@@ -16,18 +16,18 @@ impl<'v> EventView<'v> {
 
         let Entity::Tuple { child, .. } = &entity else { return None };
 
-        let Entity::Data { field, data, .. } = &**child else {
+        let Entity::Data { field: field @ Field { kind: FieldKind::Timestamp, .. }, data, .. } = &**child else {
             return None;
         };
 
-        let FieldKind::Timestamp { sample_rate } = field.kind else { return None };
+        let time_rate = field.time_rate()?;
 
         let view = IntView::new_from_stream(vm, data);
 
-        Some(EventView { view, sample_rate })
+        Some(EventView { view, time_rate })
     }
 
-    pub fn sample_rate(&self) -> f64 { self.sample_rate }
+    pub fn time_rate(&self) -> f64 { self.time_rate }
 
     pub fn latest_idx(&self) -> Idx {
         self.view.get_u64(self.view.state().end)
@@ -168,8 +168,8 @@ fn test_event_view() {
     ]);
 
     let ts = EntityStream::field_data(
-        FieldKind::Timestamp { sample_rate: 1e6 }, data
-    );
+        FieldKind::Timestamp, data
+    ).with_attribute("time:rate", 1e6);
 
     let tuple = EntityStream::tuple(ts, indexmap![
         "start".into() => Default::default(),

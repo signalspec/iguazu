@@ -5,10 +5,55 @@ use strum::{EnumString, IntoStaticStr};
 
 use super::{Entity, Field, FieldKind};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Serialize, PartialEq)]
 pub struct AttributeMap {
     #[serde(flatten)]
     pub attributes: IndexMap<EcoString, AttributeValue>,
+}
+
+impl<'de> Deserialize<'de> for AttributeMap {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+            struct Visitor;
+            impl<'de> serde::de::Visitor<'de> for Visitor {
+                type Value = AttributeMap;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                    formatter.write_str("a map of attributes")
+                }
+
+                fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+                {
+                    let mut attributes = IndexMap::new();
+                    while let Some((key, value)) = map.next_entry::<EcoString, AttributeValue>()? {
+                        if matches!(key.as_ref(), 
+                            | "type"
+                            | "bits"
+                            | "values"
+                            | "tag_bits"
+                            | "children"
+                            | "variants"
+                            | "elements"
+                            | "child"
+                            | "data"
+                            | "summaries")
+                        {
+                            // Ignore keys from `Field` or `Entity` to avoid duplicate keys
+                            // https://github.com/serde-rs/serde/issues/2200
+                            continue;
+                        }
+
+                        attributes.insert(key, value);
+                    }
+                    Ok(AttributeMap { attributes })
+                }
+            }
+
+            deserializer.deserialize_map(Visitor)
+        }
 }
 
 impl AttributeMap {
@@ -286,6 +331,10 @@ impl Field {
             min: o.get("min")?,
             max: o.get("max")?,
         })
+    }
+
+    pub fn time_rate(&self) -> Option<f64> {
+        self.attribute("time:rate")
     }
 
     pub fn number_scale(&self) -> f64 {
