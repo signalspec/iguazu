@@ -17,3 +17,4 @@ iguazu = { workspace = true, features = ["clap"] }
 clap = { version = "4.4.4", features = ["derive"] }
 owo-colors = "3.5.0"
 futures-lite = "2.6.0"
+async-executor.workspace = true

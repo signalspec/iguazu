@@ -1,10 +1,16 @@
-use std::{ffi::OsStr, fs::File, future::poll_fn, io, os::unix::fs::FileExt, path::PathBuf, pin::Pin, sync::Arc, task::{ready, Poll}};
+use std::{
+    ffi::OsStr, fs::File, future::poll_fn, io, os::unix::fs::FileExt, path::{Path, PathBuf}, pin::Pin,
+    sync::Arc, task::{ready, Poll},
+};
 
 use async_trait::async_trait;
 use blocking::Task;
-use futures_lite::{AsyncBufRead, AsyncRead, FutureExt};
+use futures_lite::{AsyncBufRead, AsyncRead, AsyncWrite, FutureExt};
+use url::Url;
 
-use super::{ReadableFile, RelativePath};
+use crate::io::WritableFile;
+
+use super::{ReadableFile, url::RelativePath};
 
 pub struct FsFile {
     path: PathBuf,
@@ -12,8 +18,9 @@ pub struct FsFile {
 }
 
 impl FsFile {
-    pub async fn new(path: PathBuf) -> Result<FsFile, io::Error> {
+    pub async fn open(path: PathBuf) -> Result<FsFile, io::Error> {
         blocking::unblock(move || {
+            let path = std::path::absolute(path)?;
             let file = File::open(&path)?;
             Ok(FsFile { path, file })
         }).await
@@ -24,6 +31,10 @@ impl FsFile {
 impl ReadableFile for FsFile {
     fn filename(&self) -> Option<&str> {
         self.path.file_name().and_then(OsStr::to_str)
+    }
+
+    fn url(&self) -> Option<Url> {
+        Url::from_file_path(&self.path).ok()
     }
 
     async fn get_len(self: Arc<Self>) -> Result<u64, std::io::Error> {
@@ -52,9 +63,9 @@ impl ReadableFile for FsFile {
         Box::pin(FsFileStream::new(self))
 
     }
-    
+
     async fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, std::io::Error> {
-        Ok(Arc::new(Self::new(self.path.with_file_name(path)).await?))
+        Ok(Arc::new(Self::open(self.path.with_file_name(path)).await?))
     }
 }
 
@@ -114,5 +125,39 @@ impl AsyncBufRead for FsFileStream {
     
     fn consume(mut self: Pin<&mut Self>, amt: usize) {
         self.reader.consume(amt);
+    }
+}
+
+pub struct FsWritableFile {
+    path: PathBuf,
+}
+
+impl FsWritableFile {
+    pub fn new(path: &Path) -> Result<Self, io::Error> {
+        Ok(Self::new_absolute(std::path::absolute(path)?))
+    }
+
+    pub fn new_absolute(path: PathBuf) -> Self {
+        assert!(path.is_absolute());
+        FsWritableFile { path }
+    }
+}
+
+#[async_trait]
+impl WritableFile for FsWritableFile {
+    fn url(&self) -> Option<Url> {
+        Url::from_file_path(&self.path).ok()
+    }
+
+    fn relative(&self, path: &RelativePath) -> Arc<dyn WritableFile> {
+        Arc::new(Self::new_absolute(self.path.with_file_name(path)))
+    }
+
+    async fn writer(&self) -> Result<Pin<Box<dyn AsyncWrite + Send>>, io::Error> {
+        let path = self.path.clone();
+        blocking::unblock(move || {
+            let file = File::create(&path)?;
+            Ok(Box::pin(blocking::Unblock::new(file)) as Pin<Box<dyn AsyncWrite + Send>>)
+        }).await
     }
 }

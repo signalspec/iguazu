@@ -1,6 +1,7 @@
 pub mod stream;
 pub mod schema;
 pub mod import;
+pub mod export;
 pub mod storage;
 pub mod io;
 pub mod view;

@@ -11,6 +11,8 @@ pub use attribute::AttributeMap;
 
 pub mod fmt;
 
+pub mod json_virtual;
+
 use crate::{storage::Storage, stream::ArcStream};
 
 pub type Name = String;

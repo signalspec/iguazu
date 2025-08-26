@@ -3,6 +3,7 @@ use std::{cell::RefCell, collections::{hash_map, HashMap, HashSet}, fmt::Debug, 
 use async_executor::{Executor, Task};
 use elsa::FrozenMap;
 use futures_lite::{AsyncBufRead, FutureExt};
+use url::Url;
 
 use crate::{ElementType, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{Stream, StreamAccess, StreamDesc, StreamIter, StreamState}};
 
@@ -55,6 +56,18 @@ impl FlatFileStream {
         Ok(FlatFileStream { file, offset, count, block_size, block_size_bytes, element_type, executor })
     }
 
+    pub fn url(&self) -> Option<Url> {
+        self.file.url()
+    }
+
+    pub fn element_type(&self) -> ElementType {
+        self.element_type
+    }
+
+    pub fn offset(&self) -> u64 {
+        self.offset
+    }
+
     pub async fn entity(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
         let (_field, _stride) = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
@@ -71,6 +84,8 @@ impl FlatFileStream {
         let offset = self.block_offset(block);
         self.file.clone().read_at(offset, self.block_size_bytes)
     }
+    
+
 }
 
 impl Stream for FlatFileStream {

@@ -1,9 +1,9 @@
-use std::{fmt::Debug, sync::Arc, task::{Context, Poll, Waker}};
+use std::{any::Any, fmt::Debug, sync::Arc, task::{Context, Poll, Waker}};
 use append_array::AppendArrayWriter;
 
 use crate::{Idx, ElementType};
 
-pub trait Stream: Send + Sync + Debug {
+pub trait Stream: Send + Sync + Debug + Any {
     fn desc(&self) -> StreamDesc;
 
     fn state(&self) -> StreamState;

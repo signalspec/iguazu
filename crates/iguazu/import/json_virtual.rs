@@ -4,24 +4,10 @@ use async_executor::{ Executor, Task };
 use ecow::EcoString;
 use futures_lite::{stream, StreamExt};
 use indexmap::IndexMap;
-use serde::{Deserialize, Serialize};
-use num_traits::Zero;
 
-use crate::{io::{ReadableFile, RelativePath}, schema::{Entity, EntitySchema, EntityStream, Summary}, storage::{ FlatFileOpts, FlatFileStream }, stream::ArcStream, ElementType};
+use crate::{io::{ReadableFile}, schema::{json_virtual::StreamRef, Entity, EntitySchema, EntityStream, Summary}, storage::{ FlatFileOpts, FlatFileStream }, stream::ArcStream};
 
 use super::{ImportError, Importer};
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(tag = "storage", rename_all = "snake_case")]
-pub enum StreamRef {
-    FlatFile {
-        file_name: RelativePath,
-        element_type: ElementType,
-
-        #[serde(default = "u64::zero", skip_serializing_if = "u64::is_zero")]
-        offset: u64,
-    }
-}
 
 pub struct VirtualImporter {
     file: Arc<dyn ReadableFile>,
