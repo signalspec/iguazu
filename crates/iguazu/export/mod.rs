@@ -9,6 +9,7 @@ mod json_virtual;
 mod flat_file;
 #[cfg(feature = "csv")]
 mod csv;
+mod izs;
 
 #[derive(Error, Debug)]
 pub enum ExportError {
@@ -17,6 +18,9 @@ pub enum ExportError {
 
     #[error("Unsupported schema: {0}")]
     UnsupportedSchema(String),
+
+    #[error("Failed to read input: {0}")]
+    Source(String),
 
     #[error("{0}")]
     UnsupportedStream(String),
@@ -46,6 +50,13 @@ pub const VIRTUAL: ExportFormat = ExportFormat {
     export: json_virtual::export,
 };
 
+pub const IZS: ExportFormat = ExportFormat {
+    name: "izs",
+    description: "Iguazu Pack",
+    extension: ".izs",
+    export: izs::export,
+};
+
 // pub const BIN: ExportFormat = ExportFormat {
 //     name: "bin",
 //     description: "Raw binary",
@@ -71,8 +82,8 @@ pub const VIRTUAL: ExportFormat = ExportFormat {
 
 pub const EXPORTERS: &[ExportFormat] = &[
     VIRTUAL,
+    IZS,
     // BIN,
     // #[cfg(feature = "csv")] CSV,
     // #[cfg(feature = "csv")] TSV,
 ];
-

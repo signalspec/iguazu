@@ -184,7 +184,7 @@ impl StreamAccess for FileStreamAccess {
     }
 
     fn begin(&mut self, waker: &Waker) {
-        self.waker = waker.clone();
+        self.waker.clone_from(waker);
     }
 
     fn end(&mut self) {
@@ -200,6 +200,10 @@ struct FileStreamIter {
 }
 
 impl StreamIter for FileStreamIter {
+    fn element_type(&self) -> ElementType {
+        self.stream.element_type
+    }
+    
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
         match self.file_stream.as_mut().poll_fill_buf(cx) {
             Poll::Ready(Ok(buf)) => {

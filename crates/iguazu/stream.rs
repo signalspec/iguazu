@@ -1,4 +1,4 @@
-use std::{any::Any, fmt::Debug, sync::Arc, task::{Context, Poll, Waker}};
+use std::{any::Any, fmt::Debug, future::poll_fn, sync::Arc, task::{ready, Context, Poll, Waker}};
 use append_array::AppendArrayWriter;
 
 use crate::{Idx, ElementType};
@@ -26,9 +26,31 @@ pub trait StreamAccess: Send  {
 }
 
 pub trait StreamIter: Send {
+    fn element_type(&self) -> ElementType;
+
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>>;
 
     fn consume(&mut self, len: usize);
+}
+
+impl dyn StreamIter {
+    pub async fn read_to_vec(&mut self, len: usize) -> Result<Vec<u8>, String> {
+        let element_type = self.element_type();
+        let mut buf = Vec::with_capacity(len * element_type.bytes());
+        loop {
+            let l = poll_fn(|cx| {
+                let block = ready!(self.poll_next(cx))?;
+                let l = (block.len() / element_type.bytes()).min(len - buf.len() / element_type.bytes());
+                buf.extend_from_slice(&block[.. l * element_type.bytes()]);
+                Poll::Ready(Result::<usize, String>::Ok(l))
+            }).await?;
+
+            if l == 0 { break; }
+
+            self.consume(l); // TODO: elements
+        }
+        Ok(buf)
+    }
 }
 
 #[derive(Clone)]

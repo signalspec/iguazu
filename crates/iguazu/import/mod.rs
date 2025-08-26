@@ -3,6 +3,8 @@ mod json_virtual;
 #[cfg(feature = "csv")]
 mod csv;
 
+mod izs;
+
 use std::{pin::Pin, sync::Arc};
 
 use async_executor::Executor;
@@ -77,6 +79,14 @@ pub const VIRTUAL: ImportFormat = ImportFormat {
     import: json_virtual::importer,
 };
 
+pub const IZS: ImportFormat = ImportFormat {
+    name: "izs",
+    description: "Iguazu Pack",
+    extensions: &[".izs"],
+    import: izs::importer,
+};
+
+
 pub const BIN: ImportFormat = ImportFormat {
     name: "bin",
     description: "Raw binary",
@@ -109,6 +119,7 @@ pub const TSV: ImportFormat = ImportFormat {
 
 pub const IMPORTERS: ImportFormats<'static> = ImportFormats(&[
     VIRTUAL,
+    IZS,
     BIN, LOGIC8,
     #[cfg(feature = "csv")] CSV,
     #[cfg(feature = "csv")] TSV,

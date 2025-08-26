@@ -125,6 +125,10 @@ pub struct MemoryStreamIter {
 }
 
 impl StreamIter for MemoryStreamIter {
+    fn element_type(&self) -> ElementType {
+        self.stream.element_type
+    }
+
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
         self.stream.register(self.id, cx.waker());
 

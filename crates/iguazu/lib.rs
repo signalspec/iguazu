@@ -8,6 +8,7 @@ pub mod view;
 pub mod summary;
 mod util;
 mod element;
+mod izs;
 pub use element::{Element, ElementType};
 
 #[cfg(all(feature="clap", any(target_family = "unix", target_family = "windows")))]
@@ -30,7 +31,7 @@ impl IdxRange {
     pub fn len(&self) -> u64 {
         self.max - self.min
     }
-    
+
     pub fn contains(&self, other: IdxRange) -> bool {
         self.min <= other.min && other.max <= self.max
     }
@@ -38,10 +39,8 @@ impl IdxRange {
     pub fn divide(&self, by: u64) -> IdxRange {
         IdxRange { min: self.min / by, max: self.max.div_ceil(by) }
     }
-    
+
     fn multiply(&self, by: u64) -> IdxRange {
         IdxRange { min: self.min * by, max: self.max * by }
     }
 }
-
-

@@ -279,7 +279,7 @@ impl<S> Entity<S> {
         }
     }
 
-    pub fn try_map_data<T, E>(&self, f: &mut impl FnMut(&S) -> Result<T, E>) -> Result<Entity<T>, E> {
+    pub fn try_map_data<T: Send, E: Send>(&self, f: &mut impl FnMut(&S) -> Result<T, E>) -> Result<Entity<T>, E> {
         match self {
             Entity::Group { children, attributes } => {
                 let children = children.iter()

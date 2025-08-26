@@ -32,6 +32,7 @@ arrayvec = "0.7.6"
 atomic-waker = "1.1.2"
 slab = "0.4.11"
 url = "2.5.7"
+async-lock = "3.4.1"
 
 [features]
 fs = ["dep:blocking", "dep:piper"]

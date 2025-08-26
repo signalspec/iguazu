@@ -30,7 +30,7 @@ fn make_summary_levels(
     initial: impl Fn(&Executor<'static>, &dyn Storage, ArcStream, &Field) -> Option<(Task<Result<(), String>>, ArcStream)>,
     reduce: impl Fn(&Executor<'static>, &dyn Storage, ArcStream, &Field) -> Option<(Task<Result<(), String>>, ArcStream)>,
 ) {
-    let wanted_levels = stream.state().end.ilog2().saturating_sub(8) as usize;
+    let wanted_levels = stream.state().end.checked_ilog2().unwrap_or(0).saturating_sub(8) as usize;
     let summary = summaries.entry(key.into()).or_insert(Summary::empty());
 
     log::info!("Building {key} summary to level {}", wanted_levels);
