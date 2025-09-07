@@ -15,15 +15,12 @@ pub struct Cli {
 pub fn main(args: &Cli) -> Result<(), String> {
     block_on(async {
         let filename = args.import.filename.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
-        let mut importer = args.import.importer(IMPORTERS).await?;
+        let last_entity_path = args.import.entity.as_ref().and_then(|e| e.split('.').last());
+        let root_name = last_entity_path.unwrap_or(filename);
 
-        let schema = if let Some(schema) = args.import.schema().await? {
-            schema
-        } else {
-            importer.load_schema().await.map_err(|e| e.to_string())?
-        };
+        let schema = args.import.schema_or_inferred(IMPORTERS).await?;
 
-        info_tree(&mut std::io::stdout().lock(), &filename, &schema);
+        info_tree(&mut std::io::stdout().lock(), root_name, &schema);
         Ok(())
     })
 }

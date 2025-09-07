@@ -97,7 +97,7 @@ pub enum Entity<S> {
 pub struct Field {
     #[serde(flatten)]
     pub kind: FieldKind,
-    
+
     #[serde(flatten)]
     pub attributes: AttributeMap,
 }
@@ -162,11 +162,11 @@ impl Field {
     pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
         self.attributes.get(attr)
     }
-    
+
     pub fn set_attribute(&mut self, attr: &str, val: impl Into<AttributeValue>) {
         self.attributes.insert(attr, val);
     }
-    
+
     pub fn with_attribute(mut self, attr: &str, val: impl Into<AttributeValue>) -> Self {
         self.set_attribute(attr, val);
         self
@@ -195,7 +195,7 @@ impl<S> Entity<S> {
 
     pub fn field_data(kind: FieldKind, data: S) -> Self {
         Entity::Data {
-            data, 
+            data,
             field: Field {
                 kind,
                 attributes: Default::default(),
@@ -235,11 +235,11 @@ impl<S> Entity<S> {
     pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
         self.attributes().get(attr)
     }
-    
+
     pub fn set_attribute(&mut self, attr: &str, val: impl Into<AttributeValue>) {
         self.attributes_mut().insert(attr, val);
     }
-    
+
     pub fn with_attribute(mut self, attr: &str, val: impl Into<AttributeValue>) -> Self {
         self.set_attribute(attr, val);
         self
@@ -259,6 +259,34 @@ impl<S> Entity<S> {
         }
     }
 
+    pub fn child_mut(&mut self, child: &str) -> Option<&mut Entity<S>> {
+        match *self {
+            Entity::Group { ref mut children, .. } | Entity::Record { ref mut children, .. } => {
+                children.get_mut(child)
+            }
+            Entity::FixedArray { ref mut child, .. }
+            | Entity::Tuple { ref mut child, .. }
+            | Entity::VariableArray { ref mut child, .. } => {
+                Some(child)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn child_owned(self, child: &str) -> Option<Self> {
+        match self {
+            Entity::Group { mut children, .. } | Entity::Record { mut children, .. } => {
+                children.swap_remove(child)
+            }
+            Entity::FixedArray { child, .. }
+            | Entity::Tuple { child, .. }
+            | Entity::VariableArray { child, .. } => {
+                Some(*child)
+            }
+            _ => None,
+        }
+    }
+
     pub fn with_child(mut self, name: EcoString, child: Entity<S>) -> Self {
         match &mut self {
             Entity::Group { children, .. }
@@ -268,6 +296,30 @@ impl<S> Entity<S> {
             _ => panic!("Cannot add child to non-group or non-record entity"),
         }
         self
+    }
+
+    pub fn select(&self, path: &str) -> Option<&Entity<S>> {
+        let mut current = self;
+        for part in path.split('.') {
+            current = current.child(part)?;
+        }
+        Some(current)
+    }
+
+    pub fn select_mut(&mut self, path: &str) -> Option<&mut Entity<S>> {
+        let mut current = self;
+        for part in path.split('.') {
+            current = current.child_mut(part)?;
+        }
+        Some(current)
+    }
+
+    pub fn select_owned(self, path: &str) -> Option<Self> {
+        let mut current = self;
+        for part in path.split('.') {
+            current = current.child_owned(part)?;
+        }
+        Some(current)
     }
 
     pub fn data(&self) -> Option<&S> {
@@ -326,8 +378,8 @@ impl<S> Entity<S> {
         }
     }
 
-    pub async fn try_map_data_async<T, E, F, R>(self, f: F) -> Result<Entity<T>, E> 
-    where 
+    pub async fn try_map_data_async<T, E, F, R>(self, f: F) -> Result<Entity<T>, E>
+    where
         S: Send + 'static,
         T: Send + 'static,
         E: Send + 'static,
@@ -340,7 +392,7 @@ impl<S> Entity<S> {
             ex: Arc<Executor<'static>>,
             children: IndexMap<EcoString, Entity<S>>,
             f: F
-        ) -> Result<IndexMap<EcoString, Entity<T>>, E> where 
+        ) -> Result<IndexMap<EcoString, Entity<T>>, E> where
             S: Send + 'static,
             T: Send + 'static,
             E: Send + 'static,
@@ -360,7 +412,7 @@ impl<S> Entity<S> {
             ex: Arc<Executor<'static>>,
             summary: Summary<S>,
             f: F
-        ) -> Result<Summary<T>, E> where 
+        ) -> Result<Summary<T>, E> where
             S: Send + 'static,
             T: Send + 'static,
             E: Send + 'static,
@@ -376,8 +428,8 @@ impl<S> Entity<S> {
             Ok(Summary { base_level, levels })
         }
 
-        async fn map_summaries<S, T, E, F, R>(ex: Arc<Executor<'static>>, summaries: IndexMap<EcoString, Summary<S>>, f: F) -> Result<IndexMap<EcoString, Summary<T>>, E> 
-        where 
+        async fn map_summaries<S, T, E, F, R>(ex: Arc<Executor<'static>>, summaries: IndexMap<EcoString, Summary<S>>, f: F) -> Result<IndexMap<EcoString, Summary<T>>, E>
+        where
             S: Send + 'static,
             T: Send + 'static,
             E: Send + 'static,
@@ -397,7 +449,7 @@ impl<S> Entity<S> {
             ex: Arc<Executor<'static>>,
             schema: Entity<S>,
             f: F
-        ) -> impl Future<Output = Result<Entity<T>, E>> + Send where 
+        ) -> impl Future<Output = Result<Entity<T>, E>> + Send where
             S: Send + 'static,
             T: Send + 'static,
             E: Send + 'static,
@@ -473,7 +525,7 @@ impl EntitySchema {
 
     pub fn field(kind: FieldKind) -> Self {
         Entity::Data {
-            data: Ignored, 
+            data: Ignored,
             field: Field {
                 kind,
                 attributes: Default::default(),
@@ -558,4 +610,3 @@ impl<S> Summary<S> {
         Ok(Summary { base_level, levels })
     }
 }
-
