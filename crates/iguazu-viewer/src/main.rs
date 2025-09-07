@@ -68,7 +68,7 @@ fn main() {
     let web_options = eframe::WebOptions::default();
 
     wasm_bindgen_futures::spawn_local(async {
-        use iguazu::{schema::{AttributeMap, EntityKind, Field}, storage::MemoryStream};
+        use iguazu::{schema::{AttributeMap, Entity, Field, FieldKind}, storage::MemoryStream};
 
         let document = web_sys::window()
             .expect("No window")
@@ -81,23 +81,28 @@ fn main() {
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("the_canvas_id was not a HtmlCanvasElement");
 
-        let analog = Entity::new(EntityKind::Number {
+        let analog = Entity::Data {
+            field: Field::new(FieldKind::Float32),
             data: MemoryStream::new(&(0..1000).map(|i| (i as f32 * 0.01).sin()).collect::<Vec<f32>>()) as ArcStream,
-        }).with_attribute("sample_rate", 100.0)
+            summaries: Default::default(),
+        }.with_attribute("sample_rate", 100.0)
         .with_attribute("number:range", AttributeMap::from_iter([
             ("min".into(), (-1.0).into()),
             ("max".into(), 1.0.into()),
         ]));
 
-        let digital = Entity::new(EntityKind::Logic {
+        let digital = Entity::Data{
+            field: Field::new(FieldKind::BitStruct {
+                children: FromIterator::from_iter([
+                    ("bit0".into(), Field::new(FieldKind::Bits { bits: 1 })),
+                    ("bit1".into(), Field::new(FieldKind::Bits { bits: 1 })),
+                    ("bit2".into(), Field::new(FieldKind::Bits { bits: 1 })),
+                    ("bit3".into(), Field::new(FieldKind::Bits { bits: 1 })),
+                ])
+            }),
             data: MemoryStream::new(&(0..255u8).collect::<Vec<u8>>()) as ArcStream,
-            bits: vec![
-                Field { name: "bit0".into(), attributes: AttributeMap::default() },
-                Field { name: "bit1".into(), attributes: AttributeMap::default() },
-                Field { name: "bit2".into(), attributes: AttributeMap::default() },
-                Field { name: "bit3".into(), attributes: AttributeMap::default() },
-            ]
-        }).with_attribute("sample_rate", 32.0);
+            summaries: Default::default(),
+        }.with_attribute("sample_rate", 32.0);
 
         let entity = Entity::record()
             .with_child("analog".into(), analog)
@@ -139,6 +144,7 @@ struct App {
 }
 impl App {
     fn new(cc: &CreationContext, entity: Entity<ArcStream>, view: Option<DefaultView>) -> Self {
+        cc.egui_ctx.set_theme(egui::Theme::Dark);
         cc.egui_ctx.tessellation_options_mut(|o| {
             // Rounding causes jitter and gaps in timeline logic traces
             o.round_line_segments_to_pixels = false;
@@ -190,7 +196,6 @@ impl eframe::App for App {
         });
 
         self.vctx.end();
-        
         self.update_frame_time(ctx, frame);
     }
 }
