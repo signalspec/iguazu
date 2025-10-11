@@ -125,7 +125,7 @@ fn paint_ticks(
                 let text = format!("{}", current_time.format_relative(precision));
                 let text_x = line_x + 4.0;
 
-                egui_ctx.fonts(|fonts| {
+                egui_ctx.fonts_mut(|fonts| {
                     shapes.push(egui::Shape::text(
                         fonts,
                         pos2(text_x, lerp(line_y_range.clone(), 0.5)),

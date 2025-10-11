@@ -20,6 +20,6 @@ log.workspace = true
 clap.workspace = true
 ecow.workspace = true
 serde = "1.0.160"
-egui_table = "0.4.0"
+egui_table = "0.5.0"
 itertools = "0.13.0"
 fragile = "2.0.0"
