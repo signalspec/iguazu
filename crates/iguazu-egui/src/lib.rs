@@ -45,4 +45,3 @@ impl ViewerContext {
         self.view_manager.end();
     }
 }
-

@@ -73,7 +73,7 @@ impl Stream for MemoryStream {
             end,
         }
     }
-    
+
     fn access(self: Arc<Self>) -> Box<dyn StreamAccess> {
         let id = self.wakers.write().unwrap().insert(AtomicWaker::new());
         Box::new(MemoryStreamAccess { stream: self, id })
@@ -106,7 +106,11 @@ impl StreamAccess for MemoryStreamAccess {
         self.stream.state()
     }
 
-    fn begin(&mut self, _waker: &Waker) {}
+    fn begin(&mut self, waker: &Waker) {
+        // TODO: Only need to wake if this view is interested in the end of the stream
+        self.stream.register(self.id, waker);
+    }
+
     fn end(&mut self) {}
 }
 
