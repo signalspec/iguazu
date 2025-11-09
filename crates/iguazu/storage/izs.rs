@@ -39,6 +39,7 @@ pub async fn load(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>)
             let (block_offsets, block_lengths) = izs::read_block_index(&index);
 
             let stream = IzsStream {
+                id: s.root,
                 shared: shared,
                 block_size: s.block_size,
                 element_type: s.element_type,
@@ -65,6 +66,7 @@ impl Shared {
 
 struct IzsStream {
     shared: Arc<Shared>,
+    id: u64,
 
     element_type: ElementType,
     block_size: usize,
@@ -89,11 +91,11 @@ enum LoadBlockRes<F> {
 impl IzsStream {
     fn load_block(&self, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<AppendArray<u8>>, io::Error>> + Send + 'static> {
         if let Some(&offset) = self.block_offsets.get(block as usize) {
-            log::debug!("Loading block {block} of {}", self.shared.file.filename().unwrap_or("<unknown>"));
             let block_bytes = self.block_size * self.element_type.bytes();
             let compression = self.compress;
             let len = self.block_lengths[block as usize] as usize;
             let shared = self.shared.clone();
+            log::debug!("Loading block {block} of {}:{:x} at {} len {}", self.shared.file.filename().unwrap_or("<unknown>"), self.id, offset, len);
             LoadBlockRes::Loading(async move {
                 let data = shared.read_at(offset, len).await?;
                 let data = match compression {
@@ -208,11 +210,11 @@ impl StreamAccess for IzsStreamAccess {
             drop(entry.remove());
             match res {
                 Ok(buf) => {
-                    log::debug!("Block {block} of {} finished loading", self.stream.shared.file.filename().unwrap_or("<unknown>"));
+                    log::debug!("Block {block} of {}:{:x} finished loading", self.stream.shared.file.filename().unwrap_or("<unknown>"), self.stream.id);
                     return self.blocks.insert(block, buf);
                 }
                 Err(e) => {
-                    log::error!("Block {block} of {} failed to load: {}", self.stream.shared.file.filename().unwrap_or("<unknown>"), e);
+                    log::error!("Block {block} of {}:{:x} failed to load: {}", self.stream.shared.file.filename().unwrap_or("<unknown>"), self.stream.id, e);
                     state.error = Some(e);
                 }
             }
