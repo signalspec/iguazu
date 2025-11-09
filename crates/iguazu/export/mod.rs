@@ -9,6 +9,7 @@ mod json_virtual;
 mod flat_file;
 #[cfg(feature = "csv")]
 mod csv;
+#[cfg(feature = "izs")]
 mod izs;
 
 #[derive(Error, Debug)]
@@ -50,6 +51,7 @@ pub const VIRTUAL: ExportFormat = ExportFormat {
     export: json_virtual::export,
 };
 
+#[cfg(feature = "izs")]
 pub const IZS: ExportFormat = ExportFormat {
     name: "izs",
     description: "Iguazu Pack",
@@ -82,6 +84,7 @@ pub const IZS: ExportFormat = ExportFormat {
 
 pub const EXPORTERS: &[ExportFormat] = &[
     VIRTUAL,
+    #[cfg(feature = "izs")]
     IZS,
     // BIN,
     // #[cfg(feature = "csv")] CSV,

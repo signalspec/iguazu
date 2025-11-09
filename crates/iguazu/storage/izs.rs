@@ -10,7 +10,7 @@ use elsa::FrozenMap;
 use futures_lite::FutureExt;
 
 use crate::import::ImportError;
-use crate::izs::{self, Footer, StreamMeta};
+use crate::izs::{self, CompressionMethod, Footer, StreamMeta};
 use crate::schema::{Entity, EntityStream};
 use crate::stream::{StreamAccess, StreamIter, Stream, StreamDesc, StreamState};
 use crate::{io::ReadableFile, ElementType};
@@ -23,6 +23,8 @@ pub async fn load_meta(file: Arc<dyn ReadableFile>) -> Result<Entity<StreamMeta>
     let meta_pos = len.checked_sub(Footer::LEN as u64 + footer.meta_len as u64)
         .ok_or_else(|| ImportError::InvalidFile("Invalid metadata position".to_string()))?;
     let meta = file.clone().read_at(meta_pos, footer.meta_len as usize).await?;
+    let meta = zstd::bulk::decompress(&meta, 16 * 1024 * 1024)
+        .map_err(|e| ImportError::InvalidFile(format!("Failed to decompress metadata: {}", e)))?;
     serde_json::from_slice(&meta).map_err(|e| ImportError::InvalidFile(format!("Invalid metadata: {}", e)))
 }
 
@@ -40,6 +42,7 @@ pub async fn load(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>)
                 shared: shared,
                 block_size: s.block_size,
                 element_type: s.element_type,
+                compress: s.compress,
                 block_offsets,
                 block_lengths,
                 pos: s.end_idx,
@@ -66,6 +69,8 @@ struct IzsStream {
     element_type: ElementType,
     block_size: usize,
 
+    compress: CompressionMethod,
+
     /// Positions of the compressed blocks within the file
     block_offsets: Vec<u64>,
 
@@ -85,11 +90,22 @@ impl IzsStream {
     fn load_block(&self, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<AppendArray<u8>>, io::Error>> + Send + 'static> {
         if let Some(&offset) = self.block_offsets.get(block as usize) {
             log::debug!("Loading block {block} of {}", self.shared.file.filename().unwrap_or("<unknown>"));
+            let block_bytes = self.block_size * self.element_type.bytes();
+            let compression = self.compress;
             let len = self.block_lengths[block as usize] as usize;
             let shared = self.shared.clone();
             LoadBlockRes::Loading(async move {
                 let data = shared.read_at(offset, len).await?;
-                // TODO: decompress
+                let data = match compression {
+                    CompressionMethod::None => data,
+                    CompressionMethod::Zstd => {
+                        zstd::bulk::decompress(&data, block_bytes)
+                            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress block: {}", e)))?
+                    }
+                    CompressionMethod::Unknown => {
+                        return Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown compression method"));
+                    }
+                };
                 Ok(Arc::new(AppendArray::from(data)))
             })
         } else {

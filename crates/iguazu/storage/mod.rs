@@ -7,6 +7,7 @@ pub use flat_file::{ FlatFileStream, FlatFileOpts };
 
 use crate::{stream::StreamWriter, ElementType};
 
+#[cfg(feature = "izs")]
 pub mod izs;
 
 /// A storage backend that can create writable streams

@@ -13,12 +13,11 @@ pub const FOOTER_MAGIC: [u8; 8] = [ 0x01, 0x21, 0x4a, 0xd9, 0x01, 0x90, 0xba, 0x
 
 pub struct Footer {
     pub meta_len: u32,
-    pub reserved1: u32,
-    pub reserved2: u64,
+    pub reserved: u32,
 }
 
 impl Footer {
-    pub const LEN: usize = 24;
+    pub const LEN: usize = 16;
 
     pub fn from_bytes(data: &[u8]) -> Option<Self> {
         if data.len() < Self::LEN {
@@ -27,25 +26,32 @@ impl Footer {
 
         let data = &data[data.len() - Self::LEN ..];
 
-        if &data[16..24] != FOOTER_MAGIC {
+        if &data[8..16] != FOOTER_MAGIC {
             return None;
         }
 
         let meta_len = u32::from_le_bytes(data[0..4].try_into().unwrap());
-        let reserved1 = u32::from_le_bytes(data[4..8].try_into().unwrap());
-        let reserved2 = u64::from_le_bytes(data[8..16].try_into().unwrap());
+        let reserved = u32::from_le_bytes(data[4..8].try_into().unwrap());
 
-        Some(Self { meta_len, reserved1, reserved2 })
+        Some(Self { meta_len, reserved })
     }
 
     fn to_bytes(&self) -> [u8; Self::LEN] {
         let mut bytes = [0u8; Self::LEN];
         bytes[0..4].copy_from_slice(&self.meta_len.to_le_bytes());
-        bytes[4..8].copy_from_slice(&self.reserved1.to_le_bytes());
-        bytes[8..16].copy_from_slice(&self.reserved2.to_le_bytes());
-        bytes[16..24].copy_from_slice(&FOOTER_MAGIC);
+        bytes[4..8].copy_from_slice(&self.reserved.to_le_bytes());
+        bytes[8..16].copy_from_slice(&FOOTER_MAGIC);
         bytes
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum CompressionMethod {
+    None,
+    Zstd,
+    #[serde(other)]
+    Unknown,
 }
 
 /// Stream info in `data` of the metadata
@@ -56,6 +62,7 @@ pub struct StreamMeta {
     pub root: u64,
     pub root_len: u32,
     pub end_idx: u64,
+    pub compress: CompressionMethod,
 }
 
 enum WriteState {
@@ -101,9 +108,10 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
     let mut iter = stream.iter();
     loop {
         let block = iter.read_to_vec(block_size).await.map_err(ExportError::Source)?;
-        let offset = write.lock().await.write_block(&block).await?;
+        let compressed_block = zstd::bulk::compress(&block, 0).unwrap();
+        let offset = write.lock().await.write_block(&compressed_block).await?;
         block_offsets.push(offset);
-        block_lengths.push(block.len() as u32);
+        block_lengths.push(compressed_block.len() as u32);
         pos += (block.len() / element_type.bytes()) as u64;
 
         if block.len() < block_size * element_type.bytes() {
@@ -122,6 +130,7 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
         root,
         root_len,
         end_idx: pos,
+        compress: CompressionMethod::Zstd,
     })
 }
 
@@ -164,14 +173,14 @@ pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<
 
     // Write metadata
     let meta_data = serde_json::to_vec(&meta_entity).unwrap();
+    let meta_data = zstd::bulk::compress(&meta_data, 0).unwrap();
     write.write_block(&meta_data).await?;
     let meta_len = meta_data.len() as u32;
 
     // Write footer
     let footer = Footer {
         meta_len,
-        reserved1: 0,
-        reserved2: 0,
+        reserved: 0,
     };
     let footer_bytes = footer.to_bytes();
     write.write_block(&footer_bytes).await?;
