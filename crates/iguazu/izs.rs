@@ -45,6 +45,11 @@ impl Footer {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct FileMeta {
+    pub entity: Entity<StreamMeta>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum CompressionMethod {
@@ -172,7 +177,10 @@ pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<
     let mut write = write.lock().await;
 
     // Write metadata
-    let meta_data = serde_json::to_vec(&meta_entity).unwrap();
+    let meta = FileMeta {
+        entity: meta_entity,
+    };
+    let meta_data = serde_json::to_vec(&meta).unwrap();
     let meta_data = zstd::bulk::compress(&meta_data, 0).unwrap();
     write.write_block(&meta_data).await?;
     let meta_len = meta_data.len() as u32;

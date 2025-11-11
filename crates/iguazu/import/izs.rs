@@ -16,7 +16,7 @@ impl Importer for IzsImporter {
     fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {
         Box::pin(async move {
             let meta = crate::storage::izs::load_meta(self.file.clone()).await?;
-            Ok(meta.schema())
+            Ok(meta.entity.schema())
         })
     }
 

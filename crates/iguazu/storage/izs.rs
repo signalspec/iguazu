@@ -10,12 +10,12 @@ use elsa::FrozenMap;
 use futures_lite::FutureExt;
 
 use crate::import::ImportError;
-use crate::izs::{self, CompressionMethod, Footer, StreamMeta};
-use crate::schema::{Entity, EntityStream};
+use crate::izs::{self, CompressionMethod, FileMeta, Footer};
+use crate::schema::EntityStream;
 use crate::stream::{StreamAccess, StreamIter, Stream, StreamDesc, StreamState};
 use crate::{io::ReadableFile, ElementType};
 
-pub async fn load_meta(file: Arc<dyn ReadableFile>) -> Result<Entity<StreamMeta>, ImportError> {
+pub async fn load_meta(file: Arc<dyn ReadableFile>) -> Result<FileMeta, ImportError> {
     let len = file.clone().get_len().await?;
     let footer = file.clone().read_at(len.saturating_sub(Footer::LEN as u64), Footer::LEN).await?;
     let footer = Footer::from_bytes(&footer).ok_or_else(|| ImportError::InvalidFile("Invalid footer".to_string()))?;
@@ -32,7 +32,7 @@ pub async fn load(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>)
     let meta = load_meta(file.clone()).await?;
     let shared = Arc::new(Shared { file, executor });
 
-    meta.try_map_data_async(move |s| {
+    meta.entity.try_map_data_async(move |s| {
         let shared = shared.clone();
         async move {
             let index = shared.read_at(s.root, s.root_len as usize).await?;
