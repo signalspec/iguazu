@@ -8,6 +8,11 @@ mod fs;
 #[cfg(all(feature="fs", any(target_family = "unix", target_family = "windows")))]
 pub use fs::{FsFile, FsWritableFile, FsFileStream};
 
+#[cfg(all(feature="web", target_family = "wasm"))]
+mod web;
+#[cfg(all(feature="web", target_family = "wasm"))]
+pub use web::WebFile;
+
 mod url;
 use ::url::Url;
 pub use url::{RelativePath, BadRelativePath};
