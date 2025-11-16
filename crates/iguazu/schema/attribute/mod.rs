@@ -1,9 +1,50 @@
+use std::{fmt::{Debug, Display}, marker::PhantomData};
+
 use ecow::EcoString;
 use indexmap::IndexMap;
 use serde::{Serialize, Deserialize};
-use strum::{EnumString, IntoStaticStr};
 
-use super::{Entity, Field, FieldKind};
+pub mod core;
+pub mod display;
+
+#[derive(Clone, Copy)]
+pub struct Attribute<T> {
+    name: &'static str,
+    value_type: PhantomData<T>,
+}
+
+impl<T> Attribute<T> {
+    pub const fn named(name: &'static str) -> Self {
+        Attribute {
+            name,
+            value_type: PhantomData,
+        }
+    }
+}
+
+impl<T> Debug for Attribute<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Attribute<{}>(\"{}\")", std::any::type_name::<T>(), self.name)
+    }
+}
+
+impl<T> Display for Attribute<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+impl<T> From<Attribute<T>> for &'static str {
+    fn from(attr: Attribute<T>) -> Self {
+        attr.name
+    }
+}
+
+impl<T> From<Attribute<T>> for EcoString {
+    fn from(attr: Attribute<T>) -> Self {
+        attr.name.into()
+    }
+}
 
 #[derive(Debug, Default, Clone, Serialize, PartialEq)]
 pub struct AttributeMap {
@@ -29,7 +70,7 @@ impl<'de> Deserialize<'de> for AttributeMap {
                 {
                     let mut attributes = IndexMap::new();
                     while let Some((key, value)) = map.next_entry::<EcoString, AttributeValue>()? {
-                        if matches!(key.as_ref(), 
+                        if matches!(key.as_ref(),
                             | "type"
                             | "bits"
                             | "values"
@@ -58,10 +99,9 @@ impl<'de> Deserialize<'de> for AttributeMap {
 
 impl AttributeMap {
     pub fn get<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
-        self.attributes.get(attr)
-        .and_then(|v| A::try_from(v).ok())
+        self.attributes.get(attr).and_then(|v| A::try_from(v).ok())
     }
-    
+
     pub fn insert(&mut self, attr: &str, val: impl Into<AttributeValue>) {
         self.attributes.insert(attr.into(), val.into());
     }
@@ -113,6 +153,17 @@ impl TryFrom<&AttributeValue> for EcoString {
     fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
         match value {
             AttributeValue::String(s) => Ok(s.clone()),
+            _ => Err(()),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a AttributeValue> for &'a str {
+    type Error = ();
+
+    fn try_from(value: &'a AttributeValue) -> Result<Self, Self::Error> {
+        match value {
+            AttributeValue::String(s) => Ok(s.as_ref()),
             _ => Err(()),
         }
     }
@@ -280,171 +331,25 @@ impl Serialize for AttributeValue {
     }
 }
 
-/// Core attributes
-impl<D> Entity<D> {
-    pub fn sample_rate(&self) -> Option<f64> {
-        self.attribute("sample_rate")
-    }
-
-    pub fn time(&self) -> Option<EcoString> {
-        self.attribute("time")
-    }
-
-    pub fn text(&self) -> Option<EcoString> {
-        self.attribute("text")
-    }
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct NumberRange {
-    pub min: f64,
-    pub max: f64,
-}
-
-impl<D> Entity<D> {
-    pub fn display_default(&self) -> Option<DefaultView> {
-        let o: Option<AttributeMap> = self.attribute("display:default");
-        o.and_then(|o| o.get("view")).or(
-            if self.time().is_some() || self.sample_rate().is_some() {
-                Some(DefaultView::Timeline)
-            } else if matches!(self, Entity::Record {..}) {
-                Some(DefaultView::Table)
-            } else {
-                None
-            }
-        )
-    }
-
-    pub fn accent_color(&self) -> Option<AccentColor> {
-        self.attribute("display:accent_color")
-    }
-}
-
-impl Field {
-    pub fn accent_color(&self) -> Option<AccentColor> {
-        self.attribute("display:accent_color")
-    }
-
-    pub fn number_range(&self) -> Option<NumberRange> {
-        let o: AttributeMap = self.attribute("number:range")?;
-        Some(NumberRange {
-            min: o.get("min")?,
-            max: o.get("max")?,
-        })
-    }
-
-    pub fn time_rate(&self) -> Option<f64> {
-        self.attribute("time:rate")
-    }
-
-    pub fn number_scale(&self) -> f64 {
-        self.attribute("number:scale").unwrap_or(1.0)
-    }
-
-    pub fn number_offset(&self) -> f64 {
-        self.attribute("number:offset").unwrap_or(0.0)
-    }
-
-    pub fn text(&self) -> Option<EcoString> {
-        self.attribute("text")
-    }
-}
-
-/// Timeline attributes
-impl<D> Entity<D> {
-    pub fn timeline_row(&self) -> TimelineRow {
-        self.attribute("display:timeline_row").unwrap_or_else(|| {
-            match self {
-                Entity::Record { .. } if self.time().is_some() => TimelineRow::Events,
-                Entity::Group { .. } | Entity::Record { .. } => TimelineRow::Group,
-                Entity::Data { field, .. } => field.timeline_row(),
-                _ => TimelineRow::Hidden,
-            }
-        })
-    }
-}
-
-impl Field {
-    pub fn timeline_row(&self) -> TimelineRow {
-        self.attributes.get("display:timeline_row")
-            .unwrap_or_else(|| {
-                match &self.kind {
-                    FieldKind::Null => TimelineRow::Hidden,
-                    FieldKind::BitStruct { .. } => TimelineRow::Group,
-                    FieldKind::Bits { bits: 1 } => TimelineRow::Logic,
-                    FieldKind::Bits { .. } | FieldKind::Character | FieldKind::Enum { .. } | FieldKind::Tagged { .. } => TimelineRow::Trace,
-                    FieldKind::Timestamp { .. } => TimelineRow::Hidden,
-                    FieldKind::Int { .. } | FieldKind::Signed { .. } | FieldKind::Float32 | FieldKind::Float64 => TimelineRow::YAxis,
-                }
-            })
-    }
-}
-
 macro_rules! string_attribute {
     ($name:ty) => {
-        impl TryFrom<&AttributeValue> for $name {
+        impl TryFrom<&$crate::schema::attribute::AttributeValue> for $name {
             type Error = ();
 
-            fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
+            fn try_from(value: &$crate::schema::attribute::AttributeValue) -> Result<Self, Self::Error> {
                 match value {
-                    AttributeValue::String(s) => s.parse().map_err(|_| ()),
+                    $crate::schema::attribute::AttributeValue::String(s) => s.parse().map_err(|_| ()),
                     _ => Err(()),
                 }
             }
         }
 
-        impl From<$name> for AttributeValue {
-            fn from(value: $name) -> AttributeValue {
-                AttributeValue::String(<&str>::from(value).into())
+        impl From<$name> for $crate::schema::attribute::AttributeValue {
+            fn from(value: $name) -> $crate::schema::attribute::AttributeValue {
+                $crate::schema::attribute::AttributeValue::String(<&str>::from(value).into())
             }
         }
     };
 }
 
-#[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
-#[strum(serialize_all = "snake_case")]
-pub enum AccentColor {
-    Red,
-    Orange,
-    Brown,
-    Yellow,
-    Green,
-    Blue,
-    Purple,
-}
-
-string_attribute!(AccentColor);
-
-#[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
-#[strum(serialize_all = "snake_case")]
-pub enum TimelineRow {
-    Hidden,
-
-    /// Children are displayed as separate timeline rows.
-    Group,
-
-    /// Analog Y axis. If applied to an entity with children,
-    /// the children are plotted on the same Y axis.
-    YAxis,
-
-    /// A row showing changes in the value, displayed as text
-    Trace,
-
-    /// Bits are shown as logic traces
-    Logic,
-
-    /// Each value is displayed as a discrete event
-    Events,
-}
-
-string_attribute!(TimelineRow);
-
-#[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
-#[strum(serialize_all = "snake_case")]
-pub enum DefaultView {
-    Timeline,
-    Table,
-}
-
-string_attribute!(DefaultView);
-
+pub(crate) use string_attribute;

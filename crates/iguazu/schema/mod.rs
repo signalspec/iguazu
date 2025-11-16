@@ -14,7 +14,7 @@ pub mod fmt;
 
 pub mod json_virtual;
 
-use crate::{storage::Storage, stream::ArcStream};
+use crate::{schema::attribute::Attribute, storage::Storage, stream::ArcStream};
 
 pub type Name = String;
 pub type Path = String;
@@ -159,15 +159,15 @@ impl Field {
         Field { kind, attributes: Default::default() }
     }
 
-    pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
-        self.attributes.get(attr)
+    pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: Attribute<A>) -> Option<A> {
+        self.attributes.get(attr.into())
     }
 
-    pub fn set_attribute(&mut self, attr: &str, val: impl Into<AttributeValue>) {
-        self.attributes.insert(attr, val);
+    pub fn set_attribute<A: Into<AttributeValue>>(&mut self, attr: Attribute<A>, val: A) {
+        self.attributes.insert(attr.into(), val);
     }
 
-    pub fn with_attribute(mut self, attr: &str, val: impl Into<AttributeValue>) -> Self {
+    pub fn with_attribute<A: Into<AttributeValue>>(mut self, attr: Attribute<A>, val: A) -> Self {
         self.set_attribute(attr, val);
         self
     }
@@ -232,15 +232,15 @@ impl<S> Entity<S> {
         Entity::Tuple { child: Box::new(child), fields, attributes: Default::default() }
     }
 
-    pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: &str) -> Option<A> {
-        self.attributes().get(attr)
+    pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: Attribute<A>) -> Option<A> {
+        self.attributes().get(attr.into())
     }
 
-    pub fn set_attribute(&mut self, attr: &str, val: impl Into<AttributeValue>) {
-        self.attributes_mut().insert(attr, val);
+    pub fn set_attribute<A: Into<AttributeValue>>(&mut self, attr: Attribute<A>, val: A) {
+        self.attributes_mut().insert(attr.into(), val);
     }
 
-    pub fn with_attribute(mut self, attr: &str, val: impl Into<AttributeValue>) -> Self {
+    pub fn with_attribute<A: Into<AttributeValue>>(mut self, attr: Attribute<A>, val: A) -> Self {
         self.set_attribute(attr, val);
         self
     }

@@ -1,6 +1,6 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
-use iguazu::{schema::{attribute::{AccentColor, NumberRange}, Field, Summary}, stream::ArcStream, view::{RangeElement, RangeView}, IdxRange};
+use iguazu::{schema::{attribute::{display::AccentColor, core::NumberRange}, Field, Summary}, stream::ArcStream, view::{RangeElement, RangeView}, IdxRange};
 use indexmap::IndexMap;
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
@@ -54,7 +54,7 @@ impl<'a> YAxisRow<'a> {
             label,
         })
     }
-    
+
     pub fn time_range(&self) -> TimeRange {
         TimeRange {
             min: Time::ZERO,

@@ -1,5 +1,5 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::AccentColor, fmt::TextFormat, Field, Summary}, stream::ArcStream, view::{TraceElement, TraceView}, IdxRange};
+use iguazu::{schema::{attribute::display::AccentColor, fmt::TextFormat, Field, Summary}, stream::ArcStream, view::{TraceElement, TraceView}, IdxRange};
 use ecow::EcoString;
 use indexmap::IndexMap;
 
@@ -44,18 +44,18 @@ impl<'a> TraceRow<'a> {
         if !ui.is_rect_visible(padded_rect) {
             return TimelineResponse::default();
         }
-    
+
         let idx_scale = scale.idx_scale(self.sample_rate);
-    
+
         let color = named_color(self.color);
-    
+
         let font_id = egui::TextStyle::Body.resolve(ui.style());
         let font_color = ui.style().visuals.text_color();
-    
+
         let painter = ui.painter_at(rect);
         let stroke_width = 1.0;
         let stroke = Stroke::new(stroke_width, color);
-    
+
         let state = self.view.state();
         let range = IdxRange {
             min: idx_scale.visible.min,
@@ -101,11 +101,11 @@ impl<'a> TraceRow<'a> {
                                 Pos2::new(tx, padded_rect.y_range().center()),
                                 Align2::LEFT_CENTER,
                                 self.formatter.format(val).to_string(),
-                                font_id.clone(), 
+                                font_id.clone(),
                                 font_color.gamma_multiply(opacity)
                             );
                     }
-            
+
                     painter.hline(x1..=x2, padded_rect.bottom(), stroke);
                     painter.hline(x1..=x2, padded_rect.top(), stroke);
 
@@ -116,7 +116,7 @@ impl<'a> TraceRow<'a> {
             }
             last = elem;
         });
-    
+
         TimelineResponse {
             snap_to_time: None
         }
@@ -152,9 +152,9 @@ impl<'a> LogicRow<'a> {
         });
         let rect = stream_rect(ui, scale);
         let idx_scale = scale.idx_scale(self.sample_rate);
-    
+
         let state = self.view.state();
-    
+
         let range = IdxRange {
             min: idx_scale.visible.min,
             max: idx_scale.visible.max.min(state.end),
@@ -163,7 +163,7 @@ impl<'a> LogicRow<'a> {
 
         let font_id = egui::TextStyle::Body.resolve(ui.style());
         let font_color = ui.style().visuals.text_color();
-    
+
         let interact_radius = ui.style().interaction.resize_grab_radius_side;
         let mut snap_to_idx = None;
 
@@ -258,11 +258,11 @@ impl<'a> LogicRow<'a> {
             idx0 = idx1;
             prev_val = elem;
         });
-        
+
         let snap_to_time = snap_to_idx.map(|idx| {
             idx_scale.t_from_idx(idx)
         });
-    
+
         TimelineResponse {
             snap_to_time,
         }
@@ -282,7 +282,7 @@ fn span_width_label(
         Pos2::new(text_x, rect.y_range().center()),
         Align2([anchor, Align::Center]),
         text,
-        font_id.clone(), 
+        font_id.clone(),
         color,
     );
 
@@ -296,7 +296,7 @@ fn h_arrow(painter: &Painter, x1: f32, x2: f32, y: f32, stroke: Stroke) {
     let arrow_size = 4.0;
     let range = Rangef::new(x1, x2).as_positive().shrink(pad);
     painter.hline(range, y, stroke);
-    
+
     let sig = (x1 - x2).signum(); // x vector towards middle
     let tip = Pos2::new(x2 + pad * sig, y);
     painter.line_segment([tip, tip + Vec2::new(sig * arrow_size, arrow_size)], stroke);

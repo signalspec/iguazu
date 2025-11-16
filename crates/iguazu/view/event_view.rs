@@ -169,7 +169,7 @@ fn test_event_view() {
 
     let ts = EntityStream::field_data(
         FieldKind::Timestamp, data
-    ).with_attribute("time:rate", 1e6);
+    ).with_attribute(crate::schema::attribute::core::TIME_RATE, 1e6);
 
     let tuple = EntityStream::tuple(ts, indexmap![
         "start".into() => Default::default(),

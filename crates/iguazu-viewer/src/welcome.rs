@@ -2,7 +2,7 @@ use std::{sync::Arc, task::Poll};
 
 use async_executor::{Executor, Task};
 use egui::{Button, Color32, Layout, Pos2, Rect, RichText, Ui, UiBuilder, Vec2};
-use iguazu::{import::IMPORTERS, io::ReadableFile, schema::{AttributeMap, Entity, EntityStream, Field, FieldKind}, storage::{MemoryStorage, MemoryStream}, stream::ArcStream};
+use iguazu::{import::IMPORTERS, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::{MemoryStorage, MemoryStream}, stream::ArcStream};
 use iguazu_egui::ViewerContext;
 #[cfg(not(target_arch = "wasm32"))]
 use rfd::AsyncFileDialog;
@@ -124,34 +124,31 @@ async fn pick_and_import_file(executor: Arc<Executor<'static>>) -> Option<Result
 }
 
 fn generate_demo_entity() -> EntityStream {
+    use iguazu::schema::attribute::{core::{SAMPLE_RATE, NUMBER_RANGE, NumberRange}, display::{ DISPLAY, ACCENT_COLOR, AccentColor, Display }};
+
     let analog = Entity::Data {
         field: Field::new(FieldKind::Float32),
         data: MemoryStream::new(&(0..1000).map(|i| (i as f32 * 0.01).sin()).collect::<Vec<f32>>()) as ArcStream,
         summaries: Default::default(),
-    }.with_attribute("sample_rate", 100.0)
-    .with_attribute("number:range", AttributeMap::from_iter([
-        ("min".into(), (-1.0).into()),
-        ("max".into(), 1.0.into()),
-    ]))
-    .with_attribute("display:accent_color", "blue");
+    }.with_attribute(SAMPLE_RATE, 100.0)
+    .with_attribute(NUMBER_RANGE, NumberRange { min: -1.0, max: 1.0 })
+    .with_attribute(ACCENT_COLOR, AccentColor::Blue);
 
     let digital = Entity::Data{
         field: Field::new(FieldKind::BitStruct {
             children: FromIterator::from_iter([
-                ("bit0".into(), Field::new(FieldKind::Bits { bits: 1 }).with_attribute("display:accent_color", "red")),
-                ("bit1".into(), Field::new(FieldKind::Bits { bits: 1 }).with_attribute("display:accent_color", "orange")),
-                ("bit2".into(), Field::new(FieldKind::Bits { bits: 1 }).with_attribute("display:accent_color", "yellow")),
-                ("bit3".into(), Field::new(FieldKind::Bits { bits: 1 }).with_attribute("display:accent_color", "green")),
+                ("bit0".into(), Field::new(FieldKind::Bits { bits: 1 }).with_attribute(ACCENT_COLOR, AccentColor::Red)),
+                ("bit1".into(), Field::new(FieldKind::Bits { bits: 1 }).with_attribute(ACCENT_COLOR, AccentColor::Orange)),
+                ("bit2".into(), Field::new(FieldKind::Bits { bits: 1 }).with_attribute(ACCENT_COLOR, AccentColor::Yellow)),
+                ("bit3".into(), Field::new(FieldKind::Bits { bits: 1 }).with_attribute(ACCENT_COLOR, AccentColor::Green)),
             ])
         }),
         data: MemoryStream::new(&(0..255u8).collect::<Vec<u8>>()) as ArcStream,
         summaries: Default::default(),
-    }.with_attribute("sample_rate", 25.0);
+    }.with_attribute(SAMPLE_RATE, 25.0);
 
     Entity::record()
         .with_child("analog".into(), analog)
         .with_child("digital".into(), digital)
-        .with_attribute("display:default", AttributeMap::from_iter([
-            ("view".into(), "timeline".into()),
-        ]))
+        .with_attribute(DISPLAY, Display::Timeline)
 }

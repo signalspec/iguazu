@@ -1,6 +1,6 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Align2, Color32, Rect, Stroke, Vec2};
-use iguazu::{schema::{attribute::AccentColor, EntityStream}, view::{EventView, TextView}, IdxRange};
+use iguazu::{schema::{attribute::display::AccentColor, EntityStream}, view::{EventView, TextView}, IdxRange};
 
 use crate::{color::named_color, Time, TimeRange, ViewerContext};
 
@@ -38,7 +38,7 @@ impl<'a> EventsRow<'a> {
         label_frame(ui, |ui| {
             ui.label(self.label.as_str());
         });
-        
+
         let rect = stream_rect(ui, scale);
         let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0))
             .round_to_pixel_center(ui.pixels_per_point());
@@ -84,7 +84,7 @@ impl<'a> EventsRow<'a> {
                                 text_rect.left_center(),
                                 Align2::LEFT_CENTER,
                                 self.text_view.format(idx).to_string(),
-                                font_id.clone(), 
+                                font_id.clone(),
                                 font_color.gamma_multiply(opacity)
                             );
                     }
@@ -115,4 +115,3 @@ impl<'a> EventsRow<'a> {
         }
     }
 }
-

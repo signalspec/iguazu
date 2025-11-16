@@ -97,7 +97,7 @@ impl<'a> TextView<'a> {
                                 }
                                 _ => {}
                             }
-                            
+
                         }
                         _ => {} // TODO
                     }
@@ -136,7 +136,7 @@ impl<'a> TextView<'a> {
                     const MAX_LEN: usize = 255;
                     let start = if idx == 0 { Some(0) } else { ends.get_u64(idx - 1) };
                     let end = ends.get_u64(idx);
-                    
+
                     let (Some(min), Some(max)) = (start, end) else {
                         write!(fmt, "…")?;
                         continue;
@@ -205,7 +205,7 @@ fn test_textview() {
     let scaled_ints = EntityStream::field_data(
         FieldKind::Int { bits: 8 },
         MemoryStream::new::<u8>(&[1, 10, 99, 123]),
-    ).with_attribute("number:scale", 0.01);
+    ).with_attribute(crate::schema::attribute::core::NUMBER_SCALE, 0.01);
 
     let signed_ints = EntityStream::field_data(
         FieldKind::Signed { bits: 16 }, MemoryStream::new::<i16>(&[-10, 456, -1280, 9999]),
@@ -225,7 +225,7 @@ fn test_textview() {
         attributes: Default::default(),
     };
 
-    let literal = bits.clone().with_attribute("text", "test");
+    let literal = bits.clone().with_attribute(crate::schema::attribute::core::TEXT, "test".into());
     let literal_view = vm.text_view(&literal);
     assert_eq!(literal_view.format(0).to_string(), "test");
     assert_eq!(literal_view.format(100).to_string(), "test");
@@ -254,7 +254,7 @@ fn test_textview() {
     let record = EntityStream::record()
         .with_child("a".into(), bits.clone())
         .with_child("b".into(), ints.clone())
-        .with_attribute("text", "test({b}, {a})");
+        .with_attribute(crate::schema::attribute::core::TEXT, "test({b}, {a})".into());
 
     let record_view = vm.text_view(&record);
     assert_eq!(record_view.format(0).to_string(), "test(1, 10)");

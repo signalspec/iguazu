@@ -187,6 +187,7 @@ impl std::fmt::Display for FormatValue<'_> {
 
 #[test]
 fn test_textformat() {
+    use crate::schema::attribute;
     use indexmap::indexmap;
 
     assert_eq!(
@@ -200,7 +201,7 @@ fn test_textformat() {
     );
 
     assert_eq!(
-        TextFormat::new(0, &Field::new(FieldKind::Int { bits: 8, }).with_attribute("number:scale", 0.01)).format(123).to_string(),
+        TextFormat::new(0, &Field::new(FieldKind::Int { bits: 8, }).with_attribute(attribute::core::NUMBER_SCALE, 0.01)).format(123).to_string(),
         "1.23"
     );
 
@@ -221,7 +222,7 @@ fn test_textformat() {
                     "a".into() => Field::new(FieldKind::Bits { bits: 2 }),
                     "b".into() => Field::new(FieldKind::Bits { bits: 3 }),
                 }}
-            ).with_attribute("text", "test({b}, {a})")
+            ).with_attribute(attribute::core::TEXT, "test({b}, {a})".into())
         ).format(0b10111).to_string(),
         "test(101, 11)"
     );
@@ -235,10 +236,10 @@ fn test_textformat() {
         &Field::new(
             FieldKind::Tagged { tag_bits: 1, values: indexmap! {
                 "a".into() => Field::new(FieldKind::Null)
-                    .with_attribute("text", "a"),
+                    .with_attribute(attribute::core::TEXT, "a".into()),
                 "b".into() => Field::new(FieldKind::Bits { bits: 2 }),
             }}
-        ).with_attribute("text", "e:{}")
+        ).with_attribute(attribute::core::TEXT, "e:{}".into())
     );
 
     assert_eq!(f.format(0b000).to_string(), "e:a");
