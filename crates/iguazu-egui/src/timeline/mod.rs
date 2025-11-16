@@ -50,7 +50,7 @@ impl TimelineView {
     pub fn new() -> Self {
         Self { }
     }
-    
+
     pub fn show(
         &mut self,
         vcx: &mut ViewerContext,
@@ -138,7 +138,7 @@ impl TimelineView {
 
                         let top = child_ui.min_rect().top();
                         ui.painter().hline(
-                            time_x_range, 
+                            time_x_range,
                             top.round_to_pixel_center(ui.pixels_per_point()),
                             Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color.gamma_multiply(0.2))
                         );
@@ -153,7 +153,7 @@ impl TimelineView {
                     state.col_width = ui.min_rect().width();
                     res
                 }).inner;
-            
+
             {
                 // Paint a shadow between the names on the left
                 // and the data on the right:
@@ -207,7 +207,7 @@ impl TimelineView {
         if response.hovered() {
             ui.input(|input| {
                 delta_x += input.smooth_scroll_delta.x;
-                zoom_factor *= input.zoom_delta_2d().x;
+                zoom_factor /= input.zoom_delta_2d().x;
                 zoom_factor *= (input.smooth_scroll_delta.y * -0.01).exp();
             });
         }
@@ -308,7 +308,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
                                 add_entity(vcx, rows, name.clone(), child)
                             }
                         }
-                        
+
                         _ => {},
                     }
                 }
