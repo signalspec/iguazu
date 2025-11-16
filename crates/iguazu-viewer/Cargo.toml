@@ -9,7 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-iguazu = { workspace = true, features = ["clap"] }
+iguazu = { workspace = true, features = ["clap", "web"] }
 iguazu-egui.workspace = true
 egui.workspace = true
 eframe = { version = "0.33.0", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "wayland"] }
@@ -17,6 +17,7 @@ futures-lite = "2.6.0"
 clap = { workspace = true, features = ["derive"] }
 async-executor.workspace = true
 wgpu = { version = "27", features = ["webgl"] }
+rfd = { git = "https://github.com/kevinmehall/rfd.git", rev = "afab21fefab230667f8106ac2c189f8c670ac054", features = ["file-handle-inner"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = "0.3.16"
@@ -25,3 +26,4 @@ tracing-subscriber = "0.3.16"
 wasm-bindgen-futures = "0.4.50"
 web-sys = "0.3.70"
 log = "0.4.27"
+send_wrapper = { version = "0.6.0", features = ["futures"] }

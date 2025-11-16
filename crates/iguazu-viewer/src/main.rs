@@ -1,10 +1,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use eframe::{egui, CreationContext};
-use egui::{util::History, Direction, Frame, Layout, Rect, UiBuilder};
+use std::sync::Arc;
 
-use iguazu::{schema::{attribute::DefaultView, Entity, EntityStream}, stream::ArcStream};
-use iguazu_egui::{table::TableView, timeline::TimelineView, ViewerContext};
+use async_executor::Executor;
+use eframe::{egui, CreationContext};
+use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
+
+use iguazu_egui::ViewerContext;
+
+
+mod welcome;
+mod viewer;
+
+use crate::viewer::Viewer;
+use crate::welcome::Welcome;
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), eframe::Error> {
@@ -22,7 +31,7 @@ fn main() -> Result<(), eframe::Error> {
     #[command(author, version, about, long_about = None)]
     struct Cli {
         #[clap(flatten)]
-        import: ImportOpts,
+        import: Option<ImportOpts>,
     }
 
     // Log to stdout (if you run with `RUST_LOG=debug`).
@@ -38,13 +47,18 @@ fn main() -> Result<(), eframe::Error> {
         }
     });
 
-    let (mut entity, completion) = block_on(cli.import.import(IMPORTERS, executor.clone())).expect("Failed to load file");
-    block_on(completion).expect("Failed to complete import");
     let storage = MemoryStorage;
 
-    entity.build_summaries(&executor, &storage);
+    let state = if let Some(import) = cli.import {
+        let (mut entity, completion) = block_on(import.import(IMPORTERS, executor.clone())).expect("Failed to load file");
+        block_on(completion).expect("Failed to complete import");
 
-    let view = entity.display_default();
+        entity.build_summaries(&executor, &storage);
+
+        AppState::Viewer(Viewer::new(entity))
+    } else {
+        AppState::Welcome(Welcome::new())
+    };
 
     let options = eframe::NativeOptions {
         ..Default::default()
@@ -53,7 +67,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Iguazu Viewer",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc, entity, view)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc, executor, state)))),
     )
 }
 
@@ -67,9 +81,15 @@ fn main() {
 
     let web_options = eframe::WebOptions::default();
 
-    wasm_bindgen_futures::spawn_local(async {
-        use iguazu::{schema::{AttributeMap, Entity, Field, FieldKind}, storage::MemoryStream};
+    let executor = Arc::new(Executor::new());
+    wasm_bindgen_futures::spawn_local({
+        let executor = executor.clone();
+        async move {
+            executor.run(futures_lite::future::pending::<()>()).await;
+        }
+    });
 
+    wasm_bindgen_futures::spawn_local(async {
         let document = web_sys::window()
             .expect("No window")
             .document()
@@ -81,40 +101,13 @@ fn main() {
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("the_canvas_id was not a HtmlCanvasElement");
 
-        let analog = Entity::Data {
-            field: Field::new(FieldKind::Float32),
-            data: MemoryStream::new(&(0..1000).map(|i| (i as f32 * 0.01).sin()).collect::<Vec<f32>>()) as ArcStream,
-            summaries: Default::default(),
-        }.with_attribute("sample_rate", 100.0)
-        .with_attribute("number:range", AttributeMap::from_iter([
-            ("min".into(), (-1.0).into()),
-            ("max".into(), 1.0.into()),
-        ]));
-
-        let digital = Entity::Data{
-            field: Field::new(FieldKind::BitStruct {
-                children: FromIterator::from_iter([
-                    ("bit0".into(), Field::new(FieldKind::Bits { bits: 1 })),
-                    ("bit1".into(), Field::new(FieldKind::Bits { bits: 1 })),
-                    ("bit2".into(), Field::new(FieldKind::Bits { bits: 1 })),
-                    ("bit3".into(), Field::new(FieldKind::Bits { bits: 1 })),
-                ])
-            }),
-            data: MemoryStream::new(&(0..255u8).collect::<Vec<u8>>()) as ArcStream,
-            summaries: Default::default(),
-        }.with_attribute("sample_rate", 32.0);
-
-        let entity = Entity::record()
-            .with_child("analog".into(), analog)
-            .with_child("digital".into(), digital);
-        let view = Some(DefaultView::Timeline);
-        log::debug!("Entity: {entity:?}, view: {view:?}");
+        let state = AppState::Picker { picker_task: None, error: None };
 
         let start_result = eframe::WebRunner::new()
             .start(
                 canvas,
                 web_options,
-                Box::new(move |cc| Ok(Box::new(App::new(cc, entity, view)))),
+                Box::new(move |cc| Ok(Box::new(App::new(cc, executor, state)))),
             )
             .await;
 
@@ -135,15 +128,19 @@ fn main() {
     });
 }
 
-struct App {
-    entity: EntityStream,
-    view: Option<DefaultView>,
-    vctx: ViewerContext,
+enum AppState {
+    Welcome(welcome::Welcome),
+    Viewer(viewer::Viewer),
+}
 
+struct App {
+    vctx: ViewerContext,
+    state: AppState,
     frame_time_history: History<f32>,
 }
+
 impl App {
-    fn new(cc: &CreationContext, entity: Entity<ArcStream>, view: Option<DefaultView>) -> Self {
+    fn new(cc: &CreationContext, executor: Arc<Executor<'static>>, state: AppState) -> Self {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         cc.egui_ctx.tessellation_options_mut(|o| {
             // Rounding causes jitter and gaps in timeline logic traces
@@ -155,9 +152,8 @@ impl App {
         let max_len = (max_age * 300.0).round() as usize;
 
         App {
-            view,
-            entity,
-            vctx: ViewerContext::new(&cc.egui_ctx),
+            state,
+            vctx: ViewerContext::new(executor, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
         }
     }
@@ -173,27 +169,20 @@ impl eframe::App for App {
 
         let central_panel = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(central_panel).show(ctx, |ui| {
-            match self.view {
-                Some(DefaultView::Table) => TableView::new().show(&mut self.vctx, ui, &mut self.entity),
-                Some(DefaultView::Timeline) => TimelineView::new().show(&mut self.vctx, ui, &mut self.entity),
-                None => {
-                    ui.label("unknown view");
+            match &mut self.state {
+                AppState::Welcome(welcome) => {
+                    let res = welcome.show(&mut self.vctx, ui);
+                    if let Some(entity) = res.loaded_entity {
+                        self.state = AppState::Viewer(Viewer::new(entity));
+                    }
+                }
+                AppState::Viewer(viewer) => {
+                    viewer.show(&mut self.vctx, ui);
                 }
             }
-
-            let debug = Rect::from_x_y_ranges(ui.max_rect().x_range(), (ui.max_rect().bottom() - 20.0)..=ui.max_rect().bottom());
-            ui.scope_builder(
-                UiBuilder::new()
-                    .max_rect(debug)
-                    .layout(Layout::centered_and_justified(Direction::TopDown)),
-                |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Debug:");
-                        self.frame_time_ui(ui);
-                    });
-                }
-            );
         });
+
+        self.debug_ui(ctx);
 
         self.vctx.end();
         self.update_frame_time(ctx, frame);
@@ -201,6 +190,22 @@ impl eframe::App for App {
 }
 
 impl App {
+    fn debug_ui(&mut self, ctx: &egui::Context) {
+        let mut ui = Ui::new(ctx.clone(), egui::Id::new("debug"), UiBuilder::default());
+        let debug = Rect::from_x_y_ranges(ui.max_rect().x_range(), (ui.max_rect().bottom() - 20.0)..=ui.max_rect().bottom());
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(debug)
+                .layout(Layout::centered_and_justified(Direction::TopDown)),
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Debug:");
+                    self.frame_time_ui(ui);
+                });
+            }
+        );
+    }
+
     fn update_frame_time(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let now = ctx.input(|i| i.time);
         let previous_frame_time = frame.info().cpu_usage;

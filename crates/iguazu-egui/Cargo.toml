@@ -19,6 +19,7 @@ egui.workspace = true
 log.workspace = true
 clap.workspace = true
 ecow.workspace = true
+async-executor.workspace = true
 serde = "1.0.160"
 egui_table = "0.5.0"
 itertools = "0.13.0"

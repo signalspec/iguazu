@@ -6,8 +6,10 @@ use clap::Args;
 use crate::{export::ExportFormat, import::{ImportError, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile}, schema::{EntitySchema, EntityStream}};
 
 #[derive(Args, Clone, Debug)]
+#[group(requires = "filename")] // Allow `ImportOpts` to be optional (https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717)
 pub struct ImportOpts {
     /// Input filename
+    #[arg(required = false)]
     pub filename: PathBuf,
 
     /// Input format (if not specified, inferred from filename)
@@ -89,8 +91,7 @@ impl ImportOpts {
     /// Returns the imported entity, as well as a future that completes when the import is fully done.
     pub async fn import(&self, importers: ImportFormats<'_>, executor: Arc<Executor<'static>>) -> Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), String> {
         let importer = self.importer(importers).await?;
-        let schema = self.schema().await?;
-        let (mut entity, completion) = importer.import(schema, executor).await
+        let (mut entity, completion) = importer.import(None, executor).await
             .map_err(|e| format!("Failed to import {}: {}", self.filename.display(), e))?;
 
         if let Some(ref entity_path) = self.entity {
