@@ -1,4 +1,5 @@
 use ecow::EcoString;
+use jiff::Timestamp;
 
 use crate::schema::{attribute::AttributeValue, Entity, Field};
 use super::{ Attribute, AttributeMap };
@@ -6,6 +7,7 @@ use super::{ Attribute, AttributeMap };
 pub const SAMPLE_RATE: Attribute<f64> = Attribute::named("sample_rate");
 pub const TIME: Attribute<EcoString> = Attribute::named("time");
 pub const TIME_RATE: Attribute<f64> = Attribute::named("time:rate");
+pub const TIME_EPOCH: Attribute<Timestamp> = Attribute::named("time:epoch");
 pub const TEXT: Attribute<EcoString> = Attribute::named("text");
 
 pub const NUMBER_RANGE: Attribute<NumberRange> = Attribute::named("number:range");
@@ -60,6 +62,10 @@ impl Field {
 
     pub fn time_rate(&self) -> Option<f64> {
         self.attribute(TIME_RATE)
+    }
+
+    pub fn time_epoch(&self) -> Option<Timestamp> {
+        self.attribute(TIME_EPOCH)
     }
 
     pub fn number_scale(&self) -> f64 {

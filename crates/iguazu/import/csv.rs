@@ -1,4 +1,5 @@
 use std::iter;
+use std::time::Duration;
 use std::{pin::Pin, sync::Arc};
 use std::future;
 
@@ -6,6 +7,8 @@ use async_executor::Executor;
 use csv_core::ReadRecordResult;
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
+use jiff::fmt::temporal::DateTimeParser;
+use jiff::Timestamp;
 
 use crate::schema::{Entity, FieldKind, EntityStream, Ignored};
 use crate::storage::MemoryStreamWriter;
@@ -80,10 +83,48 @@ impl CsvOptions {
     }
 }
 
+#[derive(Copy, Clone)]
+enum TimeUnit {
+    Second,
+    Millisecond,
+    Microsecond,
+    Nanosecond,
+}
+
+impl TimeUnit {
+    fn from_rate(rate: f64) -> Option<Self> {
+        match rate {
+            1.0 => Some(TimeUnit::Second),
+            1_000.0 => Some(TimeUnit::Millisecond),
+            1_000_000.0 => Some(TimeUnit::Microsecond),
+            1_000_000_000.0 => Some(TimeUnit::Nanosecond),
+            _ => None,
+        }
+    }
+
+    fn scale(self, d: Duration) -> Option<u64> {
+        match self {
+            TimeUnit::Second => Some(d.as_secs()),
+            TimeUnit::Millisecond => d.as_millis().try_into().ok(),
+            TimeUnit::Microsecond => d.as_micros().try_into().ok(),
+            TimeUnit::Nanosecond => d.as_nanos().try_into().ok(),
+        }
+    }
+}
+
 enum ColumnParser {
     Skip,
     Float32(MemoryStreamWriter),
     String { ends: MemoryStreamWriter, chars: MemoryStreamWriter },
+    TimestampIso {
+        epoch: Timestamp,
+        unit: TimeUnit,
+        writer: MemoryStreamWriter
+    },
+    TimestampRelative {
+        scale: f64,
+        writer: MemoryStreamWriter
+    },
 }
 
 impl ColumnParser {
@@ -103,13 +144,34 @@ impl ColumnParser {
                 ends.extend_from_slice(&chars.pos().to_ne_bytes());
                 Ok(())
             }
+            ColumnParser::TimestampIso { epoch, writer, unit } => {
+                let t = DateTimeParser::new().parse_timestamp(value)
+                    .map_err(|_| "timestamp")?;
+                let d = Duration::try_from(t.duration_since(*epoch)).map_err(|_| "timestamp (prior to epoch)")?;
+                let val: u64 = unit.scale(d).ok_or("timestamp (out of range)")?;
+                writer.extend_from_slice(&val.to_ne_bytes());
+                Ok(())
+            }
+            ColumnParser::TimestampRelative { writer, scale } => {
+                let f = lexical_core::parse::<f64>(value)
+                    .map_err(|_| "decimal timestamp")?;
+
+                let fv = (*scale * f).round();
+                if fv < 0.0 || fv > (u64::MAX as f64) {
+                    return Err("decimal timestamp (out of range)");
+                }
+                let v = fv as u64;
+
+                writer.extend_from_slice(&v.to_ne_bytes());
+                Ok(())
+            }
         }
     }
 }
 
 fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<ColumnParser>, EntityStream), ImportError> {
     let mut parsers = (0..headers.len()).map(|_| ColumnParser::Skip).collect::<Vec<_>>();
-    
+
     let entity = match schema {
         Entity::Record { children, attributes } => {
             let children = children.iter().map(|(name, child)| {
@@ -136,6 +198,25 @@ fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), 
                     let writer = MemoryStreamWriter::new(ElementType::U32);
                     let data = writer.stream().clone() as Arc<dyn Stream>;
                     (data, ColumnParser::Float32(writer))
+                }
+                FieldKind::Timestamp => {
+                    let writer = MemoryStreamWriter::new(ElementType::U64);
+                    let data = writer.stream().clone() as Arc<dyn Stream>;
+
+                    let Some(rate) = field.time_rate() else {
+                      return Err(ImportError::SchemaMismatch("Timestamp rate must be defined".into()));
+                    };
+
+                    let parser = match field.time_epoch() {
+                        Some(epoch) => {
+                            let Some(unit) = TimeUnit::from_rate(rate) else {
+                                return Err(ImportError::SchemaMismatch("Timestamp unit must be s, ms, us, or ns".into()));
+                            };
+                            ColumnParser::TimestampIso { epoch, unit, writer }
+                        }
+                        None => ColumnParser::TimestampRelative { scale: rate, writer }
+                    };
+                    (data, parser)
                 }
                 k => {
                     return Err(ImportError::SchemaMismatch(format!("Field type {:?} not supported in CSV column", k)));
@@ -272,7 +353,7 @@ impl Row<'_> {
         let starts = iter::once(0).chain(self.parser.ends[..self.cols].iter().copied());
         let ends = self.parser.ends[..self.cols].iter().copied();
         starts.zip(ends).map(|(start, end)| &self.parser.out[start..end])
-    }   
+    }
 }
 
 async fn read_header(csv: &mut CsvParser, header_opt: &CsvHeaders, start_row: u64) -> Result<Vec<String>, ImportError> {
@@ -316,3 +397,56 @@ pub async fn load(stream: Pin<Box<dyn AsyncBufRead + Send>>, opts: CsvOptions, s
     }))
 }
 
+#[test]
+fn test_csv() {
+    use std::str::FromStr;
+    use crate::schema::{Field, attribute::core::{TIME_EPOCH, TIME_RATE}};
+    use futures_lite::{future::block_on, io::Cursor};
+
+    let file = Box::pin(Cursor::new(b"timestamp,value,str\n2025-01-01T00:00:01Z,1.0,abc\n2025-01-01T00:00:01.100Z,2.0,defg\n"));
+
+    let opts = CsvOptions::default();
+
+    let schema = Entity::Record {
+        children: IndexMap::from([
+            ("timestamp".into(), Entity::Data {
+                field: Field::new(FieldKind::Timestamp)
+                    .with_attribute(TIME_RATE, 1000.0)
+                    .with_attribute(TIME_EPOCH, Timestamp::from_str("2025-01-01T00:00:00Z").unwrap()),
+                data: Ignored,
+                summaries: Default::default(),
+            }),
+            ("value".into(), Entity::Data {
+                field: Field::new(FieldKind::Float32),
+                data: Ignored,
+                summaries: Default::default(),
+            }),
+            ("str".into(), Entity::VariableArray {
+                data: Ignored,
+                child: Box::new(Entity::Data {
+                    field: Field::new(FieldKind::Character),
+                    data: Ignored,
+                    summaries: Default::default(),
+                }),
+                attributes: Default::default(),
+            }),
+        ]),
+        attributes: Default::default(),
+    };
+
+    let (entity, completion) = block_on(load(file, opts, schema)).unwrap();
+    block_on(completion).unwrap();
+
+    let vm = crate::view::ViewManager::new(std::task::Waker::noop().clone());
+    let timestamp = vm.int_view(entity.child("timestamp").unwrap()).unwrap();
+    assert_eq!(timestamp.get_u64(0), Some(1000));
+    assert_eq!(timestamp.get_u64(1), Some(1100));
+
+    let num = vm.number_view(entity.child("value").unwrap()).unwrap();
+    assert_eq!(num.get(0), Some(1.0));
+    assert_eq!(num.get(1), Some(2.0));
+
+    let str = vm.text_view(entity.child("str").unwrap());
+    assert_eq!(str.format(0).to_string(), "abc");
+    assert_eq!(str.format(1).to_string(), "defg");
+}

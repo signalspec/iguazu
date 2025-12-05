@@ -1,7 +1,8 @@
-use std::{fmt::{Debug, Display}, marker::PhantomData};
+use std::{fmt::{Debug, Display}, marker::PhantomData, str::FromStr};
 
-use ecow::EcoString;
+use ecow::{eco_format, EcoString};
 use indexmap::IndexMap;
+use jiff::Timestamp;
 use serde::{Serialize, Deserialize};
 
 pub mod core;
@@ -193,6 +194,25 @@ impl TryFrom<&AttributeValue> for u64 {
         match value {
             AttributeValue::Float(f) if *f >= 0.0 && *f <= u64::MAX as f64 && f.fract() == 0.0  => {
                 Ok(*f as u64)
+            }
+            _ => Err(()),
+        }
+    }
+}
+
+impl From<Timestamp> for AttributeValue {
+    fn from(value: Timestamp) -> Self {
+        AttributeValue::String(eco_format!("{}", value))
+    }
+}
+
+impl TryFrom<&AttributeValue> for Timestamp {
+    type Error = ();
+
+    fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
+        match value {
+            AttributeValue::String(s) => {
+                Timestamp::from_str(s).map_err(|_| ())
             }
             _ => Err(()),
         }
