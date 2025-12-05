@@ -104,7 +104,9 @@ impl ImportOpts {
 }
 
 #[derive(Args, Clone, Debug)]
+#[group(requires = "out_filename")]
 pub struct ExportOpts {
+    #[arg(required = false)]
     pub out_filename: PathBuf,
 
     #[clap(short = 'F', long)]
