@@ -1,13 +1,15 @@
 use ecow::EcoString;
 use jiff::Timestamp;
+use strum::{EnumString, IntoStaticStr};
 
-use crate::{schema::{attribute::AttributeValue, Entity, Field}, time::Time};
-use super::{ Attribute, AttributeMap };
+use crate::{schema::{Entity, Field}, time::Time};
+use super::{ Attribute, AttributeMap, string_attribute, AttributeValue};
 
 pub const SAMPLE_RATE: Attribute<f64> = Attribute::named("sample_rate");
 pub const TIME: Attribute<EcoString> = Attribute::named("time");
 pub const TIME_RATE: Attribute<f64> = Attribute::named("time:rate");
 pub const TIME_EPOCH: Attribute<Timestamp> = Attribute::named("time:epoch");
+pub const TIME_DISPLAY: Attribute<TimeDisplay> = Attribute::named("time:display");
 pub const TEXT: Attribute<EcoString> = Attribute::named("text");
 
 pub const NUMBER_RANGE: Attribute<NumberRange> = Attribute::named("number:range");
@@ -40,6 +42,21 @@ impl From<NumberRange> for AttributeValue {
         ]).into()
     }
 }
+
+#[derive(Clone, Copy, Debug, IntoStaticStr, EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum TimeDisplay {
+    /// ISO 8601 / RFC 3339 absolute timestamp
+    Iso,
+
+    /// Relative to epoch in HH:MM:SS.sss format
+    Relative,
+
+    /// Raw integer ticks
+    Raw,
+}
+
+string_attribute!(TimeDisplay);
 
 impl<D> Entity<D> {
     pub fn sample_rate(&self) -> Option<f64> {
@@ -74,6 +91,18 @@ impl Field {
 
     pub fn time_epoch(&self) -> Option<Timestamp> {
         self.attribute(TIME_EPOCH)
+    }
+
+    pub fn time_display(&self) -> TimeDisplay {
+        self.attribute(TIME_DISPLAY).unwrap_or({
+            if self.time_rate().is_none() {
+                TimeDisplay::Raw
+            } else if self.time_epoch().is_none() {
+                TimeDisplay::Relative
+            } else {
+                TimeDisplay::Iso
+            }
+        })
     }
 
     pub fn number_scale(&self) -> f64 {

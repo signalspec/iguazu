@@ -1,12 +1,13 @@
 use core::fmt;
-use std::fmt::{Formatter, Write};
+use std::{fmt::{Formatter, Write}, time::Duration};
 use ecow::EcoString;
+use jiff::Timestamp;
 
-use crate::schema::{Field, FieldKind};
+use crate::{schema::{attribute::core::TimeDisplay, Field, FieldKind}, time::Time};
 pub struct TextFormat(Vec<Element>);
 
 enum Element {
-    Literal(String),
+    Literal(EcoString),
     Bin { pos: u8, bits: u8 },
     Hex { pos: u8, bits: u8 },
     Character { pos: u8 },
@@ -14,6 +15,8 @@ enum Element {
     Signed { pos: u8, bits: u8, offset: f64, scale: f64 },
     Float32 { pos: u8 },
     Float64,
+    TimestampAbsolute { epoch: Timestamp, period: Time },
+    TimestampRelative { period: Time },
     Enum { pos: u8, bits: u8, values: Vec<EcoString> },
     Tagged { pos: u8, tag_bits: u8, inner: Vec<TextFormat> },
 }
@@ -32,7 +35,7 @@ impl TextFormat {
             let mut text = text.as_str();
             while let Some((before, rest)) = text.split_once('{') {
                 if !before.is_empty() {
-                    components.push(Element::Literal(before.replace("}}", "}")));
+                    components.push(Element::Literal(before.replace("}}", "}").into()));
                 }
 
                 if let Some(rest) = rest.strip_prefix('{') {
@@ -55,7 +58,7 @@ impl TextFormat {
             }
 
             if !text.is_empty() {
-                components.push(Element::Literal(text.replace("}}", "}")));
+                components.push(Element::Literal(text.replace("}}", "}").into()));
             }
         }
 
@@ -82,9 +85,26 @@ impl TextFormat {
                     components.push(Element::Signed { pos, bits, offset, scale })
                 }
                 FieldKind::Timestamp => {
-                    // TODO: epoch
-                    let time_rate = spec.time_rate().unwrap_or(1.0);
-                    components.push(Element::Unsigned { pos, bits: 64, offset: 0.0, scale: 1.0 / time_rate });
+                    match spec.time_display() {
+                        TimeDisplay::Iso => {
+                            if let Some(epoch) = spec.time_epoch() && let Some(period) = spec.time_rate_as_period() {
+                                components.push(Element::TimestampAbsolute { epoch, period })
+                            } else {
+                                components.push(Element::Literal("‽".into()))
+                            }
+                        }
+                        TimeDisplay::Relative => {
+                            if let Some(period) = spec.time_rate_as_period() {
+                                components.push(Element::TimestampRelative { period });
+                            } else {
+                                components.push(Element::Literal("‽".into()))
+                            }
+                        }
+                        TimeDisplay::Raw => {
+                            components.push(Element::Literal("+".into()));
+                            components.push(Element::Unsigned { pos, bits: 64, offset: 0.0, scale: 1.0 });
+                        }
+                    }
                 }
                 FieldKind::Float32 => {
                     // TODO: precision
@@ -117,7 +137,7 @@ impl TextFormat {
 
     pub fn write(&self, fmt: &mut impl Write, val: u64) -> fmt::Result {
         fn extract(val: u64, pos: u8, bits: u8) -> u64 {
-            (val >> pos) & ((1 << bits) - 1)
+            (val >> pos) & (u64::MAX >> u64::BITS.saturating_sub(bits as u32))
         }
 
         for e in &self.0 {
@@ -149,6 +169,18 @@ impl TextFormat {
                 }
                 Element::Float64 => {
                     write!(fmt, "{}", f64::from_bits(val as u64))?;
+                }
+                Element::TimestampAbsolute { epoch, period  } => {
+                    let d = Duration::try_from((val as i128) * period).ok();
+                    if let Some(t) = d.and_then(|d| epoch.checked_add(d).ok()) {
+                        write!(fmt, "{}", t)?;
+                    } else {
+                        write!(fmt, "‽")?;
+                    }
+                }
+                Element::TimestampRelative { period } => {
+                    let d = val as i128 * period;
+                    write!(fmt, "{}", d.format_fixed(period))?;
                 }
                 Element::Enum { pos, bits, ref values } => {
                     let i = extract(val, pos, bits);
