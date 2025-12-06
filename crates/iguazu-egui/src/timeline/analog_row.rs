@@ -1,9 +1,9 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
-use iguazu::{schema::{attribute::{display::AccentColor, core::NumberRange}, Field, Summary}, stream::ArcStream, view::{RangeElement, RangeView}, IdxRange};
+use iguazu::{schema::{attribute::{display::AccentColor, core::NumberRange}, Field, Summary}, stream::ArcStream, view::{RangeElement, RangeView}, IdxRange, time::{Time, TimeRange}};
 use indexmap::IndexMap;
 
-use crate::{color::named_color, Time, TimeRange, ViewerContext};
+use crate::{color::named_color, ViewerContext};
 
 use super::{label_frame, stream_rect, TimelineResponse};
 

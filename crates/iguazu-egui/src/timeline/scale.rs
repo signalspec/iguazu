@@ -1,6 +1,5 @@
 use egui::{NumExt, Rangef};
-use iguazu::{ Idx, IdxRange };
-use crate::time::{TimeRange, Time};
+use iguazu::{ Idx, IdxRange, time::{TimeRange, Time}};
 
 #[cfg(test)]
 use crate::util::assert_approx_eq;
@@ -106,7 +105,7 @@ impl Scale {
         let delta_t = self.points_to_time(delta_x)
             .max(self.bounds.min - self.view_range.min)
             .min(self.bounds.max - self.view_range.max);
-    
+
         TimeRange {
             min: self.view_range.min + delta_t,
             max: self.view_range.max + delta_t
@@ -158,7 +157,7 @@ impl IdxScale {
     pub fn t_from_idx(&self, idx: Idx) -> Time {
         (idx as i128) * self.period
     }
-    
+
     pub(crate) fn sample_period(&self) -> Time {
         self.period
     }
@@ -197,7 +196,7 @@ fn test_scale() {
     assert_eq!(scale.x_from_t(30 * Time::SECOND), x2 - m2 );
     assert_eq!(scale.x_from_t(20 * Time::SECOND), (x1 + m1 + x2 - m2) / 2.0);
     assert_eq!(scale.x_from_t(Time::ZERO), x1 + m1 - (x2-x1-m1-m2) / 2.0);
-    
+
     for x_in in 0..=600 {
         let x_in = x_in as f32;
         let t = scale.t_from_x(x_in);

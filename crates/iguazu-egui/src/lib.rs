@@ -1,4 +1,3 @@
-mod time;
 mod util;
 mod color;
 mod egui_util;
@@ -10,7 +9,6 @@ use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
 use async_executor::Executor;
 use iguazu::view::ViewManager;
-pub use time::{ Time, TimeRange };
 pub use timeline::TimelineView;
 
 struct RepaintWaker {

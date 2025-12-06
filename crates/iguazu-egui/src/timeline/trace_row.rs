@@ -1,9 +1,9 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{schema::{attribute::display::AccentColor, fmt::TextFormat, Field, Summary}, stream::ArcStream, view::{TraceElement, TraceView}, IdxRange};
+use iguazu::{schema::{attribute::display::AccentColor, fmt::TextFormat, Field, Summary}, stream::ArcStream, view::{TraceElement, TraceView}, IdxRange, time::{Time, TimeRange}};
 use ecow::EcoString;
 use indexmap::IndexMap;
 
-use crate::{color::named_color, Time, TimeRange, ViewerContext};
+use crate::{color::named_color, ViewerContext};
 
 use super::{label_frame, stream_rect, TimelineResponse};
 

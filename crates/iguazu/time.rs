@@ -1,6 +1,4 @@
-use std::fmt::Display;
-
-use num_rational::Ratio;
+use std::{fmt::Display, time::Duration};
 use num_traits::Float;
 
 /// A duration represented in 128-bit attoseconds
@@ -11,10 +9,10 @@ impl Time {
     pub const ZERO: Time = Time(0);
     pub const UNIT: Time = Time(1);
 
-    pub const ATTOSECOND: Time =                      Time(1);
+    pub const ATTOSECOND:  Time =                     Time(1);
     pub const FEMTOSECOND: Time =                 Time(1_000);
-    pub const PICOSECOND: Time =              Time(1_000_000);
-    pub const NANOSECOND: Time =          Time(1_000_000_000);
+    pub const PICOSECOND:  Time =             Time(1_000_000);
+    pub const NANOSECOND:  Time =         Time(1_000_000_000);
     pub const MICROSECOND: Time =     Time(1_000_000_000_000);
     pub const MILLISECOND: Time = Time(1_000_000_000_000_000);
     pub const SECOND: Time =  Time(1_000_000_000_000_000_000);
@@ -23,8 +21,8 @@ impl Time {
     pub const DAY: Time = Time(86400_000_000_000_000_000_000);
 
     /// Get the period for a frequency expressed as a ratio
-    pub fn period_ratio(freq: Ratio<u64>) -> Time {
-        (*freq.denom() as i128) * Self::SECOND / (*freq.numer() as i128)
+    pub fn period_ratio(num: u64, denom: u64) -> Time {
+        (denom as i128) * Self::SECOND / (num as i128)
     }
 
     /// Get the period for a frequency expressed as a float
@@ -167,12 +165,20 @@ impl std::ops::Rem for Time {
     }
 }
 
-impl TryFrom<std::time::SystemTime> for Time {
-    type Error = std::time::SystemTimeError;
+impl From<Duration> for Time {
+    fn from(duration: Duration) -> Time {
+        duration.as_nanos() as i128 * Self::NANOSECOND
+    }
+}
 
-    fn try_from(time: std::time::SystemTime) -> Result<Time, Self::Error> {
-        time.duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .map(|duration_since_epoch| duration_since_epoch.as_nanos() as i128 * Self::NANOSECOND)
+impl TryFrom<Time> for Duration {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(time: Time) -> Result<Duration, Self::Error> {
+        let (seconds, rem) = time.div_rem(Time::SECOND);
+        let seconds = u64::try_from(seconds)?;
+        let nanos = u32::try_from(rem / Time::NANOSECOND)?;
+        Ok(Duration::new(seconds, nanos))
     }
 }
 
@@ -187,7 +193,7 @@ impl TimeRange {
         min: Time::ZERO,
         max: Time::ZERO,
     };
-    
+
     pub fn length(&self) -> Time {
         self.max - self.min
     }
@@ -352,7 +358,7 @@ fn test_format_freq() {
     assert_eq!(&format!("{}", (408 * Time::PICOSECOND).format_period_as_freq()), "2.450 GHz");
 }
 
-
+// Based on rerun.io: © 2023 Rerun Technologies AB under MIT OR Apache-2.0
 /// Generate grid tick spacing for a time axis.
 ///
 /// Given some spacing (e.g. 10s), return the next spacing (60s).

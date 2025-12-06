@@ -11,10 +11,10 @@ use analog_row::YAxisRow;
 use ecow::EcoString;
 use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
-use iguazu::{schema::{attribute::display::{AccentColor, TimelineRow}, Entity, EntityStream, Field, FieldKind, Summary}, stream::ArcStream};
+use iguazu::{schema::{attribute::display::{AccentColor, TimelineRow}, Entity, EntityStream, Field, FieldKind, Summary}, stream::ArcStream, time::{TimeRange, Time}};
 use indexmap::IndexMap;
 use trace_row::{LogicRow, TraceRow};
-use crate::{ egui_util:: shadow_line::draw_shadow_line, time::TimeRange, Time, ViewerContext };
+use crate::{ egui_util:: shadow_line::draw_shadow_line, ViewerContext };
 
 use scale::Scale;
 

@@ -1,7 +1,7 @@
 use ecow::EcoString;
 use jiff::Timestamp;
 
-use crate::schema::{attribute::AttributeValue, Entity, Field};
+use crate::{schema::{attribute::AttributeValue, Entity, Field}, time::Time};
 use super::{ Attribute, AttributeMap };
 
 pub const SAMPLE_RATE: Attribute<f64> = Attribute::named("sample_rate");
@@ -46,6 +46,10 @@ impl<D> Entity<D> {
         self.attribute(SAMPLE_RATE)
     }
 
+    pub fn sample_rate_as_period(&self) -> Option<Time> {
+        self.sample_rate().map(|sr| Time::period_float(sr))
+    }
+
     pub fn time(&self) -> Option<EcoString> {
         self.attribute(TIME)
     }
@@ -62,6 +66,10 @@ impl Field {
 
     pub fn time_rate(&self) -> Option<f64> {
         self.attribute(TIME_RATE)
+    }
+
+    pub fn time_rate_as_period(&self) -> Option<Time> {
+        self.time_rate().map(|tr| Time::period_float(tr))
     }
 
     pub fn time_epoch(&self) -> Option<Timestamp> {

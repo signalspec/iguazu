@@ -6,6 +6,7 @@ pub mod storage;
 pub mod io;
 pub mod view;
 pub mod summary;
+pub mod time;
 mod util;
 mod element;
 mod izs;

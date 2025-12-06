@@ -1,8 +1,8 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Align2, Color32, Rect, Stroke, Vec2};
-use iguazu::{schema::{attribute::display::AccentColor, EntityStream}, view::{EventView, TextView}, IdxRange};
+use iguazu::{schema::{attribute::display::AccentColor, EntityStream}, view::{EventView, TextView}, IdxRange, time::{Time, TimeRange}};
 
-use crate::{color::named_color, Time, TimeRange, ViewerContext};
+use crate::{color::named_color, ViewerContext};
 
 use super::{label_frame, stream_rect, TimelineResponse};
 
