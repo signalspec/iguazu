@@ -7,7 +7,9 @@ use async_executor::Executor;
 use csv_core::ReadRecordResult;
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
-use jiff::fmt::temporal::DateTimeParser;
+use jiff::civil::DateTime;
+use jiff::fmt::temporal::Pieces;
+use jiff::tz::TimeZone;
 use jiff::Timestamp;
 
 use crate::schema::{Entity, FieldKind, EntityStream, Ignored};
@@ -119,6 +121,7 @@ enum ColumnParser {
     TimestampIso {
         epoch: Timestamp,
         unit: TimeUnit,
+        default_zone: TimeZone,
         writer: MemoryStreamWriter
     },
     TimestampRelative {
@@ -144,9 +147,13 @@ impl ColumnParser {
                 ends.extend_from_slice(&chars.pos().to_ne_bytes());
                 Ok(())
             }
-            ColumnParser::TimestampIso { epoch, writer, unit } => {
-                let t = DateTimeParser::new().parse_timestamp(value)
-                    .map_err(|_| "timestamp")?;
+            ColumnParser::TimestampIso { epoch, unit, default_zone, writer } => {
+                let pieces = Pieces::parse(value).map_err(|_| "timestamp")?;
+                let dt = DateTime::from_parts(pieces.date(), pieces.time().unwrap_or_default());
+                let t = match pieces.offset() {
+                    Some(offset) => offset.to_numeric_offset().to_timestamp(dt),
+                    None => default_zone.to_timestamp(dt),
+                }.map_err(|_| "timestamp (invalid)")?;
                 let d = Duration::try_from(t.duration_since(*epoch)).map_err(|_| "timestamp (prior to epoch)")?;
                 let val: u64 = unit.scale(d).ok_or("timestamp (out of range)")?;
                 writer.extend_from_slice(&val.to_ne_bytes());
@@ -212,7 +219,7 @@ fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), 
                             let Some(unit) = TimeUnit::from_rate(rate) else {
                                 return Err(ImportError::SchemaMismatch("Timestamp unit must be s, ms, us, or ns".into()));
                             };
-                            ColumnParser::TimestampIso { epoch, unit, writer }
+                            ColumnParser::TimestampIso { epoch, unit, writer, default_zone: TimeZone::UTC }
                         }
                         None => ColumnParser::TimestampRelative { scale: rate, writer }
                     };
