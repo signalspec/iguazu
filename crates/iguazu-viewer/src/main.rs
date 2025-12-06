@@ -60,7 +60,11 @@ fn main() -> Result<(), eframe::Error> {
         AppState::Welcome(Welcome::new())
     };
 
+    let viewport = egui::ViewportBuilder::default()
+        .with_app_id("org.signalspec.iguazu");
+
     let options = eframe::NativeOptions {
+        viewport,
         ..Default::default()
     };
 
