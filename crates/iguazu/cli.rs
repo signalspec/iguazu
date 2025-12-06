@@ -91,7 +91,8 @@ impl ImportOpts {
     /// Returns the imported entity, as well as a future that completes when the import is fully done.
     pub async fn import(&self, importers: ImportFormats<'_>, executor: Arc<Executor<'static>>) -> Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), String> {
         let importer = self.importer(importers).await?;
-        let (mut entity, completion) = importer.import(None, executor).await
+        let schema = self.schema().await?;
+        let (mut entity, completion) = importer.import(schema, executor).await
             .map_err(|e| format!("Failed to import {}: {}", self.filename.display(), e))?;
 
         if let Some(ref entity_path) = self.entity {
