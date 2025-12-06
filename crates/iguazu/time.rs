@@ -257,7 +257,8 @@ pub struct FormatFixed {
 
 impl Display for FormatFixed {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (hour, time) = dbg!(self.time.div_rem(Time::HOUR));
+        let (day, time) = self.time.div_rem(Time::DAY);
+        let (hour, time) = time.div_rem(Time::HOUR);
         let hour = hour as i64;
         let (minute, time) = time.div_rem(Time::MINUTE);
         let minute = minute as u32;
@@ -265,16 +266,26 @@ impl Display for FormatFixed {
         let second = second as u32;
         let subsec_atto = time.0 as u64;
 
-        if self.precision >= Time::HOUR {
-            write!(f, "{hour} h")
-        } else if self.precision >= Time::MINUTE {
-            if hour > 0 {
-                write!(f, "{hour}:{minute:02} min")
+        if self.precision >= Time::DAY {
+            write!(f, "{day}d")
+        } else if self.precision >= Time::HOUR {
+            if day > 0 {
+                write!(f, "{day}d {hour}h")
             } else {
-                write!(f, "{hour}:{minute:02} min")
+                write!(f, "{hour}h")
+            }
+        } else if self.precision >= Time::MINUTE {
+            if day > 0 {
+                write!(f, "{day}d {hour}:{minute:02}min")
+            } else if hour > 0 {
+                write!(f, "{hour}:{minute:02}min")
+            } else {
+                write!(f, "{hour}:{minute:02}min")
             }
         } else {
-            if hour > 0 {
+            if day > 0 {
+                write!(f, "{day}d {hour}:{minute:02}:{second:02}")?;
+            } else if hour > 0 {
                 write!(f, "{hour}:{minute:02}:{second:02}")?;
             } else if minute > 0 {
                 write!(f, "{minute}:{second:02}")?;
@@ -283,11 +294,11 @@ impl Display for FormatFixed {
             }
 
             if self.precision >= Time::SECOND {
-                write!(f, " s")
+                write!(f, "s")
             } else {
                 let digits = 18u32.saturating_sub((self.precision.0 as u64).ilog10());
                 let subsec = subsec_atto / (10u64.pow(18 - digits));
-                write!(f, ".{subsec:0digits$} s", digits = digits as usize)
+                write!(f, ".{subsec:0digits$}s", digits = digits as usize)
             }
         }
     }
@@ -295,18 +306,24 @@ impl Display for FormatFixed {
 
 #[test]
 fn test_format_fixed() {
-    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(Time::HOUR)), "12 h");
-    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(Time::MINUTE)), "12:34 min");
-    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(Time::SECOND)), "12:34:56 s");
-    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(10 * Time::MILLISECOND)), "12:34:56.78 s");
+    assert_eq!(&format!("{}", (2 * Time::DAY + 1 * Time::SECOND).format_fixed(Time::DAY)), "2d");
+    assert_eq!(&format!("{}", (2 * Time::DAY + 1 * Time::SECOND).format_fixed(Time::HOUR)), "2d 0h");
+    assert_eq!(&format!("{}", (2 * Time::DAY + 1 * Time::SECOND).format_fixed(Time::MINUTE)), "2d 0:00min");
+    assert_eq!(&format!("{}", (2 * Time::DAY + 1 * Time::SECOND).format_fixed(Time::SECOND)), "2d 0:00:01s");
 
-    assert_eq!(&format!("{}", (62_123_456_789 * Time::NANOSECOND).format_fixed(Time::MILLISECOND)), "1:02.123 s");
+    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(Time::DAY)), "0d");
+    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(Time::HOUR)), "12h");
+    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(Time::MINUTE)), "12:34min");
+    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(Time::SECOND)), "12:34:56s");
+    assert_eq!(&format!("{}", (45296780 * Time::MILLISECOND).format_fixed(10 * Time::MILLISECOND)), "12:34:56.78s");
 
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::SECOND)), "42 s");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::MILLISECOND)), "42.123 s");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::MICROSECOND)), "42.123456 s");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::NANOSECOND)), "42.123456789 s");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::PICOSECOND)), "42.123456789000 s");
+    assert_eq!(&format!("{}", (62_123_456_789 * Time::NANOSECOND).format_fixed(Time::MILLISECOND)), "1:02.123s");
+
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::SECOND)), "42s");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::MILLISECOND)), "42.123s");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::MICROSECOND)), "42.123456s");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::NANOSECOND)), "42.123456789s");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::PICOSECOND)), "42.123456789000s");
 }
 
 pub struct FormatFreq{
