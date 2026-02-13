@@ -1,4 +1,4 @@
-use std::{any::Any, fmt::Debug, future::poll_fn, sync::Arc, task::{ready, Context, Poll, Waker}};
+use std::{any::Any, fmt::Debug, future::poll_fn, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker, ready}};
 use append_array::AppendArrayWriter;
 
 use crate::{Idx, ElementType};
@@ -10,7 +10,7 @@ pub trait Stream: Send + Sync + Debug + Any {
 
     fn access(self: Arc<Self>) -> Box<dyn StreamAccess>;
 
-    fn iter(self: Arc<Self>) -> Box<dyn StreamIter>;
+    fn iter(self: Arc<Self>) ->  Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send>>;
 }
 
 pub type ArcStream = Arc<dyn Stream>;
@@ -72,9 +72,9 @@ pub trait StreamWriter: Send {
 
     /// Get the stream descriptor.
     fn desc(&self) -> StreamDesc;
-    
+
     /// Access the writable buffer for the current block.
-    /// 
+    ///
     /// This can return `Poll::Pending` to apply backpressure, or an error if previous writes
     /// have failed.
     fn poll_buf(&mut self, cx: &mut Context) -> Poll<Result<&mut AppendArrayWriter<u8>, String>>;

@@ -1,3 +1,4 @@
+use std::pin::Pin;
 use std::sync::RwLock;
 use std::task::{Context, Poll};
 use std::{sync::{Arc, atomic::AtomicBool}, task::Waker};
@@ -79,13 +80,15 @@ impl Stream for MemoryStream {
         Box::new(MemoryStreamAccess { stream: self, id })
     }
 
-    fn iter(self: Arc<Self>) -> Box<dyn StreamIter> {
-        let id = self.wakers.write().unwrap().insert(AtomicWaker::new());
-        Box::new(MemoryStreamIter {
-            stream: self,
-            block: 0,
-            pos: 0,
-            id,
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, std::io::Error>> + Send + 'static>> {
+        Box::pin(async move {
+            let id = self.wakers.write().unwrap().insert(AtomicWaker::new());
+            Ok(Box::new(MemoryStreamIter {
+                stream: self,
+                block: 0,
+                pos: 0,
+                id,
+            }) as Box<dyn StreamIter>)
         })
     }
 }

@@ -114,10 +114,12 @@ impl Stream for FlatFileStream {
         })
     }
 
-    fn iter(self: Arc<Self>) -> Box<dyn crate::stream::StreamIter> {
-        Box::new(FileStreamIter {
-            stream: self.clone(),
-            file_stream: self.file.clone().stream().await?,
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
+        Box::pin(async move {
+            Ok(Box::new(FileStreamIter {
+                stream: self.clone(),
+                file_stream: self.file.clone().stream().await?,
+            }) as Box<dyn StreamIter>)
         })
     }
 }

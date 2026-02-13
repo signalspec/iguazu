@@ -152,12 +152,14 @@ impl Stream for IzsStream {
         })
     }
 
-    fn iter(self: Arc<Self>) -> Box<dyn StreamIter> {
-        Box::new(IzsStreamIter {
-            stream: self.clone(),
-            state: IterState::Empty,
-            block: 0,
-            pos: 0,
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
+        Box::pin(async move {
+            Ok(Box::new(IzsStreamIter {
+                stream: self.clone(),
+                state: IterState::Empty,
+                block: 0,
+                pos: 0,
+            }) as Box<dyn StreamIter>)
         })
     }
 }
