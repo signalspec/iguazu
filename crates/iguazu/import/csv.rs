@@ -287,6 +287,35 @@ fn column_parser(schema: &EntitySchema) -> Result<(EntityStream, ColumnParser), 
     })
 }
 
+trait CsvHandler {
+    fn should_continue(&self, _line: u64) -> bool {
+        true
+    }
+    fn row(&mut self, row: Row<'_>) -> Result<(), ImportError>;
+    fn flush(&mut self) {}
+}
+
+struct ColumnsHandler<'a>(&'a mut [ColumnParser]);
+
+impl CsvHandler for ColumnsHandler<'_> {
+    fn row(&mut self, row: Row<'_>) -> Result<(), ImportError> {
+        if row.col_ends.len() != self.0.len() {
+            return Err(ImportError::InvalidFile(format!("Line {} has {} columns, expected {}", row.line, row.col_ends.len(), self.0.len())));
+        }
+        for (value, parser) in row.column_values().zip(self.0.iter_mut()) {
+            parser.parse(value)
+                .map_err(|e| ImportError::InvalidFile(format!("Failed to parse value {:?} as {} on line {}", String::from_utf8_lossy(value), e, row.line)))?;
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) {
+        for parser in self.0.iter_mut() {
+            parser.commit();
+        }
+    }
+}
+
 struct CsvParser {
     source: Pin<Box<dyn AsyncBufRead + Send>>,
     reader: csv_core::Reader,
@@ -301,30 +330,55 @@ impl CsvParser {
             source,
             reader,
             out: vec![0; 1024],
-            ends: vec![0; 1024],
+            ends: vec![0; 128],
         }
     }
 
     async fn skip_to_line(&mut self, line: u64) -> Result<(), ImportError> {
-        while self.reader.line() + 1 < line {
-            log::debug!("Skipping line {}", self.reader.line());
-            if self.read_row().await?.is_none() {
-                return Err(ImportError::InvalidFile("CSV file ended before start row".into()));
+        struct SkipToLineHandler { line: u64 }
+        impl CsvHandler for SkipToLineHandler {
+            fn should_continue(&self, line: u64) -> bool {
+                line < self.line
             }
+            fn row(&mut self, _: Row<'_>) -> Result<(), ImportError> { Ok(()) }
         }
-        Ok(())
+        self.read_rows(SkipToLineHandler { line }).await
     }
 
-    async fn read_row(&mut self) -> Result<Option<Row<'_>>, ImportError> {
+    async fn read_row(&mut self) -> Result<Vec<String>, ImportError> {
+        let mut result: Option<Vec<String>> = None;
+        struct CsvRowHandler<'a> { result: &'a mut Option<Vec<String>> }
+        impl CsvHandler for CsvRowHandler<'_> {
+            fn should_continue(&self, _: u64) -> bool {
+                self.result.is_none()
+            }
+
+            fn row(&mut self, row: Row<'_>) -> Result<(), ImportError> {
+                let values = row.column_values()
+                    .map(|f| String::from_utf8(f.to_owned())).collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| ImportError::InvalidFile(format!("Failed to parse header row as UTF-8")))?;
+                *self.result = Some(values);
+                Ok(())
+            }
+        }
+
+        self.read_rows(CsvRowHandler { result: &mut result }).await?;
+        result.ok_or_else(|| ImportError::InvalidFile("CSV file ended before header row".into()))
+    }
+
+    async fn read_rows(&mut self, mut handler: impl CsvHandler) -> Result<(), ImportError> {
         let mut input = &[][..];
         let mut consumed = 0;
         let mut outlen = 0;
         let mut endlen = 0;
 
-        loop {
+        while handler.should_continue(self.reader.line()) {
             if input.is_empty() {
-                self.source.as_mut().consume(consumed);
-                consumed = 0;
+                if consumed > 0 {
+                    handler.flush();
+                    self.source.as_mut().consume(consumed);
+                    consumed = 0;
+                }
                 input = self.source.fill_buf().await.map_err(ImportError::Io)?;
             }
 
@@ -342,37 +396,43 @@ impl CsvParser {
             match res {
                 ReadRecordResult::InputEmpty => continue,
                 ReadRecordResult::OutputFull => {
-                    let len = self.out.len();
-                    self.out.resize(len * 2, 0);
+                    let len = self.out.len().checked_mul(2).ok_or_else(|| ImportError::InvalidFile("line too long".into()))?;
+                    self.out.resize(len, 0);
                 }
                 ReadRecordResult::OutputEndsFull => {
-                    let len = self.ends.len();
-                    self.ends.resize(len * 2, 0);
+                    let len = self.ends.len().checked_mul(2).ok_or_else(|| ImportError::InvalidFile("line too long".into()))?;
+                    self.ends.resize(len, 0);
                 }
                 ReadRecordResult::Record => {
-                    self.source.as_mut().consume(consumed);
                     let line = self.reader.line() - 1;
-                    return Ok(Some(Row { parser: self, line, cols: endlen}));
+                    handler.row(Row { line, buf: &self.out[..outlen], col_ends: &self.ends[..endlen] })?;
+                    outlen = 0;
+                    endlen = 0;
                 }
-                ReadRecordResult::End => {
-                    return Ok(None);
-                }
+                ReadRecordResult::End => break,
             }
         }
+
+        if consumed > 0 {
+            handler.flush();
+            self.source.as_mut().consume(consumed);
+        }
+
+        return Ok(());
     }
 }
 
 struct Row<'a> {
-    parser: &'a mut CsvParser,
     line: u64,
-    cols: usize,
+    buf: &'a [u8],
+    col_ends: &'a [usize],
 }
 
 impl Row<'_> {
     fn column_values(&self) -> impl Iterator<Item = &[u8]> {
-        let starts = iter::once(0).chain(self.parser.ends[..self.cols].iter().copied());
-        let ends = self.parser.ends[..self.cols].iter().copied();
-        starts.zip(ends).map(|(start, end)| &self.parser.out[start..end])
+        let starts = iter::once(0).chain(self.col_ends.iter().copied());
+        let ends = self.col_ends.iter().copied();
+        starts.zip(ends).map(|(start, end)| &self.buf[start..end])
     }
 }
 
@@ -381,10 +441,7 @@ async fn read_header(csv: &mut CsvParser, header_opt: &CsvHeaders, start_row: u6
         CsvHeaders::Specified(ref headers) => Ok(headers.clone()),
         CsvHeaders::Row(header_row) => {
             csv.skip_to_line(header_row).await?;
-            csv.read_row().await?
-                .ok_or_else(|| ImportError::InvalidFile("CSV file ended before header row".into()))?
-                .column_values().map(|f| String::from_utf8(f.to_owned())).collect::<Result<Vec<_>, _>>()
-                .map_err(|_| ImportError::InvalidFile(format!("Failed to parse header row as UTF-8")))
+            csv.read_row().await
         }
     };
 
@@ -401,21 +458,8 @@ pub async fn load(stream: Pin<Box<dyn AsyncBufRead + Send>>, opts: CsvOptions, s
     let (mut parsers, entity) = column_parsers(&schema, &headers)?;
 
     Ok((entity, async move {
-        let mut rows: u64 = 0;
-        while let Some(row) = csv.read_row().await? {
-            if row.cols != parsers.len() {
-                return Err(ImportError::InvalidFile(format!("Line {} has {} columns, expected {}", row.line, row.cols, parsers.len())));
-            }
-            for (value, parser) in row.column_values().zip(parsers.iter_mut()) {
-                parser.parse(value)
-                    .map_err(|e| ImportError::InvalidFile(format!("Failed to parse value {:?} as {} on line {}", String::from_utf8_lossy(value), e, row.line)))?;
-            }
-            rows += 1;
-            for parser in parsers.iter_mut() {
-                parser.commit();
-            }
-        }
-        log::info!("import completed, {} lines", rows);
+        csv.read_rows(ColumnsHandler(&mut parsers)).await?;
+        log::info!("import completed, {} lines", csv.reader.line());
         Ok(())
     }))
 }
