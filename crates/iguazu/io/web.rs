@@ -71,8 +71,8 @@ impl ReadableFile for WebFile {
         Ok(uint8_array.to_vec())
     }
 
-    fn stream(self: Arc<Self>) -> Pin<Box<dyn AsyncBufRead + Send + Sync>> {
-        Box::pin(ReadableStreamReader::new(self.file.stream()))
+    async fn stream(self: Arc<Self>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+        Ok(Box::pin(ReadableStreamReader::new(self.file.stream())))
     }
 
     async fn relative(

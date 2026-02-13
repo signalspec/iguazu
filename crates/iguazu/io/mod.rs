@@ -36,7 +36,7 @@ pub trait ReadableFile: Send + Sync + 'static {
 
     /// Read the entire file into a `Vec<u8>`
     async fn read_all(self: Arc<Self>, limit: usize) -> Result<Vec<u8>, io::Error> {
-        let mut take = self.stream().take(limit as u64);
+        let mut take = self.stream().await?.take(limit as u64);
         let mut buf = Vec::new();
         take.read_to_end(&mut buf).await?;
 
@@ -48,8 +48,7 @@ pub trait ReadableFile: Send + Sync + 'static {
     }
 
     /// Create a stream for reading the file
-    fn stream(self: Arc<Self>) -> Pin<Box<dyn AsyncBufRead + Send + Sync>>;
-
+    async fn stream(self: Arc<Self>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error>;
 }
 
 #[async_trait]

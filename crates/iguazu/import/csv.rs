@@ -41,7 +41,7 @@ impl Importer for CsvImporter {
     fn import(self: Box<Self>, schema: Option<EntitySchema>, _executor: Arc<Executor<'static>>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
         Box::pin(async {
             let schema = schema.ok_or_else(|| ImportError::SchemaMismatch("Schema must be specified for CSV import".into()))?;
-            let file_stream = self.file.stream();
+            let file_stream = self.file.stream().await?;
             let (entity, completion) = load(file_stream, self.opts, schema).await?;
             Ok((entity, Box::pin(completion) as Pin<Box<_>>))
         })

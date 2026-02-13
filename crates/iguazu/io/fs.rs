@@ -59,9 +59,8 @@ impl ReadableFile for FsFile {
         }).await
     }
 
-    fn stream(self: Arc<Self>) -> Pin<Box<dyn AsyncBufRead + Send + Sync>> {
-        Box::pin(FsFileStream::new(self))
-
+    async fn stream(self: Arc<Self>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+        Ok(Box::pin(FsFileStream::new(self)))
     }
 
     async fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error> {

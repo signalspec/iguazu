@@ -117,7 +117,7 @@ impl Stream for FlatFileStream {
     fn iter(self: Arc<Self>) -> Box<dyn crate::stream::StreamIter> {
         Box::new(FileStreamIter {
             stream: self.clone(),
-            file_stream: self.file.clone().stream(),
+            file_stream: self.file.clone().stream().await?,
         })
     }
 }
