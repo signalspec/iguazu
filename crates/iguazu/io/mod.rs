@@ -6,7 +6,7 @@ use futures_lite::{AsyncBufRead, AsyncReadExt, AsyncWrite};
 #[cfg(all(feature="fs", any(target_family = "unix", target_family = "windows")))]
 mod fs;
 #[cfg(all(feature="fs", any(target_family = "unix", target_family = "windows")))]
-pub use fs::{FsFile, FsWritableFile, FsFileStream};
+pub use fs::{FsFile, StdinFile, FsWritableFile};
 
 #[cfg(all(feature="web", target_family = "wasm"))]
 mod web;

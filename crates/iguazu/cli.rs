@@ -3,7 +3,7 @@ use std::{path::PathBuf, pin::Pin, sync::Arc};
 use async_executor::Executor;
 use clap::Args;
 
-use crate::{export::ExportFormat, import::{ImportError, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile}, schema::{EntitySchema, EntityStream}};
+use crate::{export::ExportFormat, import::{ImportError, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile, StdinFile}, schema::{EntitySchema, EntityStream, Path}};
 
 #[derive(Args, Clone, Debug)]
 #[group(requires = "filename")] // Allow `ImportOpts` to be optional (https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717)
@@ -41,11 +41,16 @@ impl ImportOpts {
             })?
         };
 
-        let file = FsFile::open(self.filename.clone())
-            .await
-            .map_err(|e| format!("Failed to open file {}: {}", self.filename.display(), e))?;
+        let file = if self.filename == Path::from("-") {
+            Arc::new(StdinFile::new()) as Arc<dyn ReadableFile>
+        } else {
+            Arc::new(FsFile::open(self.filename.clone())
+                .await
+                .map_err(|e| format!("Failed to open file {}: {}", self.filename.display(), e))?
+            ) as Arc<dyn ReadableFile>
+        };
 
-        let importer = format.import(Arc::new(file));
+        let importer = format.import(file);
         Ok(importer)
     }
 

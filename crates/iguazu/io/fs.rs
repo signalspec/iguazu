@@ -1,6 +1,6 @@
 use std::{
     ffi::OsStr, fs::File, future::poll_fn, io, os::unix::fs::FileExt, path::{Path, PathBuf}, pin::Pin,
-    sync::Arc, task::{ready, Poll},
+    sync::{atomic::{AtomicBool, Ordering}, Arc}, task::{ready, Poll},
 };
 
 use async_trait::async_trait;
@@ -68,6 +68,62 @@ impl ReadableFile for FsFile {
     }
 }
 
+pub struct StdinFile {
+    used: AtomicBool,
+}
+
+impl StdinFile {
+    pub fn new() -> Self {
+        StdinFile {
+            used: AtomicBool::new(false),
+        }
+    }
+}
+
+#[async_trait]
+impl ReadableFile for StdinFile {
+    fn filename(&self) -> Option<&str> {
+        Some("<stdin>")
+    }
+
+    fn url(&self) -> Option<Url> {
+        None
+    }
+
+    async fn get_len(self: Arc<Self>) -> Result<u64, std::io::Error> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Cannot get length of stdin",
+        ))
+    }
+
+    async fn read_at(self: Arc<Self>, _offset: u64, _len: usize) -> Result<Vec<u8>, std::io::Error> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Stdin does not support random access",
+        ))
+    }
+
+    async fn stream(self: Arc<Self>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+        let previously_used = self.used.swap(true, Ordering::Relaxed);
+        if !previously_used {
+            Ok(Box::pin(FsFileStream::stdin()))
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Stdin can only be read once",
+            ))
+        }
+    }
+
+    async fn relative(&self, _path: &RelativePath) -> Result<Arc<dyn ReadableFile>, std::io::Error> {
+        Err(std::io::Error::new(
+            io::ErrorKind::Other,
+            "Stdin does not support relative path references",
+        ))
+    }
+}
+
 pub struct FsFileStream {
     task: Task<io::Result<()>>,
     reader: piper::Reader,
@@ -95,6 +151,22 @@ impl FsFileStream {
         }));
         FsFileStream { reader, task }
     }
+
+    pub fn stdin() -> Self {
+        let (reader, mut writer) = piper::pipe(2 * 1024 * 1024);
+        let task = blocking::unblock(move || futures_lite::future::block_on(async {
+            let mut stdin = io::stdin().lock();
+            loop {
+                match poll_fn(|cx| writer.poll_fill(cx, &mut stdin)).await  {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            Ok(())
+        }));
+        FsFileStream { reader, task }
+    }
 }
 
 impl AsyncRead for FsFileStream {
@@ -116,7 +188,7 @@ impl AsyncBufRead for FsFileStream {
             if !this.task.is_finished() {
                 ready!(this.task.poll(cx))?;
             }
-            return Poll::Ready(Ok(&[][..]));
+            Poll::Ready(Ok(&[][..]))
         } else {
             Poll::Ready(Ok(buf))
         }
