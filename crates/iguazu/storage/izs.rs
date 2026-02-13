@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::{cell::RefCell, collections::{HashMap, HashSet}, sync::Arc, task::{Context, Poll, Waker}};
 use std::fmt::Debug;
 
-use append_array::{AppendArray};
+use once_array::{OnceArray};
 use async_executor::{Executor, Task};
 use elsa::FrozenMap;
 use futures_lite::FutureExt;
@@ -89,7 +89,7 @@ enum LoadBlockRes<F> {
 }
 
 impl IzsStream {
-    fn load_block(&self, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<AppendArray<u8>>, io::Error>> + Send + 'static> {
+    fn load_block(&self, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static> {
         if let Some(&offset) = self.block_offsets.get(block as usize) {
             let block_bytes = self.block_size * self.element_type.bytes();
             let compression = self.compress;
@@ -108,7 +108,7 @@ impl IzsStream {
                         return Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown compression method"));
                     }
                 };
-                Ok(Arc::new(AppendArray::from(data)))
+                Ok(Arc::new(OnceArray::from(data)))
             })
         } else {
             LoadBlockRes::NotFound
@@ -166,14 +166,14 @@ impl Stream for IzsStream {
 
 struct IzsStreamAccess {
     stream: Arc<IzsStream>,
-    blocks: FrozenMap<u64, Arc<AppendArray<u8>>>,
+    blocks: FrozenMap<u64, Arc<OnceArray<u8>>>,
     state: RefCell<IzsStreamAccessState>,
     waker: Waker,
 }
 
 struct IzsStreamAccessState {
     used: HashSet<u64>,
-    loading: HashMap<u64, Task<Result<Arc<AppendArray<u8>>, io::Error>>>,
+    loading: HashMap<u64, Task<Result<Arc<OnceArray<u8>>, io::Error>>>,
     error: Option<io::Error>,
 }
 
@@ -253,8 +253,8 @@ struct IzsStreamIter {
 
 enum IterState {
     Empty,
-    Loading(Pin<Box<dyn Future<Output = Result<Arc<AppendArray<u8>>, io::Error>> + Send + 'static>>),
-    Loaded(Arc<AppendArray<u8>>),
+    Loading(Pin<Box<dyn Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static>>),
+    Loaded(Arc<OnceArray<u8>>),
 }
 
 impl StreamIter for IzsStreamIter {

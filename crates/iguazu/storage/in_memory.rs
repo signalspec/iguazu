@@ -4,7 +4,7 @@ use std::task::{Context, Poll};
 use std::{sync::{Arc, atomic::AtomicBool}, task::Waker};
 use std::fmt::Debug;
 
-use append_array::{AppendArrayWriter, AppendArray};
+use once_array::{OnceArrayWriter, OnceArray};
 use atomic_waker::AtomicWaker;
 use elsa::sync::FrozenVec;
 use slab::Slab;
@@ -17,7 +17,7 @@ const BLOCK_SIZE: usize = 1<<16;
 
 pub struct MemoryStream {
     element_type: ElementType,
-    blocks: FrozenVec<Arc<AppendArray<u8>>>,
+    blocks: FrozenVec<Arc<OnceArray<u8>>>,
     streaming: AtomicBool,
     wakers: RwLock<Slab<AtomicWaker>>,
 }
@@ -30,6 +30,7 @@ impl MemoryStream {
     pub fn raw(element_type: ElementType, data: &[u8]) -> Arc<Self> {
         let mut writer = MemoryStreamWriter::new(element_type);
         writer.extend_from_slice(data);
+        writer.commit();
         writer.stream.clone()
     }
 
@@ -182,14 +183,14 @@ impl Drop for MemoryStreamIter {
 
 pub struct MemoryStreamWriter {
     stream: Arc<MemoryStream>,
-    writer: AppendArrayWriter<u8>,
+    writer: OnceArrayWriter<u8>,
 }
 
 impl MemoryStreamWriter {
     pub fn new(element_type: ElementType) -> MemoryStreamWriter {
-        let writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * element_type.bytes());
+        let writer = OnceArrayWriter::with_capacity(BLOCK_SIZE * element_type.bytes());
         let blocks = FrozenVec::new();
-        blocks.push(writer.reader());
+        blocks.push(writer.reader().clone());
         let stream = Arc::new(MemoryStream { blocks, element_type, streaming: AtomicBool::new(true), wakers: RwLock::new(Slab::new()) });
         MemoryStreamWriter { stream, writer }
     }
@@ -199,9 +200,10 @@ impl MemoryStreamWriter {
     }
 
     fn new_block(&mut self) {
-        debug_assert!(self.writer.remaining_capacity() == 0, "Cannot extend when there is remaining capacity");
-        self.writer = AppendArrayWriter::with_capacity(BLOCK_SIZE * self.stream.element_type.bytes());
-        self.stream.blocks.push(self.writer.reader());
+        debug_assert!(self.writer.remaining_capacity() == 0, "Cannot start new block when there is remaining capacity");
+        self.commit();
+        self.writer = OnceArrayWriter::with_capacity(BLOCK_SIZE * self.stream.element_type.bytes());
+        self.stream.blocks.push(self.writer.reader().clone());
     }
 
     pub fn extend_from_slice(&mut self, mut data: &[u8]) {
@@ -210,12 +212,16 @@ impl MemoryStreamWriter {
             if data.is_empty() { break }
             self.new_block();
         }
+    }
+
+    pub fn commit(&mut self) {
+        self.writer.commit();
         self.stream.notify_all();
     }
 
     pub fn pos(&self) -> Idx {
         let n_blocks = self.stream.blocks.len();
-        ((n_blocks - 1) * BLOCK_SIZE + (self.writer.len() / self.stream.element_type.bytes())) as Idx
+        ((n_blocks - 1) * BLOCK_SIZE + (self.writer.as_slice().len() / self.stream.element_type.bytes())) as Idx
     }
 }
 
@@ -239,7 +245,7 @@ impl StreamWriter for MemoryStreamWriter {
         self.stream.desc()
     }
 
-    fn poll_buf(&mut self, _cx: &mut Context) -> Poll<Result<&mut AppendArrayWriter<u8>, String>> {
+    fn poll_buf(&mut self, _cx: &mut Context) -> Poll<Result<&mut OnceArrayWriter<u8>, String>> {
         if self.writer.remaining_capacity() == 0 {
             // If the block is full, create a new block
             self.new_block();
@@ -249,7 +255,7 @@ impl StreamWriter for MemoryStreamWriter {
     }
 
     fn commit(&mut self) {
-        self.stream.notify_all();
+        self.commit();
     }
 }
 

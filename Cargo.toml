@@ -14,10 +14,8 @@ license = "MPL-2.0"
 repository = "https://github.com/signalspec/iguazu"
 
 [workspace.dependencies]
-append-array = { path = "crates/append-array", version = "0.1.0" }
 iguazu = { path = "crates/iguazu", version = "0.1.0" }
 iguazu-egui = { path = "crates/iguazu-egui", version = "0.1.0" }
-
 async-executor = "1.13.1"
 egui = "0.33.0"
 num-complex = "0.4.3"
@@ -29,6 +27,7 @@ log = "0.4.22"
 bytemuck = "1.21.0"
 clap = { version = "4.5.39", features = ["derive"] }
 ecow = { version = "0.2.5", features = ["serde"] }
+once-array = "0.1.0"
 
 [profile.release]
 panic = "abort"

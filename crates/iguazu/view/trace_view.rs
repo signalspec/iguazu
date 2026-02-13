@@ -16,7 +16,7 @@ pub struct TraceView<'a> {
 
 impl<'a> TraceView<'a> {
     pub fn new(vm: &'a ViewManager, stream: ArcStream, summary: &Summary<ArcStream>) -> Self {
-        TraceView { 
+        TraceView {
             base: IntView::new_from_stream(vm, &stream),
             base_level: summary.base_level,
             summaries: summary.levels.iter().map(|s| IntView::new_from_stream(vm, s)).collect(),
@@ -63,7 +63,7 @@ impl<'a> TraceView<'a> {
         };
 
         'scan: while pos < range.max.min(max_end) {
-            let max_level = if pos == range.min { 
+            let max_level = if pos == range.min {
                 // On the first iteration, try all summaries
                 self.summaries.len()
             } else {
@@ -166,6 +166,7 @@ fn test_traceview() {
     writer.extend_from_slice(&[0b100; 100]);
     writer.extend_from_slice(&[0b110; 2]);
     writer.extend_from_slice(&[0b010; 50]);
+    writer.commit();
     let stream: ArcStream = writer.stream().clone();
     drop(writer);
 

@@ -174,6 +174,19 @@ impl ColumnParser {
             }
         }
     }
+
+    fn commit(&mut self) {
+        match self {
+            ColumnParser::Float32(writer) => writer.commit(),
+            ColumnParser::String { ends, chars } => {
+                ends.commit();
+                chars.commit();
+            }
+            ColumnParser::TimestampIso { writer, .. } => writer.commit(),
+            ColumnParser::TimestampRelative { writer, .. } => writer.commit(),
+            ColumnParser::Skip => {}
+        }
+    }
 }
 
 fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<ColumnParser>, EntityStream), ImportError> {
@@ -398,6 +411,9 @@ pub async fn load(stream: Pin<Box<dyn AsyncBufRead + Send>>, opts: CsvOptions, s
                     .map_err(|e| ImportError::InvalidFile(format!("Failed to parse value {:?} as {} on line {}", String::from_utf8_lossy(value), e, row.line)))?;
             }
             rows += 1;
+            for parser in parsers.iter_mut() {
+                parser.commit();
+            }
         }
         log::info!("import completed, {} lines", rows);
         Ok(())

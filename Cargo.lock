@@ -225,13 +225,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "append-array"
-version = "0.1.0"
-dependencies = [
- "stable_deref_trait",
-]
-
-[[package]]
 name = "arboard"
 version = "3.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1694,7 +1687,6 @@ dependencies = [
 name = "iguazu"
 version = "0.1.0"
 dependencies = [
- "append-array",
  "arrayvec",
  "async-executor",
  "async-lock",
@@ -1714,6 +1706,7 @@ dependencies = [
  "log",
  "num-complex",
  "num-traits",
+ "once-array",
  "piper 0.2.4 (git+https://github.com/kevinmehall/piper.git?rev=5ef4e1324232adda03a2932c24c83432038ee397)",
  "send_wrapper",
  "serde",
@@ -2563,6 +2556,12 @@ dependencies = [
  "objc2-core-location",
  "objc2-foundation 0.2.2",
 ]
+
+[[package]]
+name = "once-array"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad76a551a878f478ff0efb37746f6a40e43ecf80cead0df79284cbd5d3e95b72"
 
 [[package]]
 name = "once_cell"

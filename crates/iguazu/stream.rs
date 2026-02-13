@@ -1,5 +1,5 @@
 use std::{any::Any, fmt::Debug, future::poll_fn, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker, ready}};
-use append_array::AppendArrayWriter;
+use once_array::OnceArrayWriter;
 
 use crate::{Idx, ElementType};
 
@@ -77,7 +77,7 @@ pub trait StreamWriter: Send {
     ///
     /// This can return `Poll::Pending` to apply backpressure, or an error if previous writes
     /// have failed.
-    fn poll_buf(&mut self, cx: &mut Context) -> Poll<Result<&mut AppendArrayWriter<u8>, String>>;
+    fn poll_buf(&mut self, cx: &mut Context) -> Poll<Result<&mut OnceArrayWriter<u8>, String>>;
 
     /// Notify readers that data has been written.
     fn commit(&mut self);
