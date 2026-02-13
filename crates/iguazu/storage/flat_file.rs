@@ -46,7 +46,7 @@ impl Debug for FlatFileStream {
 impl FlatFileStream {
     pub async fn new(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>, opts: FlatFileOpts) -> Result<Self, io::Error> {
         let file_len = file.clone().get_len().await?;
-        
+
         let offset = opts.offset;
         let element_type = opts.element_type;
         let count = opts.count.or(file_len.checked_div(element_type.bytes() as u64)).unwrap_or(0);
@@ -84,8 +84,6 @@ impl FlatFileStream {
         let offset = self.block_offset(block);
         self.file.clone().read_at(offset, self.block_size_bytes)
     }
-    
-
 }
 
 impl Stream for FlatFileStream {
@@ -102,12 +100,12 @@ impl Stream for FlatFileStream {
             end: self.count,
         }
     }
-    
+
     fn access(self: Arc<Self>) -> Box<dyn crate::stream::StreamAccess> {
         Box::new(FileStreamAccess {
             stream: self,
             blocks: FrozenMap::new(),
-            state: RefCell::new(FileStreamAccessState { 
+            state: RefCell::new(FileStreamAccessState {
                 used: HashSet::new(),
                 loading: HashMap::new(),
                 error: None
@@ -115,7 +113,7 @@ impl Stream for FlatFileStream {
             waker: Waker::noop().clone(),
         })
     }
-    
+
     fn iter(self: Arc<Self>) -> Box<dyn crate::stream::StreamIter> {
         Box::new(FileStreamIter {
             stream: self.clone(),
@@ -203,7 +201,7 @@ impl StreamIter for FileStreamIter {
     fn element_type(&self) -> ElementType {
         self.stream.element_type
     }
-    
+
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
         match self.file_stream.as_mut().poll_fill_buf(cx) {
             Poll::Ready(Ok(buf)) => {

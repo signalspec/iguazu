@@ -37,11 +37,11 @@ impl ReadableFile for FsFile {
         Url::from_file_path(&self.path).ok()
     }
 
-    async fn get_len(self: Arc<Self>) -> Result<u64, std::io::Error> {
+    async fn get_len(self: Arc<Self>) -> Result<u64, io::Error> {
         blocking::unblock(move || { Ok(self.file.metadata()?.len()) }).await
     }
 
-    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
+    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, io::Error> {
         blocking::unblock(move || {
             let mut buf = vec![0; len];
             let mut pos = 0;
@@ -64,13 +64,13 @@ impl ReadableFile for FsFile {
 
     }
 
-    async fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, std::io::Error> {
+    async fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error> {
         Ok(Arc::new(Self::open(self.path.with_file_name(path)).await?))
     }
 }
 
 pub struct FsFileStream {
-    task: Task<std::io::Result<()>>,
+    task: Task<io::Result<()>>,
     reader: piper::Reader,
 }
 
@@ -99,7 +99,7 @@ impl FsFileStream {
 }
 
 impl AsyncRead for FsFileStream {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut [u8]) -> std::task::Poll<std::io::Result<usize>> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>, buf: &mut [u8]) -> std::task::Poll<io::Result<usize>> {
         let n = ready!(Pin::new(&mut self.reader).poll_read(cx, buf))?;
         if n == 0 {
             self.task.poll(cx).map_ok(|()| 0)
@@ -122,7 +122,7 @@ impl AsyncBufRead for FsFileStream {
             Poll::Ready(Ok(buf))
         }
     }
-    
+
     fn consume(mut self: Pin<&mut Self>, amt: usize) {
         self.reader.consume(amt);
     }
