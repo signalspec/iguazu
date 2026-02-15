@@ -22,7 +22,7 @@ num-complex = "0.4.3"
 num-rational = "0.4.1"
 num-traits = "0.2.15"
 indexmap = "2"
-hashbrown = "0.15.1"
+hashbrown = "0.16"
 log = "0.4.22"
 bytemuck = "1.21.0"
 clap = { version = "4.5.39", features = ["derive"] }
