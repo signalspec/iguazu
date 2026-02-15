@@ -17,7 +17,7 @@ futures-lite = "2.6.0"
 clap = { workspace = true, features = ["derive"] }
 async-executor.workspace = true
 wgpu = { version = "27", features = ["webgl"] }
-rfd = { git = "https://github.com/kevinmehall/rfd.git", rev = "afab21fefab230667f8106ac2c189f8c670ac054", features = ["file-handle-inner"] }
+rfd = { version = "0.16.0", features = ["file-handle-inner"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = "0.3.16"
