@@ -169,7 +169,7 @@ impl TimelineView {
             let cursor_x = entity_response.snap_to_time.map(|snap_to_time| {
                 scale.x_from_t(snap_to_time)
             }).or_else(|| {
-                ui.input(|i| i.pointer.hover_pos()).map(|pos| pos.x)
+                ui.input(|i| i.pointer.hover_pos()).filter(|&pos| rect.contains(pos)).map(|pos| pos.x)
             });
 
             if let Some(cursor_x) = cursor_x {

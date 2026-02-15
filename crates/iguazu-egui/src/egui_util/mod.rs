@@ -1,1 +1,2 @@
-pub(crate) mod shadow_line;
+pub mod shadow_line;
+pub mod titlebar;

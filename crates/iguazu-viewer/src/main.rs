@@ -26,6 +26,7 @@ fn main() -> Result<(), eframe::Error> {
     use iguazu::cli::ImportOpts;
     use iguazu::import::IMPORTERS;
     use iguazu::storage::MemoryStorage;
+    use iguazu_egui::egui_util::titlebar::ViewportBuilderExt;
 
     #[derive(Parser)]
     #[command(author, version, about, long_about = None)]
@@ -61,6 +62,7 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     let viewport = egui::ViewportBuilder::default()
+        .with_custom_title_bar()
         .with_app_id("org.signalspec.iguazu");
 
     let options = eframe::NativeOptions {
@@ -171,6 +173,13 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.vctx.begin();
 
+        #[cfg(not(target_arch = "wasm32"))]
+        iguazu_egui::egui_util::titlebar::TitleBar::new().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.add(egui::Label::new("Iguazu Viewer").selectable(false));
+            });
+        });
+
         let central_panel = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(central_panel).show(ctx, |ui| {
             match &mut self.state {
@@ -222,9 +231,12 @@ impl App {
     }
 
     fn frame_time_ui(&self, ui: &mut egui::Ui) {
+        let is_anything_being_dragged = ui.ctx().dragged_id().is_some();
+        let down = ui.input(|input| input.pointer.primary_down());
+        let focused = ui.input(|i| i.focused);
         if let Some(frame_time) = self.frame_time_history.average() {
             ui.label(format!(
-                "Mean CPU usage: {:.2} ms / frame",
+                "Mean CPU usage: {:.2} ms / frame. Dragging: {is_anything_being_dragged}, down: {down}, focus: {focused}",
                 1e3 * frame_time
             ));
         }

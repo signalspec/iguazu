@@ -1,6 +1,6 @@
 mod util;
 mod color;
-mod egui_util;
+pub mod egui_util;
 
 pub mod timeline;
 pub mod table;
