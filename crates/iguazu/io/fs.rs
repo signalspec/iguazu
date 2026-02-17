@@ -1,7 +1,13 @@
 use std::{
-    ffi::OsStr, fs::File, future::poll_fn, io, os::unix::fs::FileExt, path::{Path, PathBuf}, pin::Pin,
+    ffi::OsStr, fs::File, future::poll_fn, io, path::{Path, PathBuf}, pin::Pin,
     sync::{atomic::{AtomicBool, Ordering}, Arc}, task::{ready, Poll},
 };
+
+#[cfg(target_family = "unix")]
+use std::os::unix::fs::FileExt;
+
+#[cfg(target_family = "windows")]
+use std::os::windows::fs::FileExt;
 
 use async_trait::async_trait;
 use blocking::Task;
@@ -25,6 +31,16 @@ impl FsFile {
             Ok(FsFile { path, file })
         }).await
     }
+
+    #[cfg(target_family = "unix")]
+    fn blocking_read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+        self.file.read_at(buf, offset)
+    }
+
+    #[cfg(target_family = "windows")]
+    fn blocking_read_at(&self, buf: &mut [u8], offset: u64) -> io::Result<usize> {
+        self.file.seek_read(buf, offset)
+    }
 }
 
 #[async_trait]
@@ -47,7 +63,8 @@ impl ReadableFile for FsFile {
             let mut pos = 0;
 
             while pos < len {
-                let bytes_read = self.file.read_at(&mut buf, offset + pos as u64)?;
+                let bytes_read = self.blocking_read_at(&mut buf[pos..], offset + pos as u64)?;
+
                 if bytes_read == 0 {
                     buf.truncate(pos);
                     break;
@@ -139,7 +156,7 @@ impl FsFileStream {
                     return Ok(());
                 };
                 let buf = writer.write_buf(128 * 1024);
-                let n = file.file.read_at(buf, offset)?;
+                let n = file.blocking_read_at(buf, offset)?;
                 if n == 0 {
                     break;
                 } else {
