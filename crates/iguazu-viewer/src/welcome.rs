@@ -1,10 +1,9 @@
 use std::{sync::Arc, task::Poll};
 
-use async_executor::{Executor, Task};
+use async_executor::Task;
 use egui::{Button, Color32, Layout, Pos2, Rect, RichText, Ui, UiBuilder, Vec2};
-use iguazu::{import::IMPORTERS, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::{MemoryStorage, MemoryStream}, stream::ArcStream};
+use iguazu::{import::IMPORTERS, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::{MemoryStorage, MemoryStream, Pool}, stream::ArcStream};
 use iguazu_egui::ViewerContext;
-#[cfg(not(target_arch = "wasm32"))]
 use rfd::AsyncFileDialog;
 
 pub struct Welcome {
@@ -40,7 +39,7 @@ impl Welcome {
 
             if ui.add_sized((ui.available_width(), 0.0), Button::new("Open file…")).clicked() {
                 self.error = None;
-                self.picker_task = Some(vctx.spawn(pick_and_import_file(vctx.executor().clone())));
+                self.picker_task = Some(vctx.spawn(pick_and_import_file(vctx.pool().clone())));
             }
 
             if let Some(t) = &mut self.picker_task && let Poll::Ready(res) = vctx.poll_unpin(t) {
@@ -103,7 +102,7 @@ async fn pick_file() -> Option<Arc<dyn ReadableFile>> {
     }
 }
 
-async fn pick_and_import_file(executor: Arc<Executor<'static>>) -> Option<Result<EntityStream, String>> {
+async fn pick_and_import_file(pool: Arc<Pool>) -> Option<Result<EntityStream, String>> {
     let file = pick_file().await?;
     let filename = file.filename().unwrap_or("").to_owned();
 
@@ -112,13 +111,13 @@ async fn pick_and_import_file(executor: Arc<Executor<'static>>) -> Option<Result
     };
 
     let importer = format.import(file);
-    let (mut entity, _completion) = match importer.import(None, executor.clone()).await {
+    let (mut entity, _completion) = match importer.import(None, pool.clone()).await {
         Ok(v) => v,
         Err(e) => { return Some(Err(format!("Failed to import {}: {}", filename, e))); }
     };
 
     let storage = MemoryStorage;
-    entity.build_summaries(&executor, &storage);
+    entity.build_summaries(&pool.executor, &storage);
 
     Some(Ok(entity))
 }

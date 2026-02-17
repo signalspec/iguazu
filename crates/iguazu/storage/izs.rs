@@ -1,18 +1,21 @@
 use std::collections::hash_map;
 use std::io;
 use std::pin::Pin;
+use std::sync::Mutex;
 use std::{cell::RefCell, collections::{HashMap, HashSet}, sync::Arc, task::{Context, Poll, Waker}};
 use std::fmt::Debug;
 
 use once_array::{OnceArray};
-use async_executor::{Executor, Task};
+use async_executor::Task;
 use elsa::FrozenMap;
 use futures_lite::FutureExt;
 
 use crate::import::ImportError;
 use crate::izs::{self, CompressionMethod, FileMeta, Footer};
 use crate::schema::EntityStream;
+use crate::storage::Pool;
 use crate::stream::{StreamAccess, StreamIter, Stream, StreamDesc, StreamState};
+use crate::util::weak_map::WeakMap;
 use crate::{io::ReadableFile, ElementType};
 
 pub async fn load_meta(file: Arc<dyn ReadableFile>) -> Result<FileMeta, ImportError> {
@@ -28,9 +31,9 @@ pub async fn load_meta(file: Arc<dyn ReadableFile>) -> Result<FileMeta, ImportEr
     serde_json::from_slice(&meta).map_err(|e| ImportError::InvalidFile(format!("Invalid metadata: {}", e)))
 }
 
-pub async fn load(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>) -> Result<EntityStream, ImportError> {
+pub async fn load(file: Arc<dyn ReadableFile>, pool: Arc<Pool>) -> Result<EntityStream, ImportError> {
     let meta = load_meta(file.clone()).await?;
-    let shared = Arc::new(Shared { file, executor });
+    let shared = Arc::new(Shared { file, pool });
 
     meta.entity.try_map_data_async(move |s| {
         let shared = shared.clone();
@@ -47,6 +50,7 @@ pub async fn load(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>)
                 block_offsets,
                 block_lengths,
                 pos: s.end_idx,
+                cache: Mutex::new(WeakMap::new()),
             };
             Ok(Arc::new(stream) as Arc<dyn Stream>)
         }
@@ -55,7 +59,7 @@ pub async fn load(file: Arc<dyn ReadableFile>, executor: Arc<Executor<'static>>)
 
 pub struct Shared {
     file: Arc<dyn ReadableFile>,
-    executor: Arc<Executor<'static>>,
+    pool: Arc<Pool>,
 }
 
 impl Shared {
@@ -81,38 +85,49 @@ struct IzsStream {
 
     /// Number of elements
     pos: u64,
+
+    cache: Mutex<WeakMap<u64, OnceArray<u8>>>,
 }
 
 enum LoadBlockRes<F> {
     Loading(F),
+    Cached(Arc<OnceArray<u8>>),
     NotFound,
 }
 
 impl IzsStream {
-    fn load_block(&self, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static> {
-        if let Some(&offset) = self.block_offsets.get(block as usize) {
-            let block_bytes = self.block_size * self.element_type.bytes();
-            let compression = self.compress;
-            let len = self.block_lengths[block as usize] as usize;
-            let shared = self.shared.clone();
-            log::debug!("Loading block {block} of {}:{:x} at {} len {}", self.shared.file.filename().unwrap_or("<unknown>"), self.id, offset, len);
-            LoadBlockRes::Loading(async move {
-                let data = shared.read_at(offset, len).await?;
-                let data = match compression {
-                    CompressionMethod::None => data,
-                    CompressionMethod::Zstd => {
-                        zstd::bulk::decompress(&data, block_bytes)
-                            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress block: {}", e)))?
-                    }
-                    CompressionMethod::Unknown => {
-                        return Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown compression method"));
-                    }
-                };
-                Ok(Arc::new(OnceArray::from(data)))
-            })
-        } else {
-            LoadBlockRes::NotFound
+    fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static> {
+        let Some(&offset) = self.block_offsets.get(block as usize) else {
+            return LoadBlockRes::NotFound;
+        };
+
+        if let Some(buf) = self.cache.lock().unwrap().get(&block) {
+            log::debug!("Block {block} of {}:{:x} found in cache", self.shared.file.filename().unwrap_or("<unknown>"), self.id);
+            return LoadBlockRes::Cached(buf);
         }
+
+        let block_bytes = self.block_size * self.element_type.bytes();
+        let compression = self.compress;
+        let len = self.block_lengths[block as usize] as usize;
+        log::debug!("Loading block {block} of {}:{:x} at {} len {}", self.shared.file.filename().unwrap_or("<unknown>"), self.id, offset, len);
+        LoadBlockRes::Loading(async move {
+            let data = self.shared.read_at(offset, len).await?;
+            let data = match compression {
+                CompressionMethod::None => data,
+                CompressionMethod::Zstd => {
+                    zstd::bulk::decompress(&data, block_bytes)
+                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress block: {}", e)))?
+                }
+                CompressionMethod::Unknown => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown compression method"));
+                }
+            };
+
+            let buf = Arc::new(OnceArray::from(data.clone()));
+            self.shared.pool.cache.lock().unwrap().insert(buf.clone());
+            self.cache.lock().unwrap().insert(block, buf.clone());
+            Ok(buf)
+        })
     }
 }
 
@@ -196,12 +211,15 @@ impl StreamAccess for IzsStreamAccess {
                 }
 
                 // Block is not loaded, start loading
-                match self.stream.load_block(block) {
+                match self.stream.clone().load_block(block) {
                     LoadBlockRes::NotFound => {
                         return &[];
                     }
+                    LoadBlockRes::Cached(buf) => {
+                        return self.blocks.insert(block, buf)
+                    }
                     LoadBlockRes::Loading(fut) => {
-                        entry.insert_entry(self.stream.shared.executor.spawn(fut))
+                        entry.insert_entry(self.stream.shared.pool.executor.spawn(fut))
                     }
                 }
             }
@@ -266,8 +284,9 @@ impl StreamIter for IzsStreamIter {
         loop {
             match self.state {
                 IterState::Empty => {
-                    self.state = match self.stream.load_block(self.block) {
+                    self.state = match self.stream.clone().load_block(self.block) {
                         LoadBlockRes::NotFound => return Poll::Ready(Ok(&[])),
+                        LoadBlockRes::Cached(buf) => IterState::Loaded(buf),
                         LoadBlockRes::Loading(fut) => IterState::Loading(Box::pin(fut)),
                     };
                 }

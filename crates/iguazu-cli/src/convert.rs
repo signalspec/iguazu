@@ -19,8 +19,10 @@ pub struct Cli {
 
 pub fn main(args: &Cli) -> Result<(), String> {
     let executor = Arc::new(async_executor::Executor::new());
+    let pool = Arc::new(iguazu::storage::Pool::new(executor.clone(), 256 * 1024 * 1024));
+
     block_on(executor.run(async {
-        let (mut entity, import_completion) = args.import.import(IMPORTERS, executor.clone()).await?;
+        let (mut entity, import_completion) = args.import.import(IMPORTERS, pool).await?;
 
         if args.build_summary {
             entity.build_summaries(&executor, &MemoryStorage);

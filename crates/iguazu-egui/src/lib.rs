@@ -8,7 +8,7 @@ pub mod table;
 use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
 use async_executor::Executor;
-use iguazu::view::ViewManager;
+use iguazu::{storage::Pool, view::ViewManager};
 pub use timeline::TimelineView;
 
 struct RepaintWaker {
@@ -26,7 +26,7 @@ impl std::task::Wake for RepaintWaker {
 }
 
 pub struct ViewerContext {
-    executor: Arc<Executor<'static>>,
+    pool: Arc<Pool>,
 
     view_manager: ViewManager,
 
@@ -34,10 +34,10 @@ pub struct ViewerContext {
     waker: Waker,
 }
 impl ViewerContext {
-    pub fn new(executor: Arc<Executor<'static>>, egui_ctx: &egui::Context) -> Self {
+    pub fn new(pool: Arc<Pool>, egui_ctx: &egui::Context) -> Self {
         let waker: Waker = Arc::new(RepaintWaker { context: egui_ctx.clone() }).into();
         Self {
-            executor,
+            pool,
             view_manager: ViewManager::new(waker.clone()),
             waker,
         }
@@ -51,8 +51,12 @@ impl ViewerContext {
         self.view_manager.end();
     }
 
+    pub fn pool(&self) -> &Arc<Pool> {
+        &self.pool
+    }
+
     pub fn executor(&self) -> &Arc<Executor<'static>> {
-        &self.executor
+        &self.pool.executor
     }
 
     pub fn spawn<F>(&self, fut: F) -> async_executor::Task<F::Output>
@@ -60,7 +64,7 @@ impl ViewerContext {
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.executor.spawn(fut)
+        self.executor().spawn(fut)
     }
 
     pub fn waker(&self) -> &Waker {

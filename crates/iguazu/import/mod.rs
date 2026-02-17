@@ -1,9 +1,8 @@
 use std::{pin::Pin, sync::Arc};
 
-use async_executor::Executor;
 use thiserror::Error;
 
-use crate::{io::ReadableFile, schema::{EntitySchema, EntityStream}};
+use crate::{io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool};
 
 mod column_parser;
 
@@ -30,7 +29,7 @@ pub enum ImportError {
 pub trait Importer {
     fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>>;
 
-    fn import(self: Box<Self>, schema: Option<EntitySchema>, executor: Arc<Executor<'static>>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>>;
+    fn import(self: Box<Self>, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>>;
 }
 
 pub struct ImportFormat {

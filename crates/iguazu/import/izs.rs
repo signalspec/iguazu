@@ -1,8 +1,6 @@
 use std::{pin::Pin, sync::Arc};
 
-use async_executor::Executor;
-
-use crate::{import::{ImportError, Importer}, io::ReadableFile, schema::{EntitySchema, EntityStream}};
+use crate::{import::{ImportError, Importer}, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool};
 
 pub fn importer(file: Arc<dyn ReadableFile>) -> Box::<dyn Importer> {
     Box::new(IzsImporter { file })
@@ -20,9 +18,9 @@ impl Importer for IzsImporter {
         })
     }
 
-    fn import(self: Box<Self>, _schema: Option<EntitySchema>, executor: Arc<Executor<'static>>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
+    fn import(self: Box<Self>, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
         Box::pin(async move {
-            let entity = crate::storage::izs::load(self.file, executor).await?;
+            let entity = crate::storage::izs::load(self.file, pool).await?;
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }

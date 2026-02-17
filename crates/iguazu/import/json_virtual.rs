@@ -1,8 +1,6 @@
 use std::{pin::Pin, sync::Arc};
 
-use async_executor:: Executor;
-
-use crate::{io::{ReadableFile}, schema::{json_virtual::StreamRef, Entity, EntitySchema, EntityStream}, storage::{ FlatFileOpts, FlatFileStream }, stream::ArcStream};
+use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::StreamRef}, storage::{ FlatFileOpts, FlatFileStream, Pool }, stream::ArcStream};
 
 use super::{ImportError, Importer};
 
@@ -30,13 +28,13 @@ impl Importer for VirtualImporter {
         })
     }
 
-    fn import(mut self: Box<Self>, _schema: Option<EntitySchema>, executor: Arc<Executor<'static>>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
+    fn import(mut self: Box<Self>, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
         Box::pin(async move {
             self.load().await?;
             let file = self.file;
             let schema = self.schema.unwrap();
 
-            let entity = schema.try_map_data_async(move |s| create_stream(file.clone(), executor.clone(), s)).await?;
+            let entity = schema.try_map_data_async(move |s| create_stream(file.clone(), pool.clone(), s)).await?;
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }
@@ -46,14 +44,14 @@ pub fn importer(file: Arc<dyn ReadableFile>) -> Box::<dyn Importer> {
     Box::new(VirtualImporter { file, schema: None })
 }
 
-async fn create_stream(src_file: Arc<dyn ReadableFile>, io_executor: Arc<Executor<'static>>, stream: StreamRef) -> Result<ArcStream, ImportError> {
+async fn create_stream(src_file: Arc<dyn ReadableFile>, pool: Arc<Pool>, stream: StreamRef) -> Result<ArcStream, ImportError> {
     match stream {
         StreamRef::FlatFile { ref file_name, element_type, offset } => {
             let file = src_file.relative(file_name).await?;
             let mut opts = FlatFileOpts::default();
             opts.element_type = element_type;
             opts.offset = offset;
-            Ok(Arc::new(FlatFileStream::new(file, io_executor, opts).await?))
+            Ok(Arc::new(FlatFileStream::new(file, pool, opts).await?))
         }
     }
 }

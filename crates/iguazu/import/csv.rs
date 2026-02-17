@@ -2,12 +2,12 @@ use std::iter;
 use std::{pin::Pin, sync::Arc};
 use std::future;
 
-use async_executor::Executor;
 use csv_core::ReadRecordResult;
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
 
 use crate::schema::{Entity, EntityStream};
+use crate::storage::Pool;
 use crate::{io::ReadableFile, schema::EntitySchema};
 use super::{ImportError, Importer, column_parser::ColumnParser};
 
@@ -30,7 +30,7 @@ impl Importer for CsvImporter {
         Box::pin(future::ready(Err(ImportError::SchemaMismatch("Schema must currently be specified for CSV".into()))))
     }
 
-    fn import(self: Box<Self>, schema: Option<EntitySchema>, _executor: Arc<Executor<'static>>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
+    fn import(self: Box<Self>, schema: Option<EntitySchema>, _executor: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
         Box::pin(async {
             let schema = schema.ok_or_else(|| ImportError::SchemaMismatch("Schema must be specified for CSV import".into()))?;
             let file_stream = self.file.stream().await?;

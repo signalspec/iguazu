@@ -2,12 +2,11 @@
 
 use std::sync::Arc;
 
-use async_executor::Executor;
 use eframe::{egui, CreationContext};
 use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
 
+use iguazu::storage::Pool;
 use iguazu_egui::ViewerContext;
-
 
 mod welcome;
 mod viewer;
@@ -48,10 +47,12 @@ fn main() -> Result<(), eframe::Error> {
         }
     });
 
+    let pool = Arc::new(iguazu::storage::Pool::new(executor.clone(), 16 * 1024 * 1024));
+
     let storage = MemoryStorage;
 
     let state = if let Some(import) = cli.import {
-        let (mut entity, completion) = block_on(import.import(IMPORTERS, executor.clone())).expect("Failed to load file");
+        let (mut entity, completion) = block_on(import.import(IMPORTERS, pool.clone())).expect("Failed to load file");
         block_on(completion).expect("Failed to complete import");
 
         entity.build_summaries(&executor, &storage);
@@ -73,7 +74,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Iguazu Viewer",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc, executor, state)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc, pool, state)))),
     )
 }
 
@@ -87,13 +88,14 @@ fn main() {
 
     let web_options = eframe::WebOptions::default();
 
-    let executor = Arc::new(Executor::new());
+    let executor = Arc::new(async_executor::Executor::new());
     wasm_bindgen_futures::spawn_local({
         let executor = executor.clone();
         async move {
             executor.run(futures_lite::future::pending::<()>()).await;
         }
     });
+    let pool = Arc::new(iguazu::storage::Pool::new(executor, 64 * 1024 * 1024));
 
     wasm_bindgen_futures::spawn_local(async {
         let document = web_sys::window()
@@ -107,13 +109,13 @@ fn main() {
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("the_canvas_id was not a HtmlCanvasElement");
 
-        let state = AppState::Picker { picker_task: None, error: None };
+        let state = AppState::Welcome(Welcome::new());
 
         let start_result = eframe::WebRunner::new()
             .start(
                 canvas,
                 web_options,
-                Box::new(move |cc| Ok(Box::new(App::new(cc, executor, state)))),
+                Box::new(move |cc| Ok(Box::new(App::new(cc, pool, state)))),
             )
             .await;
 
@@ -146,7 +148,7 @@ struct App {
 }
 
 impl App {
-    fn new(cc: &CreationContext, executor: Arc<Executor<'static>>, state: AppState) -> Self {
+    fn new(cc: &CreationContext, pool: Arc<Pool>, state: AppState) -> Self {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         cc.egui_ctx.tessellation_options_mut(|o| {
             // Rounding causes jitter and gaps in timeline logic traces
@@ -159,7 +161,7 @@ impl App {
 
         App {
             state,
-            vctx: ViewerContext::new(executor, &cc.egui_ctx),
+            vctx: ViewerContext::new(pool, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
         }
     }
@@ -234,9 +236,14 @@ impl App {
         let is_anything_being_dragged = ui.ctx().dragged_id().is_some();
         let down = ui.input(|input| input.pointer.primary_down());
         let focused = ui.input(|i| i.focused);
+
+        let pool_stats = self.vctx.pool().stats();
+        let pool_usage = pool_stats.cache_usage as f32 / 1024.0 / 1024.0;
+        let pool_limit = pool_stats.cache_limit as f32 / 1024.0 / 1024.0;
+
         if let Some(frame_time) = self.frame_time_history.average() {
             ui.label(format!(
-                "Mean CPU usage: {:.2} ms / frame. Dragging: {is_anything_being_dragged}, down: {down}, focus: {focused}",
+                "Mean CPU usage: {:.2} ms / frame. Dragging: {is_anything_being_dragged}, down: {down}, focus: {focused}, cache: {pool_usage:.2} MiB / {pool_limit:.2} MiB",
                 1e3 * frame_time
             ));
         }

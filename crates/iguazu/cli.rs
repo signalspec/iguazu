@@ -3,7 +3,7 @@ use std::{path::PathBuf, pin::Pin, sync::Arc};
 use async_executor::Executor;
 use clap::Args;
 
-use crate::{export::ExportFormat, import::{ImportError, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile, StdinFile}, schema::{EntitySchema, EntityStream, Path}};
+use crate::{export::ExportFormat, import::{ImportError, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile, StdinFile}, schema::{EntitySchema, EntityStream, Path}, storage::Pool};
 
 #[derive(Args, Clone, Debug)]
 #[group(requires = "filename")] // Allow `ImportOpts` to be optional (https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717)
@@ -94,10 +94,10 @@ impl ImportOpts {
     /// Run the import.
     ///
     /// Returns the imported entity, as well as a future that completes when the import is fully done.
-    pub async fn import(&self, importers: ImportFormats<'_>, executor: Arc<Executor<'static>>) -> Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), String> {
+    pub async fn import(&self, importers: ImportFormats<'_>, pool: Arc<Pool>) -> Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), String> {
         let importer = self.importer(importers).await?;
         let schema = self.schema().await?;
-        let (mut entity, completion) = importer.import(schema, executor).await
+        let (mut entity, completion) = importer.import(schema, pool).await
             .map_err(|e| format!("Failed to import {}: {}", self.filename.display(), e))?;
 
         if let Some(ref entity_path) = self.entity {
