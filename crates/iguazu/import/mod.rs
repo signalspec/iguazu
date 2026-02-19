@@ -1,3 +1,12 @@
+use std::{pin::Pin, sync::Arc};
+
+use async_executor::Executor;
+use thiserror::Error;
+
+use crate::{io::ReadableFile, schema::{EntitySchema, EntityStream}};
+
+mod column_parser;
+
 mod flat_file;
 mod json_virtual;
 #[cfg(feature = "csv")]
@@ -5,13 +14,6 @@ mod csv;
 
 #[cfg(feature = "izs")]
 mod izs;
-
-use std::{pin::Pin, sync::Arc};
-
-use async_executor::Executor;
-use thiserror::Error;
-
-use crate::{io::ReadableFile, schema::{EntitySchema, EntityStream}};
 
 #[derive(Error, Debug)]
 pub enum ImportError {
