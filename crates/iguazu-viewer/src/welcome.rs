@@ -110,8 +110,8 @@ async fn pick_and_import_file(pool: Arc<Pool>) -> Option<Result<EntityStream, St
         return Some(Err(format!("No import format matched filename `{}`", filename)))
     };
 
-    let importer = format.import(file);
-    let (mut entity, _completion) = match importer.import(None, pool.clone()).await {
+    let importer = format.importer();
+    let (mut entity, _completion) = match importer.import(file, None, pool.clone()).await {
         Ok(v) => v,
         Err(e) => { return Some(Err(format!("Failed to import {}: {}", filename, e))); }
     };

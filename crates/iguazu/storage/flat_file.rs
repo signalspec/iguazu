@@ -8,11 +8,11 @@ use url::Url;
 
 use crate::{ElementType, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool, util::weak_map::WeakMap, stream::{Stream, StreamAccess, StreamDesc, StreamIter, StreamState}};
 
+#[derive(Clone)]
 pub struct FlatFileOpts {
     pub offset: u64,
     pub count: Option<u64>,
     pub block_size: usize,
-    pub element_type: ElementType,
 }
 
 impl Default for FlatFileOpts {
@@ -21,7 +21,6 @@ impl Default for FlatFileOpts {
             offset: 0,
             count: None,
             block_size: 1 << 20,
-            element_type: ElementType::U8,
         }
     }
 }
@@ -46,11 +45,10 @@ impl Debug for FlatFileStream {
 }
 
 impl FlatFileStream {
-    pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, opts: FlatFileOpts) -> Result<Self, io::Error> {
+    pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_type: ElementType, opts: &FlatFileOpts) -> Result<Self, io::Error> {
         let file_len = file.clone().get_len().await?;
 
         let offset = opts.offset;
-        let element_type = opts.element_type;
         let count = opts.count.or(file_len.checked_div(element_type.bytes() as u64)).unwrap_or(0);
         let block_size = opts.block_size;
         let block_size_bytes = block_size.saturating_mul(element_type.bytes() as usize);
@@ -71,10 +69,14 @@ impl FlatFileStream {
         self.offset
     }
 
-    pub async fn entity(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, schema: EntitySchema, opts: FlatFileOpts) -> Result<EntityStream, ImportError> {
-        let (_field, _stride) = schema.single_stream()
+    pub async fn entity(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, schema: EntitySchema, opts: &FlatFileOpts) -> Result<EntityStream, ImportError> {
+        let (field, _stride) = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
-        let stream = Self::new(file, pool, opts).await.map_err(ImportError::Io)?;
+
+        let element_type = ElementType::from_bits(field.kind.width())
+            .ok_or_else(|| ImportError::SchemaMismatch(format!("Field is {} bits wide. Must be <= 64.", field.kind.width())))?;
+
+        let stream = Self::new(file, pool, element_type, &opts).await.map_err(ImportError::Io)?;
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 

@@ -2,7 +2,7 @@ use std::iter;
 use std::{pin::Pin, sync::Arc};
 use std::future;
 
-use csv_core::ReadRecordResult;
+use csv_core::{ReadRecordResult, ReaderBuilder};
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
 
@@ -11,69 +11,64 @@ use crate::storage::Pool;
 use crate::{io::ReadableFile, schema::EntitySchema};
 use super::{ImportError, Importer, column_parser::ColumnParser};
 
+/// Importer for CSV / TSV and similar formats.
 pub struct CsvImporter {
-    file: Arc<dyn ReadableFile>,
-    opts: CsvOptions,
+    csv_opts: ReaderBuilder,
+    headers: CsvHeaders,
+    start_row: u64,
 }
 
-impl CsvImporter {
-    fn new(file: Arc<dyn ReadableFile>) -> Self {
-        CsvImporter {
-            file,
-            opts: CsvOptions::default(),
-        }
-    }
-}
-
-impl Importer for CsvImporter {
-    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + '_>> {
-        Box::pin(future::ready(Err(ImportError::SchemaMismatch("Schema must currently be specified for CSV".into()))))
-    }
-
-    fn import(self: Box<Self>, schema: Option<EntitySchema>, _executor: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
-        Box::pin(async {
-            let schema = schema.ok_or_else(|| ImportError::SchemaMismatch("Schema must be specified for CSV import".into()))?;
-            let file_stream = self.file.stream().await?;
-            let (entity, completion) = load(file_stream, self.opts, schema).await?;
-            Ok((entity, Box::pin(completion) as Pin<Box<_>>))
-        })
-    }
-}
-
-pub fn csv(file: Arc<dyn ReadableFile>) -> Box<dyn Importer> {
-    Box::new(CsvImporter::new(file))
-}
-
-pub fn tsv(file: Arc<dyn ReadableFile>) -> Box<dyn Importer> {
-    Box::new(CsvImporter::new(file))
-}
-
-pub struct CsvOptions {
-    pub delimiter: u8,
-    pub headers: CsvHeaders,
-    pub start_row: u64,
-}
-
-pub enum CsvHeaders {
+enum CsvHeaders {
     Row(u64),
     Specified(Vec<String>),
 }
 
-impl Default for CsvOptions {
-    fn default() -> Self {
-        CsvOptions {
-            delimiter: b',',
+impl CsvImporter {
+    pub fn csv() -> Self {
+        Self {
+            csv_opts: ReaderBuilder::new(),
             headers: CsvHeaders::Row(1),
             start_row: 2,
         }
     }
+
+    pub fn tsv() -> Self {
+        Self::csv().with_delimiter(b'\t')
+    }
+
+    fn with_delimiter(mut self, delimiter: u8) -> Self {
+        self.csv_opts.delimiter(delimiter);
+        self
+    }
+
+    /// Load input from `AsyncBufRead`.
+    pub async fn load(&self, stream: Pin<Box<dyn AsyncBufRead + Send>>, schema: EntitySchema) -> Result<(EntityStream, impl Future<Output = Result<(), ImportError>> + 'static), ImportError> {
+        let mut csv = CsvParser::new(stream, self.csv_opts.build());
+        let headers = read_header(&mut csv, &self.headers, self.start_row).await?;
+        log::info!("found headers {:?}", headers);
+
+        let (mut parsers, entity) = column_parsers(&schema, &headers)?;
+
+        Ok((entity, async move {
+            csv.read_rows(ColumnsHandler(&mut parsers)).await?;
+            log::info!("import completed, {} lines", csv.reader.line());
+            Ok(())
+        }))
+    }
 }
 
-impl CsvOptions {
-    fn reader(&self) -> csv_core::Reader {
-        csv_core::ReaderBuilder::new()
-            .delimiter(self.delimiter)
-            .build()
+impl Importer for CsvImporter {
+    fn load_schema(&self, _file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + '_>> {
+        Box::pin(future::ready(Err(ImportError::SchemaMismatch("Schema must currently be specified for CSV".into()))))
+    }
+
+    fn import(&self, file: Arc<dyn ReadableFile>, schema: Option<EntitySchema>, _pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
+        Box::pin(async {
+            let schema = schema.ok_or_else(|| ImportError::SchemaMismatch("Schema must be specified for CSV import".into()))?;
+            let file_stream = file.stream().await?;
+            let (entity, completion) = self.load(file_stream, schema).await?;
+            Ok((entity, Box::pin(completion) as Pin<Box<_>>))
+        })
     }
 }
 
@@ -135,8 +130,7 @@ struct CsvParser {
 }
 
 impl CsvParser {
-    fn new(source: Pin<Box<dyn AsyncBufRead + Send>>, opts: &CsvOptions) -> Self {
-        let reader = opts.reader();
+    fn new(source: Pin<Box<dyn AsyncBufRead + Send>>, reader: csv_core::Reader) -> Self {
         CsvParser {
             source,
             reader,
@@ -260,21 +254,6 @@ async fn read_header(csv: &mut CsvParser, header_opt: &CsvHeaders, start_row: u6
     header
 }
 
-pub async fn load(stream: Pin<Box<dyn AsyncBufRead + Send>>, opts: CsvOptions, schema: EntitySchema) -> Result<(EntityStream, impl Future<Output = Result<(), ImportError>> + ), ImportError> {
-    let mut csv = CsvParser::new(stream, &opts);
-
-    let headers = read_header(&mut csv, &opts.headers, opts.start_row).await?;
-    log::info!("found headers {:?}", headers);
-
-    let (mut parsers, entity) = column_parsers(&schema, &headers)?;
-
-    Ok((entity, async move {
-        csv.read_rows(ColumnsHandler(&mut parsers)).await?;
-        log::info!("import completed, {} lines", csv.reader.line());
-        Ok(())
-    }))
-}
-
 #[test]
 fn test_csv() {
     use std::str::FromStr;
@@ -284,7 +263,7 @@ fn test_csv() {
 
     let file = Box::pin(Cursor::new(b"timestamp,value,str\n2025-01-01T00:00:01Z,1.0,abc\n2025-01-01T00:00:01.100Z,2.0,defg\n"));
 
-    let opts = CsvOptions::default();
+    let importer = CsvImporter::csv();
 
     let schema = Entity::Record {
         children: IndexMap::from([
@@ -313,7 +292,7 @@ fn test_csv() {
         attributes: Default::default(),
     };
 
-    let (entity, completion) = block_on(load(file, opts, schema)).unwrap();
+    let (entity, completion) = block_on(importer.load(file, schema)).unwrap();
     block_on(completion).unwrap();
 
     let vm = crate::view::ViewManager::new(std::task::Waker::noop().clone());

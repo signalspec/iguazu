@@ -7,12 +7,20 @@ use crate::{io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Poo
 mod column_parser;
 
 mod flat_file;
+pub use flat_file::FlatFileImporter;
+
 mod json_virtual;
+pub use json_virtual::VirtualImporter;
+
 #[cfg(feature = "csv")]
 mod csv;
+#[cfg(feature = "csv")]
+pub use csv::CsvImporter;
 
 #[cfg(feature = "izs")]
 mod izs;
+#[cfg(feature = "izs")]
+pub use izs::IzsImporter;
 
 #[derive(Error, Debug)]
 pub enum ImportError {
@@ -26,17 +34,37 @@ pub enum ImportError {
     InvalidFile(String),
 }
 
-pub trait Importer {
-    fn load_schema(&mut self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>>;
+/// An object that holds the import options and can perform the import.
+///
+/// This is essentially a builder type for the import format, designed to be used behind `Box<dyn Importer>`.
+pub trait Importer: Send {
+    /// Load or infer the schema from a file.
+    fn load_schema(&self, file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>>;
 
-    fn import(self: Box<Self>, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>>;
+    /// Import a file.
+    ///
+    /// This returns a future that resolves once the metadata has been read,
+    /// providing the [`EntityStream`] and a second future that resolves once
+    /// the entire import is complete. Depending on the format, that may be
+    /// immediately ready or may require reading and parsing the file.
+    fn import(&self, file: Arc<dyn ReadableFile>, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>>;
 }
 
+/// A description of an import format.
 pub struct ImportFormat {
+    /// Internal identifier for the format.
+    ///
+    /// This should uniquely identify the format.
     pub name: &'static str,
+
+    /// A human-readable description of the format.
     pub description: &'static str,
+
+    /// Filename extensions to detect, including the leading `.`.
     pub extensions: &'static [&'static str],
-    pub import: fn (Arc<dyn ReadableFile>) -> Box<dyn Importer>,
+
+    /// Create an [`Importer`].
+    pub importer: fn () -> Box<dyn Importer>,
 }
 
 impl ImportFormat {
@@ -44,23 +72,24 @@ impl ImportFormat {
         self.extensions.iter().any(|ext| name.ends_with(ext))
     }
 
-    pub fn import(&self, file: Arc<dyn ReadableFile>) -> Box<dyn Importer> {
-        (self.import)(file)
+    pub fn importer(&self) -> Box<dyn Importer> {
+        (self.importer)()
     }
 }
 
+/// A wrapper around `&[ImportFormat]` that provides methods for selecting a format.
 pub struct ImportFormats<'a>(&'a [ImportFormat]);
 
-impl ImportFormats<'_> {
-    pub fn iter(&self) -> std::slice::Iter<'_, ImportFormat> {
+impl<'a> ImportFormats<'a> {
+    pub fn iter(&self) -> std::slice::Iter<'a, ImportFormat> {
         self.0.as_ref().iter()
     }
 
-    pub fn by_name(&self, name: &str) -> Option<&ImportFormat> {
+    pub fn by_name(&self, name: &str) -> Option<&'a ImportFormat> {
         self.iter().find(|imp| imp.name.eq_ignore_ascii_case(name))
     }
 
-    pub fn first_for_filename(&self, fname: &str) -> Option<&ImportFormat> {
+    pub fn first_for_filename(&self, fname: &str) -> Option<&'a ImportFormat> {
         self.iter().find(|imp| imp.matches_filename(fname))
     }
 }
@@ -78,7 +107,7 @@ pub const VIRTUAL: ImportFormat = ImportFormat {
     name: "virtual",
     description: "Iguazu Virtual JSON",
     extensions: &[".iguazu.json"],
-    import: json_virtual::importer,
+    importer: || Box::new(json_virtual::VirtualImporter::new()),
 };
 
 #[cfg(feature = "izs")]
@@ -86,21 +115,21 @@ pub const IZS: ImportFormat = ImportFormat {
     name: "izs",
     description: "Iguazu Pack",
     extensions: &[".izs"],
-    import: izs::importer,
+    importer: || Box::new(izs::IzsImporter::new()),
 };
 
 pub const BIN: ImportFormat = ImportFormat {
     name: "bin",
     description: "Raw binary",
     extensions: &[".bin"],
-    import: flat_file::binary,
+    importer: || Box::new(flat_file::FlatFileImporter::binary()),
 };
 
 pub const LOGIC8: ImportFormat = ImportFormat {
     name: "logic8",
     description: "Raw binary (8 bit logic trace)",
     extensions: &[".logic8"],
-    import: flat_file::logic8,
+    importer: || Box::new(flat_file::FlatFileImporter::logic8())
 };
 
 #[cfg(feature = "csv")]
@@ -108,7 +137,7 @@ pub const CSV: ImportFormat = ImportFormat {
     name: "csv",
     description: "Comma-separated values",
     extensions: &[".csv"],
-    import: csv::csv
+    importer: || Box::new(csv::CsvImporter::csv()),
 };
 
 #[cfg(feature = "csv")]
@@ -116,7 +145,7 @@ pub const TSV: ImportFormat = ImportFormat {
     name: "tsv",
     description: "Tab-separated values",
     extensions: &[".tsv"],
-    import: csv::tsv
+    importer: || Box::new(csv::CsvImporter::tsv())
 };
 
 pub const IMPORTERS: ImportFormats<'static> = ImportFormats(&[
