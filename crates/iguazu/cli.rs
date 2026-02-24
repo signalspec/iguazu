@@ -12,8 +12,8 @@ pub struct ImportOpts {
     #[arg(required = false)]
     pub filename: PathBuf,
 
-    /// Input format (if not specified, inferred from filename)
-    #[clap(short = 'f', long)]
+    /// Input format and `:` separated options (if not specified, inferred from filename)
+    #[clap(short = 'f', long, value_name = "FORMAT[:OPTION=VALUE:OPTION=VALUE...]")]
     pub format: Option<String>,
 
     /// Schema override from file
@@ -26,14 +26,28 @@ pub struct ImportOpts {
 }
 
 impl ImportOpts {
+    fn format_name(&self) -> Option<&str> {
+        self.format.as_deref().and_then(|fmt| {
+            fmt.split(':').next()
+        })
+    }
+
+    fn format_options(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.format.as_deref()
+            .unwrap_or("")
+            .split(':')
+            .skip(1)
+            .map(|opt| opt.split_once('=').unwrap_or((opt, "")))
+    }
+
     /// Find the format to use.
     ///
     /// This is either the importer explicitly specified by `--format`,
     /// or the first importer that matches the filename.
     pub fn format<'a>(&self, importers: ImportFormats<'a>) -> Result<&'a ImportFormat, String> {
-        if let Some(ref fmt) = self.format {
+        if let Some(ref fmt) = self.format_name() {
             importers.by_name(fmt).ok_or_else(|| {
-                format!("No import format named `{}`", fmt)
+                format!("No import format `{}`", fmt)
             })
         } else {
             importers.first_for_filename(self.filename.to_str().unwrap()).ok_or_else(|| {
@@ -43,7 +57,25 @@ impl ImportOpts {
     }
 
     pub fn importer(&self, importers: ImportFormats<'_>) -> Result<Box<dyn Importer>, String> {
-        Ok(self.format(importers)?.importer())
+        let mut importer = self.format(importers)?.importer();
+        let mut errors = Vec::new();
+
+        for (opt, val) in self.format_options() {
+            match importer.set(opt, val) {
+                Ok(()) => (),
+                Err(e) => errors.push((opt, e)),
+            }
+        }
+
+        if !errors.is_empty() {
+            let mut msg = "Invalid import options".to_string();
+            for (opt, err) in errors {
+                msg.push_str(&format!("\n  - {}: {}", opt, err));
+            }
+            return Err(msg);
+        }
+
+        Ok(importer)
     }
 
     /// Get the source file.

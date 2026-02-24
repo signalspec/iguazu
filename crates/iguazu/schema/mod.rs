@@ -236,6 +236,10 @@ impl<S> Entity<S> {
         self.attributes().get(attr.into())
     }
 
+    pub fn remove_attribute<A: Into<AttributeValue>>(&mut self, attr: Attribute<A>) {
+        self.attributes_mut().remove(attr.into());
+    }
+
     pub fn set_attribute<A: Into<AttributeValue>>(&mut self, attr: Attribute<A>, val: A) {
         self.attributes_mut().insert(attr.into(), val);
     }

@@ -107,6 +107,10 @@ impl AttributeMap {
         self.attributes.insert(attr.into(), val.into());
     }
 
+    pub fn remove(&mut self, attr: &str) {
+        self.attributes.shift_remove(attr);
+    }
+
     pub fn items(&self) -> impl Iterator<Item = (&str, &AttributeValue)> {
         self.attributes.iter().map(|(k, v)| (k.as_ref(), v))
     }
