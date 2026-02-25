@@ -14,9 +14,9 @@ use crate::import::ImportError;
 use crate::izs::{self, CompressionMethod, FileMeta, Footer};
 use crate::schema::EntityStream;
 use crate::storage::Pool;
-use crate::stream::{StreamAccess, StreamIter, Stream, StreamDesc, StreamState};
+use crate::stream::{StreamAccess, StreamIter, Stream, BlockDesc, StreamState};
 use crate::util::weak_map::WeakMap;
-use crate::{io::ReadableFile, ElementType};
+use crate::{io::ReadableFile, ElementSize};
 
 pub async fn load_meta(file: Arc<dyn ReadableFile>) -> Result<FileMeta, ImportError> {
     let len = file.clone().get_len().await?;
@@ -44,8 +44,7 @@ pub async fn load(file: Arc<dyn ReadableFile>, pool: Arc<Pool>) -> Result<Entity
             let stream = IzsStream {
                 id: s.root,
                 shared: shared,
-                block_size: s.block_size,
-                element_type: s.element_type,
+                block_desc: BlockDesc { element_size: s.element, count: s.block },
                 compress: s.compress,
                 block_offsets,
                 block_lengths,
@@ -72,8 +71,7 @@ struct IzsStream {
     shared: Arc<Shared>,
     id: u64,
 
-    element_type: ElementType,
-    block_size: usize,
+    block_desc: BlockDesc,
 
     compress: CompressionMethod,
 
@@ -106,7 +104,7 @@ impl IzsStream {
             return LoadBlockRes::Cached(buf);
         }
 
-        let block_bytes = self.block_size * self.element_type.bytes();
+        let block_bytes = self.block_desc.size();
         let compression = self.compress;
         let len = self.block_lengths[block as usize] as usize;
         log::debug!("Loading block {block} of {}:{:x} at {} len {}", self.shared.file.filename().unwrap_or("<unknown>"), self.id, offset, len);
@@ -140,11 +138,8 @@ impl Debug for IzsStream {
 }
 
 impl Stream for IzsStream {
-    fn desc(&self) -> StreamDesc {
-        StreamDesc {
-            element_type: self.element_type,
-            block_size: self.block_size
-        }
+    fn desc(&self) -> BlockDesc {
+        self.block_desc
     }
 
     fn state(&self) -> StreamState {
@@ -276,8 +271,8 @@ enum IterState {
 }
 
 impl StreamIter for IzsStreamIter {
-    fn element_type(&self) -> ElementType {
-        self.stream.element_type
+    fn element_type(&self) -> ElementSize {
+        self.stream.block_desc.element_size
     }
 
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
@@ -301,17 +296,17 @@ impl StreamIter for IzsStreamIter {
                     }
                 }
                 IterState::Loaded(ref buf) => {
-                    return Poll::Ready(Ok(&buf[self.pos * self.stream.element_type.bytes()..]));
+                    return Poll::Ready(Ok(&buf[self.pos * self.stream.block_desc.element_size.bytes()..]));
                 }
             }
         }
     }
 
     fn consume(&mut self, len: usize) {
-        debug_assert!(self.pos + len <= self.stream.block_size);
+        debug_assert!(self.pos + len <= self.stream.block_desc.count);
         self.pos += len;
 
-        if self.pos >= self.stream.block_size {
+        if self.pos >= self.stream.block_desc.count {
             self.block += 1;
             self.pos = 0;
             self.state = IterState::Empty;

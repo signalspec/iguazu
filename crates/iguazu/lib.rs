@@ -10,7 +10,7 @@ pub mod time;
 mod util;
 mod element;
 mod izs;
-pub use element::{Element, ElementType};
+pub use element::{Element, ElementSize};
 
 #[cfg(all(feature="clap", any(target_family = "unix", target_family = "windows")))]
 pub mod cli;

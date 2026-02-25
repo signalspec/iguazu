@@ -6,7 +6,7 @@ use futures_lite::{AsyncBufRead, FutureExt};
 use once_array::OnceArray;
 use url::Url;
 
-use crate::{ElementType, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool, util::weak_map::WeakMap, stream::{Stream, StreamAccess, StreamDesc, StreamIter, StreamState}};
+use crate::{ElementSize, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool, util::weak_map::WeakMap, stream::{Stream, StreamAccess, BlockDesc, StreamIter, StreamState}};
 
 #[derive(Clone)]
 pub struct FlatFileOpts {
@@ -29,9 +29,7 @@ pub struct FlatFileStream {
     file: Arc<dyn ReadableFile>,
     offset: u64,
     count: u64,
-    block_size: usize,
-    block_size_bytes: usize,
-    element_type: ElementType,
+    block_desc: BlockDesc,
     cache: Mutex<WeakMap<u64, OnceArray<u8>>>,
     pool: Arc<Pool>,
 }
@@ -45,24 +43,24 @@ impl Debug for FlatFileStream {
 }
 
 impl FlatFileStream {
-    pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_type: ElementType, opts: &FlatFileOpts) -> Result<Self, io::Error> {
+    pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_size: ElementSize, opts: &FlatFileOpts) -> Result<Self, io::Error> {
         let file_len = file.clone().get_len().await?;
 
         let offset = opts.offset;
-        let count = opts.count.or(file_len.checked_div(element_type.bytes() as u64)).unwrap_or(0);
-        let block_size = opts.block_size;
-        let block_size_bytes = block_size.saturating_mul(element_type.bytes() as usize);
+        let count = opts.count.or(file_len.checked_div(element_size.bytes() as u64)).unwrap_or(0);
+        let block_desc = BlockDesc { element_size, count: opts.block_size };
+
         let cache = Mutex::new(WeakMap::new());
 
-        Ok(FlatFileStream { file, offset, count, block_size, block_size_bytes, element_type, cache, pool })
+        Ok(FlatFileStream { file, offset, count, block_desc, cache, pool })
     }
 
     pub fn url(&self) -> Option<Url> {
         self.file.url()
     }
 
-    pub fn element_type(&self) -> ElementType {
-        self.element_type
+    pub fn element_size(&self) -> ElementSize {
+        self.block_desc.element_size
     }
 
     pub fn offset(&self) -> u64 {
@@ -73,7 +71,7 @@ impl FlatFileStream {
         let (field, _stride) = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
 
-        let element_type = ElementType::from_bits(field.kind.width())
+        let element_type = ElementSize::from_bits(field.kind.width())
             .ok_or_else(|| ImportError::SchemaMismatch(format!("Field is {} bits wide. Must be <= 64.", field.kind.width())))?;
 
         let stream = Self::new(file, pool, element_type, &opts).await.map_err(ImportError::Io)?;
@@ -81,13 +79,13 @@ impl FlatFileStream {
     }
 
     fn block_offset(&self, block: u64) -> u64 {
-        self.offset.saturating_add((self.block_size_bytes as u64).saturating_mul(block))
+        self.offset.saturating_add((self.block_desc.size() as u64).saturating_mul(block))
     }
 
     fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Vec<u8>, io::Error>> + Send + 'static {
         log::debug!("Loading block {block} of {}", self.file.filename().unwrap_or("<unknown>"));
         let offset = self.block_offset(block);
-        self.file.clone().read_at(offset, self.block_size_bytes)
+        self.file.clone().read_at(offset, self.block_desc.size())
     }
 
     fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send> {
@@ -106,11 +104,8 @@ impl FlatFileStream {
 }
 
 impl Stream for FlatFileStream {
-    fn desc(&self) -> StreamDesc {
-        StreamDesc {
-            element_type: self.element_type,
-            block_size: self.block_size
-        }
+    fn desc(&self) -> BlockDesc {
+        self.block_desc
     }
 
     fn state(&self) -> StreamState {
@@ -233,8 +228,8 @@ struct FileStreamIter {
 }
 
 impl StreamIter for FileStreamIter {
-    fn element_type(&self) -> ElementType {
-        self.stream.element_type
+    fn element_type(&self) -> ElementSize {
+        self.stream.block_desc.element_size
     }
 
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
@@ -251,6 +246,6 @@ impl StreamIter for FileStreamIter {
     }
 
     fn consume(&mut self, len: usize) {
-        self.file_stream.as_mut().consume(len * self.stream.element_type.bytes());
+        self.file_stream.as_mut().consume(len * self.stream.block_desc.element_size.bytes());
     }
 }

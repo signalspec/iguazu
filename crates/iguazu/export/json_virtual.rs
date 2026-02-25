@@ -30,7 +30,7 @@ fn stream_ref(stream: &ArcStream, base: &Url) -> Result<StreamRef, ExportError> 
             .ok_or_else(|| ExportError::UnsupportedStream(format!("Stream from `{url}` is not relative to `{base}`")))?;
         Ok(StreamRef::FlatFile {
             file_name: relative,
-            element_type: stream.element_type(),
+            element_size: stream.element_size(),
             offset: stream.offset(),
         })
     } else {

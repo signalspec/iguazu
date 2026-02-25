@@ -6,7 +6,7 @@ use futures_lite::ready;
 use indexmap::IndexMap;
 use num_traits::Float;
 
-use crate::{schema::{Field, FieldKind, Summary}, storage::Storage, stream::ArcStream, Element, ElementType};
+use crate::{schema::{Field, FieldKind, Summary}, storage::Storage, stream::ArcStream, Element, ElementSize};
 
 pub fn build_default_summaries(executor: &Executor<'static>, storage: &dyn Storage, stream: &ArcStream, field: &Field, summaries: &mut IndexMap<EcoString, Summary<ArcStream>>) {
     match field.kind {
@@ -60,7 +60,7 @@ fn make_summary<T: Element + Default, const N: usize, const R: usize>(
     mut f: impl FnMut([T; N]) -> [T; R] + Send + 'static
 ) -> (Task<Result<(), String>>, ArcStream) {
 
-    let mut output = storage.create_stream(T::ELEMENT_TYPE);
+    let mut output = storage.create_stream(T::ELEMENT_SIZE);
     let output_stream = output.stream();
 
     let task = executor.spawn(async move {
@@ -112,11 +112,11 @@ pub(crate) fn bit_summary1(executor: &Executor<'static>, storage: &dyn Storage, 
         [a & b & c & d, a | b | c | d]
     }
 
-    Some(match stream.desc().element_type {
-        ElementType::U8 => make_summary(executor, storage, stream, bit_and_or_initial::<u8>),
-        ElementType::U16 => make_summary(executor, storage, stream, bit_and_or_initial::<u16>),
-        ElementType::U32 => make_summary(executor, storage, stream, bit_and_or_initial::<u32>),
-        ElementType::U64 => make_summary(executor,storage, stream, bit_and_or_initial::<u64>),
+    Some(match stream.desc().element_size {
+        ElementSize::U8 => make_summary(executor, storage, stream, bit_and_or_initial::<u8>),
+        ElementSize::U16 => make_summary(executor, storage, stream, bit_and_or_initial::<u16>),
+        ElementSize::U32 => make_summary(executor, storage, stream, bit_and_or_initial::<u32>),
+        ElementSize::U64 => make_summary(executor,storage, stream, bit_and_or_initial::<u64>),
     })
 }
 
@@ -125,11 +125,11 @@ pub(crate) fn bit_summary_reduce(executor: &Executor<'static>, storage: &dyn Sto
         [min1 & min2, max1 | max2]
     }
 
-    Some(match stream.desc().element_type {
-        ElementType::U8 => make_summary(executor, storage, stream, bit_and_or_reduce::<u8>),
-        ElementType::U16 => make_summary(executor, storage, stream, bit_and_or_reduce::<u16>),
-        ElementType::U32 => make_summary(executor, storage, stream, bit_and_or_reduce::<u32>),
-        ElementType::U64 => make_summary(executor, storage, stream, bit_and_or_reduce::<u64>),
+    Some(match stream.desc().element_size {
+        ElementSize::U8 => make_summary(executor, storage, stream, bit_and_or_reduce::<u8>),
+        ElementSize::U16 => make_summary(executor, storage, stream, bit_and_or_reduce::<u16>),
+        ElementSize::U32 => make_summary(executor, storage, stream, bit_and_or_reduce::<u32>),
+        ElementSize::U64 => make_summary(executor, storage, stream, bit_and_or_reduce::<u64>),
     })
 }
 
@@ -142,17 +142,17 @@ fn range_summary1(executor: &Executor<'static>, storage: &dyn Storage, stream: A
         [a.min(b).min(c).min(d), a.max(b).max(c).max(d)]
     }
 
-    Some(match (&field.kind, stream.desc().element_type) {
-        (FieldKind::Int { .. }, ElementType::U8) => make_summary(executor, storage, stream, min_max_initial::<u8>),
-        (FieldKind::Int { .. }, ElementType::U16) => make_summary(executor, storage, stream, min_max_initial::<u16>),
-        (FieldKind::Int { .. }, ElementType::U32) => make_summary(executor, storage, stream, min_max_initial::<u32>),
-        (FieldKind::Int { .. }, ElementType::U64) => make_summary(executor, storage, stream, min_max_initial::<u64>),
-        (FieldKind::Signed { bits: 8 }, ElementType::U8) => make_summary(executor, storage, stream, min_max_initial::<i8>),
-        (FieldKind::Signed { bits: 16 }, ElementType::U16) => make_summary(executor, storage, stream, min_max_initial::<i16>),
-        (FieldKind::Signed { bits: 32 }, ElementType::U32) => make_summary(executor, storage, stream, min_max_initial::<i32>),
-        (FieldKind::Signed { bits: 64 }, ElementType::U64) => make_summary(executor, storage, stream, min_max_initial::<i64>),
-        (FieldKind::Float32, ElementType::U32) => make_summary(executor, storage, stream, min_max_initial_float::<f32>),
-        (FieldKind::Float64, ElementType::U64) => make_summary(executor, storage, stream, min_max_initial_float::<f64>),
+    Some(match (&field.kind, stream.desc().element_size) {
+        (FieldKind::Int { .. }, ElementSize::U8) => make_summary(executor, storage, stream, min_max_initial::<u8>),
+        (FieldKind::Int { .. }, ElementSize::U16) => make_summary(executor, storage, stream, min_max_initial::<u16>),
+        (FieldKind::Int { .. }, ElementSize::U32) => make_summary(executor, storage, stream, min_max_initial::<u32>),
+        (FieldKind::Int { .. }, ElementSize::U64) => make_summary(executor, storage, stream, min_max_initial::<u64>),
+        (FieldKind::Signed { bits: 8 }, ElementSize::U8) => make_summary(executor, storage, stream, min_max_initial::<i8>),
+        (FieldKind::Signed { bits: 16 }, ElementSize::U16) => make_summary(executor, storage, stream, min_max_initial::<i16>),
+        (FieldKind::Signed { bits: 32 }, ElementSize::U32) => make_summary(executor, storage, stream, min_max_initial::<i32>),
+        (FieldKind::Signed { bits: 64 }, ElementSize::U64) => make_summary(executor, storage, stream, min_max_initial::<i64>),
+        (FieldKind::Float32, ElementSize::U32) => make_summary(executor, storage, stream, min_max_initial_float::<f32>),
+        (FieldKind::Float64, ElementSize::U64) => make_summary(executor, storage, stream, min_max_initial_float::<f64>),
         _ => return None,
     })
 }
@@ -166,17 +166,17 @@ fn range_summary_reduce(executor: &Executor<'static>, storage: &dyn Storage, str
         [min1.min(min2), max1.max(max2)]
     }
 
-    Some(match (&field.kind, stream.desc().element_type) {
-        (FieldKind::Int { .. }, ElementType::U8) => make_summary(executor, storage, stream, min_max_reduce::<u8>),
-        (FieldKind::Int { .. }, ElementType::U16) => make_summary(executor, storage, stream, min_max_reduce::<u16>),
-        (FieldKind::Int { .. }, ElementType::U32) => make_summary(executor, storage, stream, min_max_reduce::<u32>),
-        (FieldKind::Int { .. }, ElementType::U64) => make_summary(executor, storage, stream, min_max_reduce::<u64>),
-        (FieldKind::Signed { bits: 8 }, ElementType::U8) => make_summary(executor, storage, stream, min_max_reduce::<i8>),
-        (FieldKind::Signed { bits: 16 }, ElementType::U16) => make_summary(executor, storage, stream, min_max_reduce::<i16>),
-        (FieldKind::Signed { bits: 32 }, ElementType::U32) => make_summary(executor, storage, stream, min_max_reduce::<i32>),
-        (FieldKind::Signed { bits: 64 }, ElementType::U64) => make_summary(executor, storage, stream, min_max_reduce::<i64>),
-        (FieldKind::Float32, ElementType::U32) => make_summary(executor, storage, stream, min_max_reduce_float::<f32>),
-        (FieldKind::Float64, ElementType::U64) => make_summary(executor, storage, stream, min_max_reduce_float::<f64>),
+    Some(match (&field.kind, stream.desc().element_size) {
+        (FieldKind::Int { .. }, ElementSize::U8) => make_summary(executor, storage, stream, min_max_reduce::<u8>),
+        (FieldKind::Int { .. }, ElementSize::U16) => make_summary(executor, storage, stream, min_max_reduce::<u16>),
+        (FieldKind::Int { .. }, ElementSize::U32) => make_summary(executor, storage, stream, min_max_reduce::<u32>),
+        (FieldKind::Int { .. }, ElementSize::U64) => make_summary(executor, storage, stream, min_max_reduce::<u64>),
+        (FieldKind::Signed { bits: 8 }, ElementSize::U8) => make_summary(executor, storage, stream, min_max_reduce::<i8>),
+        (FieldKind::Signed { bits: 16 }, ElementSize::U16) => make_summary(executor, storage, stream, min_max_reduce::<i16>),
+        (FieldKind::Signed { bits: 32 }, ElementSize::U32) => make_summary(executor, storage, stream, min_max_reduce::<i32>),
+        (FieldKind::Signed { bits: 64 }, ElementSize::U64) => make_summary(executor, storage, stream, min_max_reduce::<i64>),
+        (FieldKind::Float32, ElementSize::U32) => make_summary(executor, storage, stream, min_max_reduce_float::<f32>),
+        (FieldKind::Float64, ElementSize::U64) => make_summary(executor, storage, stream, min_max_reduce_float::<f64>),
         _ => return None,
     })
 }

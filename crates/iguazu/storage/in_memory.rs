@@ -11,12 +11,12 @@ use slab::Slab;
 use crate::storage::Storage;
 use crate::stream::{ArcStream, StreamWriter};
 use crate::Idx;
-use crate::{Element, ElementType, stream::{Stream, StreamAccess, StreamDesc, StreamIter, StreamState}};
+use crate::{Element, ElementSize, stream::{Stream, StreamAccess, BlockDesc, StreamIter, StreamState}};
 
 const BLOCK_SIZE: usize = 1<<16;
 
 pub struct MemoryStream {
-    element_type: ElementType,
+    element_type: ElementSize,
     blocks: FrozenVec<Arc<OnceArray<u8>>>,
     streaming: AtomicBool,
     wakers: RwLock<Slab<AtomicWaker>>,
@@ -24,10 +24,10 @@ pub struct MemoryStream {
 
 impl MemoryStream {
     pub fn new<T: Element>(data: &[T]) -> Arc<Self> {
-        Self::raw(T::ELEMENT_TYPE, bytemuck::cast_slice(data))
+        Self::raw(T::ELEMENT_SIZE, bytemuck::cast_slice(data))
     }
 
-    pub fn raw(element_type: ElementType, data: &[u8]) -> Arc<Self> {
+    pub fn raw(element_type: ElementSize, data: &[u8]) -> Arc<Self> {
         let mut writer = MemoryStreamWriter::new(element_type);
         writer.extend_from_slice(data);
         writer.commit();
@@ -58,10 +58,10 @@ impl Debug for MemoryStream {
 }
 
 impl Stream for MemoryStream {
-    fn desc(&self) -> StreamDesc {
-        StreamDesc {
-            element_type: self.element_type,
-            block_size: BLOCK_SIZE,
+    fn desc(&self) -> BlockDesc {
+        BlockDesc {
+            element_size: self.element_type,
+            count: BLOCK_SIZE,
         }
     }
 
@@ -133,7 +133,7 @@ pub struct MemoryStreamIter {
 }
 
 impl StreamIter for MemoryStreamIter {
-    fn element_type(&self) -> ElementType {
+    fn element_type(&self) -> ElementSize {
         self.stream.element_type
     }
 
@@ -187,7 +187,7 @@ pub struct MemoryStreamWriter {
 }
 
 impl MemoryStreamWriter {
-    pub fn new(element_type: ElementType) -> MemoryStreamWriter {
+    pub fn new(element_type: ElementSize) -> MemoryStreamWriter {
         let writer = OnceArrayWriter::with_capacity(BLOCK_SIZE * element_type.bytes());
         let blocks = FrozenVec::new();
         blocks.push(writer.reader().clone());
@@ -241,7 +241,7 @@ impl StreamWriter for MemoryStreamWriter {
         self.pos()
     }
 
-    fn desc(&self) -> StreamDesc {
+    fn desc(&self) -> BlockDesc {
         self.stream.desc()
     }
 
@@ -262,7 +262,7 @@ impl StreamWriter for MemoryStreamWriter {
 pub struct MemoryStorage;
 
 impl Storage for MemoryStorage {
-    fn create_stream(&self, element_type: ElementType) -> Box<dyn StreamWriter> {
+    fn create_stream(&self, element_type: ElementSize) -> Box<dyn StreamWriter> {
         Box::new(MemoryStreamWriter::new(element_type))
     }
 }

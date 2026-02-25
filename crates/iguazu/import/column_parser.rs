@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use jiff::{Timestamp, civil::DateTime, fmt::temporal::Pieces, tz::TimeZone};
 
-use crate::{ElementType, import::ImportError, schema::{Entity, EntitySchema, EntityStream, FieldKind, Ignored}, storage::MemoryStreamWriter, stream::Stream};
+use crate::{ElementSize, import::ImportError, schema::{Entity, EntitySchema, EntityStream, FieldKind, Ignored}, storage::MemoryStreamWriter, stream::Stream};
 
 #[derive(Copy, Clone)]
 pub(crate) enum TimeUnit {
@@ -55,12 +55,12 @@ impl ColumnParser {
             Entity::Data { data: Ignored, field, .. } => {
                 let (data, parser) = match &field.kind {
                     FieldKind::Float32 => {
-                        let writer = MemoryStreamWriter::new(ElementType::U32);
+                        let writer = MemoryStreamWriter::new(ElementSize::U32);
                         let data = writer.stream().clone() as Arc<dyn Stream>;
                         (data, ColumnParser::Float32(writer))
                     }
                     FieldKind::Timestamp => {
-                        let writer = MemoryStreamWriter::new(ElementType::U64);
+                        let writer = MemoryStreamWriter::new(ElementSize::U64);
                         let data = writer.stream().clone() as Arc<dyn Stream>;
 
                         let Some(rate) = field.time_rate() else {
@@ -90,12 +90,12 @@ impl ColumnParser {
             Entity::VariableArray { data: Ignored, child, attributes } => {
                 match **child {
                     Entity::Data { data: Ignored, ref field, ..} => {
-                        let ends = MemoryStreamWriter::new(ElementType::U64);
+                        let ends = MemoryStreamWriter::new(ElementSize::U64);
                         let ends_stream = ends.stream().clone() as Arc<dyn Stream>;
 
                         let (data, parser) = match &field.kind {
                             FieldKind::Character => {
-                                let chars = MemoryStreamWriter::new(ElementType::U8);
+                                let chars = MemoryStreamWriter::new(ElementSize::U8);
                                 let data = chars.stream().clone() as Arc<dyn Stream>;
                                 (data, ColumnParser::String { ends, chars })
                             }

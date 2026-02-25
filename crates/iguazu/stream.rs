@@ -1,10 +1,10 @@
 use std::{any::Any, fmt::Debug, future::poll_fn, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker, ready}};
 use once_array::OnceArrayWriter;
 
-use crate::{Idx, ElementType};
+use crate::{Idx, ElementSize};
 
 pub trait Stream: Send + Sync + Debug + Any {
-    fn desc(&self) -> StreamDesc;
+    fn desc(&self) -> BlockDesc;
 
     fn state(&self) -> StreamState;
 
@@ -26,7 +26,7 @@ pub trait StreamAccess: Send  {
 }
 
 pub trait StreamIter: Send {
-    fn element_type(&self) -> ElementType;
+    fn element_type(&self) -> ElementSize;
 
     fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>>;
 
@@ -53,10 +53,21 @@ impl dyn StreamIter {
     }
 }
 
-#[derive(Clone)]
-pub struct StreamDesc {
-    pub element_type: ElementType,
-    pub block_size: usize,
+/// Description of the layout of each block in a stream.
+#[derive(Clone, Copy, Debug)]
+pub struct BlockDesc {
+    /// Size of each element.
+    pub element_size: ElementSize,
+
+    /// Count of elements per full block.
+    pub count: usize,
+}
+
+impl BlockDesc {
+    /// Size of a full block in bytes.
+    pub fn size(&self) -> usize {
+        self.element_size.bytes() * self.count
+    }
 }
 
 #[derive(Debug)]
@@ -71,7 +82,7 @@ pub trait StreamWriter: Send {
     fn pos(&self) -> Idx;
 
     /// Get the stream descriptor.
-    fn desc(&self) -> StreamDesc;
+    fn desc(&self) -> BlockDesc;
 
     /// Access the writable buffer for the current block.
     ///

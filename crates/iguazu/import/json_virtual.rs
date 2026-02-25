@@ -36,11 +36,11 @@ async fn load(file: Arc<dyn ReadableFile>) -> Result<Entity<StreamRef>, ImportEr
 
 async fn create_stream(src_file: Arc<dyn ReadableFile>, pool: Arc<Pool>, stream: StreamRef) -> Result<ArcStream, ImportError> {
     match stream {
-        StreamRef::FlatFile { ref file_name, element_type, offset } => {
+        StreamRef::FlatFile { ref file_name, element_size, offset } => {
             let file = src_file.relative(file_name).await?;
             let mut opts = FlatFileOpts::default();
             opts.offset = offset;
-            Ok(Arc::new(FlatFileStream::new(file, pool, element_type, &opts).await?))
+            Ok(Arc::new(FlatFileStream::new(file, pool, element_size, &opts).await?))
         }
     }
 }

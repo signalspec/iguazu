@@ -1,4 +1,4 @@
-use crate::{schema::Summary, stream::{ArcStream, StreamDesc, StreamState}, view::ViewManager, Idx, IdxRange};
+use crate::{schema::Summary, stream::{ArcStream, BlockDesc, StreamState}, view::ViewManager, Idx, IdxRange};
 
 use super::IntView;
 
@@ -23,7 +23,7 @@ impl<'a> TraceView<'a> {
         }
     }
 
-    pub fn desc(&self) -> &StreamDesc {
+    pub fn desc(&self) -> &BlockDesc {
         &self.base.desc()
     }
 
@@ -161,7 +161,7 @@ fn test_traceview() {
 
     let vm = super::ViewManager::new(Waker::noop().clone());
 
-    let mut writer = MemoryStreamWriter::new(crate::ElementType::U8);
+    let mut writer = MemoryStreamWriter::new(crate::ElementSize::U8);
     writer.extend_from_slice(&[0b101; 50]);
     writer.extend_from_slice(&[0b100; 100]);
     writer.extend_from_slice(&[0b110; 2]);

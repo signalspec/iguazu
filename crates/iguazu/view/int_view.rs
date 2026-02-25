@@ -1,13 +1,13 @@
 use std::{cell::RefCell, marker::PhantomData, u64};
 
-use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess, StreamDesc, StreamState}, Element, ElementType, Idx, IdxRange};
+use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess, BlockDesc, StreamState}, Element, ElementSize, Idx, IdxRange};
 
 use super::ViewManager;
 
 #[derive(Clone)]
 pub struct IntView<'a> {
     view: &'a dyn StreamAccess,
-    desc: StreamDesc,
+    desc: BlockDesc,
     cache: RefCell<(u64, &'a [u8])>,
 }
 
@@ -24,7 +24,7 @@ impl<'a> IntView<'a> {
         Some(Self::new_from_stream(vm, stream))
     }
 
-    pub fn desc(&self) -> &StreamDesc {
+    pub fn desc(&self) -> &BlockDesc {
         &self.desc
     }
 
@@ -48,41 +48,41 @@ impl<'a> IntView<'a> {
     }
 
     pub fn get_u64(&self, idx: Idx) -> Option<u64> {
-        let block = idx / self.desc.block_size as Idx;
-        let pos = idx % self.desc.block_size as Idx;
-        let byte_pos = pos as usize * self.desc.element_type.bytes();
+        let block = idx / self.desc.count as Idx;
+        let pos = idx % self.desc.count as Idx;
+        let byte_pos = pos as usize * self.desc.element_size.bytes();
 
         let block = self.block(block);
-        Some(match self.desc.element_type {
-            ElementType::U8 => *(block.get(byte_pos)?) as u64,
-            ElementType::U16 => u16::from_le_bytes(block.get(byte_pos..byte_pos + 2)?.try_into().unwrap()) as u64,
-            ElementType::U32 => u32::from_le_bytes(block.get(byte_pos..byte_pos + 4)?.try_into().unwrap()) as u64,
-            ElementType::U64 => u64::from_le_bytes(block.get(byte_pos..byte_pos + 8)?.try_into().unwrap()),
+        Some(match self.desc.element_size {
+            ElementSize::U8 => *(block.get(byte_pos)?) as u64,
+            ElementSize::U16 => u16::from_le_bytes(block.get(byte_pos..byte_pos + 2)?.try_into().unwrap()) as u64,
+            ElementSize::U32 => u32::from_le_bytes(block.get(byte_pos..byte_pos + 4)?.try_into().unwrap()) as u64,
+            ElementSize::U64 => u64::from_le_bytes(block.get(byte_pos..byte_pos + 8)?.try_into().unwrap()),
         })
     }
-    
+
     pub fn loaded_chunks<'v, T: Element>(&'v self, range: IdxRange) -> LoadedChunkIter<'v, 'a, T> {
         LoadedChunkIter::new(self, range)
     }
 
     pub fn for_each_elem(&self, range: IdxRange, mut f: impl FnMut(Idx, Option<u64>)) {
-        let min_block = range.min / self.desc.block_size as Idx;
-        let max_block  = range.max.div_ceil(self.desc.block_size as Idx);
+        let min_block = range.min / self.desc.count as Idx;
+        let max_block  = range.max.div_ceil(self.desc.count as Idx);
 
         for block_i in min_block..max_block {
             let block = self.view.get_block(block_i);
-            let idx = (block_i as u64) * self.desc.block_size as u64;
+            let idx = (block_i as u64) * self.desc.count as u64;
 
-            let start = range.min.saturating_sub(idx).min((block.len() / self.desc.element_type.bytes()) as u64) as usize;
-            let end = range.max.saturating_sub(idx).min((block.len() / self.desc.element_type.bytes()) as u64) as usize;
+            let start = range.min.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
+            let end = range.max.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
 
-            for (i, v) in block[start * self.desc.element_type.bytes() .. end * self.desc.element_type.bytes()].chunks_exact(self.desc.element_type.bytes()).enumerate() {
+            for (i, v) in block[start * self.desc.element_size.bytes() .. end * self.desc.element_size.bytes()].chunks_exact(self.desc.element_size.bytes()).enumerate() {
                 let mut data = [0; 8];
                 data[..v.len()].copy_from_slice(v);
                 f(idx + start as u64 + i as u64, Some(u64::from_le_bytes(data)))
             }
 
-            for i in (idx + end as u64)..(range.max.min(idx + self.desc.block_size as u64)) {
+            for i in (idx + end as u64)..(range.max.min(idx + self.desc.count as u64)) {
                 f(i, None)
             }
         }
@@ -101,10 +101,10 @@ pub struct LoadedChunkIter<'v, 'a, T> {
 
 impl<'v, 'a, T: Element> LoadedChunkIter<'v, 'a, T> {
     fn new(view: &'v IntView<'a>, range: IdxRange) -> Self {
-        assert_eq!(view.desc.element_type, T::ELEMENT_TYPE, "Element type mismatch in ChunkIter");
-        let block_size = view.desc.block_size as u64;
-        let block = range.min / block_size;
-        let pos = (range.min % block_size) as usize;
+        assert_eq!(view.desc.element_size, T::ELEMENT_SIZE, "Element type mismatch in ChunkIter");
+        let elem_per_block = view.desc.count as u64;
+        let block = range.min / elem_per_block;
+        let pos = (range.min % elem_per_block) as usize;
         let remaining = range.len();
         LoadedChunkIter { view, block, pos, remaining, dtype: PhantomData }
     }
@@ -119,7 +119,7 @@ impl<'v, 'a, T: Element> Iterator for LoadedChunkIter<'v, 'a, T> {
         }
 
         let data = bytemuck::cast_slice::<u8, T>(self.view.block(self.block));
-        let is_fully_loaded = data.len() == self.view.desc.block_size;
+        let is_fully_loaded = data.len() == self.view.desc.count;
 
         if data.len() <= self.pos {
             return None;

@@ -5,7 +5,7 @@ use async_executor::Executor;
 use futures_lite::{AsyncWrite, AsyncWriteExt};
 use serde::{Deserialize, Serialize};
 
-use crate::{export::ExportError, schema::{Entity, EntityStream}, stream::ArcStream, ElementType};
+use crate::{export::ExportError, schema::{Entity, EntityStream}, stream::ArcStream, ElementSize};
 use async_lock::Mutex as AsyncMutex;
 
 pub const HEADER_MAGIC: [u8; 8] = [ 0x00, 0x21, 0x4a, 0xd9, 0xff, 0x90, 0xba, 0xed ];
@@ -62,8 +62,10 @@ pub enum CompressionMethod {
 /// Stream info in `data` of the metadata
 #[derive(Serialize, Deserialize)]
 pub struct StreamMeta {
-    pub element_type: ElementType,
-    pub block_size: usize,
+    #[serde(alias = "element_type")] // Pre-0.1
+    pub element: ElementSize,
+    #[serde(alias = "block_size")] // Pre-0.1
+    pub block: usize,
     pub root: u64,
     pub root_len: u32,
     pub end_idx: u64,
@@ -103,7 +105,7 @@ impl WriteState {
 
 async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> Result<StreamMeta, ExportError> {
     let desc = stream.desc();
-    let element_type = desc.element_type;
+    let element = desc.element_size;
     let block_size = 1024 * 1024;
 
     let mut block_offsets = Vec::new();
@@ -117,9 +119,9 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
         let offset = write.lock().await.write_block(&compressed_block).await?;
         block_offsets.push(offset);
         block_lengths.push(compressed_block.len() as u32);
-        pos += (block.len() / element_type.bytes()) as u64;
+        pos += (block.len() / element.bytes()) as u64;
 
-        if block.len() < block_size * element_type.bytes() {
+        if block.len() < block_size * element.bytes() {
             break;
         }
     }
@@ -130,8 +132,8 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
     let root_len = buf.len() as u32;
 
     Ok(StreamMeta {
-        element_type,
-        block_size,
+        element,
+        block: block_size,
         root,
         root_len,
         end_idx: pos,
