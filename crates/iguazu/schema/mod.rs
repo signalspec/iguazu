@@ -1,4 +1,4 @@
-use std::{convert::Infallible, sync::Arc};
+use std::{any::TypeId, convert::Infallible, sync::Arc};
 
 use async_executor::{ Executor, Task };
 use attribute::AttributeValue;
@@ -36,12 +36,16 @@ impl serde::Serialize for Ignored {
     }
 }
 
+fn is_ignored<T: Serialize + 'static>(_: &T) -> bool {
+    TypeId::of::<T>() == TypeId::of::<Ignored>()
+}
+
 pub type EntitySchema = Entity<Ignored>;
 pub type EntityStream = Entity<ArcStream>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all="snake_case")]
-pub enum Entity<S> {
+pub enum Entity<S: 'static> {
     Group {
         children: IndexMap<EcoString, Entity<S>>,
 
@@ -55,7 +59,9 @@ pub enum Entity<S> {
         attributes: AttributeMap,
     },
     Union {
+        #[serde(skip_serializing_if = "is_ignored")]
         data: S,
+
         variants: IndexMap<EcoString, Entity<S>>,
 
         #[serde(flatten)]
@@ -76,6 +82,7 @@ pub enum Entity<S> {
         attributes: AttributeMap,
     },
     VariableArray {
+        #[serde(skip_serializing_if = "is_ignored")]
         data: S,
         child: Box<Entity<S>>,
 
@@ -86,6 +93,8 @@ pub enum Entity<S> {
     Data {
         #[serde(flatten)]
         field: Field,
+
+        #[serde(skip_serializing_if = "is_ignored")]
         data: S,
 
         #[serde(skip_serializing_if = "IndexMap::is_empty", default = "Default::default")]
