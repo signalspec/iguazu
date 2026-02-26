@@ -27,8 +27,9 @@ impl Default for FlatFileOpts {
 
 pub struct FlatFileStream {
     file: Arc<dyn ReadableFile>,
+    file_len: u64,
     offset: u64,
-    count: u64,
+    count: Option<u64>,
     block_desc: BlockDesc,
     cache: Mutex<WeakMap<u64, OnceArray<u8>>>,
     pool: Arc<Pool>,
@@ -45,14 +46,9 @@ impl Debug for FlatFileStream {
 impl FlatFileStream {
     pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_size: ElementSize, opts: &FlatFileOpts) -> Result<Self, io::Error> {
         let file_len = file.clone().get_len().await?;
-
-        let offset = opts.offset;
-        let count = opts.count.or(file_len.checked_div(element_size.bytes() as u64)).unwrap_or(0);
         let block_desc = BlockDesc { element_size, count: opts.block_size };
-
         let cache = Mutex::new(WeakMap::new());
-
-        Ok(FlatFileStream { file, offset, count, block_desc, cache, pool })
+        Ok(FlatFileStream { file, file_len, offset: opts.offset, count: opts.count, block_desc, cache, pool })
     }
 
     pub fn url(&self) -> Option<Url> {
@@ -67,6 +63,10 @@ impl FlatFileStream {
         self.offset
     }
 
+    pub fn count(&self) -> Option<u64> {
+        self.count
+    }
+
     pub async fn entity(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, schema: EntitySchema, opts: &FlatFileOpts) -> Result<EntityStream, ImportError> {
         let (field, _stride) = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
@@ -78,14 +78,14 @@ impl FlatFileStream {
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 
-    fn block_offset(&self, block: u64) -> u64 {
-        self.offset.saturating_add((self.block_desc.size() as u64).saturating_mul(block))
-    }
-
     fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Vec<u8>, io::Error>> + Send + 'static {
         log::debug!("Loading block {block} of {}", self.file.filename().unwrap_or("<unknown>"));
-        let offset = self.block_offset(block);
-        self.file.clone().read_at(offset, self.block_desc.size())
+        let offset = block.saturating_mul(self.block_desc.size() as u64);
+        let file_offset = self.offset.saturating_add(offset);
+        let size = self.count.map(|c| (c * (self.block_desc.element_size.bytes() as u64)).saturating_sub(offset))
+            .unwrap_or(u64::MAX)
+            .min(self.block_desc.size() as u64) as usize;
+        self.file.clone().read_at(file_offset, size)
     }
 
     fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send> {
@@ -109,9 +109,11 @@ impl Stream for FlatFileStream {
     }
 
     fn state(&self) -> StreamState {
+        let end = self.count.unwrap_or(u64::MAX)
+            .min(self.file_len.saturating_sub(self.offset) / (self.block_desc.element_size.bytes() as u64));
         StreamState {
             streaming: false,
-            end: self.count,
+            end,
         }
     }
 
@@ -130,7 +132,8 @@ impl Stream for FlatFileStream {
 
     fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
         Box::pin(async move {
-            let reader = self.file.clone().stream().await?;
+            let size = self.count.map(|c| c * (self.block_desc.element_size.bytes() as u64));
+            let reader = self.file.clone().stream(self.offset, size).await?;
             Ok(Box::new(FileStreamIter::new(self.block_desc, reader)) as Box<dyn StreamIter>)
         })
     }

@@ -14,5 +14,8 @@ pub enum StreamRef {
 
         #[serde(default = "u64::zero", skip_serializing_if = "u64::is_zero")]
         offset: u64,
+
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<u64>,
     }
 }

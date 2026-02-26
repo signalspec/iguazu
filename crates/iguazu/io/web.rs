@@ -71,8 +71,13 @@ impl ReadableFile for WebFile {
         Ok(uint8_array.to_vec())
     }
 
-    async fn stream(self: Arc<Self>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
-        Ok(Box::pin(ReadableStreamReader::new(self.file.stream())))
+    async fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+        let stream = match (start, len) {
+            (0, None) => self.file.stream(),
+            (start, None) => self.file.slice_with_f64(start as f64).unwrap().stream(),
+            (start, Some(len)) => self.file.slice_with_f64_and_f64(start as f64, (start + len) as f64).unwrap().stream(),
+        };
+        Ok(Box::pin(ReadableStreamReader::new(stream)))
     }
 
     async fn relative(

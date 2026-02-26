@@ -76,8 +76,8 @@ impl ReadableFile for FsFile {
         }).await
     }
 
-    async fn stream(self: Arc<Self>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
-        Ok(Box::pin(FsFileStream::new(self)))
+    async fn stream(self: Arc<Self>, offset: u64, len: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+        Ok(Box::pin(FsFileStream::new(self, offset, len)))
     }
 
     async fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error> {
@@ -121,7 +121,14 @@ impl ReadableFile for StdinFile {
         ))
     }
 
-    async fn stream(self: Arc<Self>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+    async fn stream(self: Arc<Self>, offset: u64, size: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+        if offset != 0 || size.is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "Stdin does not support offsets or size limits",
+            ));
+        }
+
         let previously_used = self.used.swap(true, Ordering::Relaxed);
         if !previously_used {
             Ok(Box::pin(FsFileStream::stdin()))
@@ -147,21 +154,23 @@ pub struct FsFileStream {
 }
 
 impl FsFileStream {
-    pub fn new(file: Arc<FsFile>) -> Self {
+    pub fn new(file: Arc<FsFile>, mut offset: u64, mut size: Option<u64>) -> Self {
         let (reader, mut writer) = piper::pipe(2 * 1024 * 1024);
         let task = blocking::unblock(move || futures_lite::future::block_on(async {
-            let mut offset = 0;
             loop {
                 if poll_fn(|cx| writer.poll(cx)).await == false {
                     return Ok(());
                 };
-                let buf = writer.write_buf(128 * 1024);
+                let buf = writer.write_buf(size.unwrap_or(u64::MAX).min(128 * 1024) as usize);
                 let n = file.blocking_read_at(buf, offset)?;
                 if n == 0 {
                     break;
                 } else {
-                    offset += n as u64;
                     writer.produced(n);
+                    offset += n as u64;
+                    if let Some(size) = &mut size {
+                        *size -= n as u64;
+                    }
                 }
             }
             Ok(())
