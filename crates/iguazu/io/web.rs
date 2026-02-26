@@ -100,18 +100,12 @@ impl WebFetchFile {
         WebFetchFile { url }
     }
 
-    async fn fetch_range(self: Arc<Self>, offset: u64, len: Option<u64>) -> Result<web_sys::Response, io::Error> {
+    async fn fetch(&self, range_header: Option<&str>) -> Result<web_sys::Response, io::Error> {
         let fetch_promise = {
             let req = web_sys::Request::new_with_str(&self.url.as_str()).unwrap();
 
-            match (offset, len) {
-                (0, None) => { /* no range header */ },
-                (start, None) => {
-                    req.headers().set("Range", &format!("bytes={}-", start)).unwrap();
-                },
-                (start, Some(len)) => {
-                    req.headers().set("Range", &format!("bytes={}-{}", start, start + len - 1)).unwrap();
-                },
+            if let Some(range) = range_header {
+                req.headers().set("Range", range).unwrap();
             }
 
             web_sys::window().unwrap().fetch_with_request(&req)
@@ -129,6 +123,16 @@ impl WebFetchFile {
         } else {
             Err(io::Error::other(format!("GET {} returned: {:?}", self.url, response.status())))
         }
+    }
+
+    async fn fetch_range(&self, offset: u64, len: Option<u64>) -> Result<web_sys::Response, io::Error> {
+        let range = match (offset, len) {
+            (0, None) => { None },
+            (start, None) => Some(format!("bytes={}-", start)),
+            (start, Some(len)) => Some(format!("bytes={}-{}", start, start + len - 1)),
+        };
+
+        self.fetch(range.as_deref()).await
     }
 }
 
@@ -175,6 +179,31 @@ impl ReadableFile for WebFetchFile {
 
         let uint8_array = Uint8Array::new(&array_buffer);
         Ok(uint8_array.to_vec())
+    }
+
+    async fn read_at_end(self: Arc<Self>, size: usize) -> Result<(Vec<u8>, u64), std::io::Error> {
+        let (array_buffer_promise, total_size) = {
+            let response = self.fetch(Some(&format!("bytes=-{}", size))).await?;
+            let content_range = response.headers().get("Content-Range").ok().flatten()
+                .ok_or_else(|| io::Error::other(format!("No Content-range in response")))?;
+
+            let total_size = parse_content_range_total(&content_range)
+                .ok_or_else(|| io::Error::other(format!("Invalid Content-range header: {}", content_range)))?;
+
+            let p = response.array_buffer().map_err(|e| {
+                io::Error::other(format!("Failed to get array buffer promise: {:?}", e))
+            })?;
+
+            (p, total_size)
+        };
+
+        let array_buffer = SendWrapper::new(JsFuture::from(array_buffer_promise))
+            .await
+            .map_err(|e| io::Error::other(format!("Failed to get array buffer: {:?}", e)))?;
+
+        let uint8_array = Uint8Array::new(&array_buffer);
+
+        Ok((uint8_array.to_vec(), total_size))
     }
 
     async fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
@@ -274,4 +303,12 @@ impl Drop for ReadableStreamReader {
     fn drop(&mut self) {
         drop(self.reader.cancel()); // promise ignored
     }
+}
+
+fn parse_content_range_total(header: &str) -> Option<u64> {
+    // Format: "bytes {offset}-{end}/{total}"
+    let content_range = header.strip_prefix("bytes ")?;
+    let (_, total) = content_range.split_once('/')?;
+    let total = total.parse::<u64>().ok()?;
+    Some(total)
 }

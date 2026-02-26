@@ -34,6 +34,16 @@ pub trait ReadableFile: Send + Sync + 'static {
     /// Read a chunk of the file
     async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, io::Error>;
 
+    /// Read a chunk at the end of the file, also returning the total size
+    ///
+    /// Some backends, such as HTTP, can do this in a single request.
+    async fn read_at_end(self: Arc<Self>, len: usize) -> Result<(Vec<u8>, u64), io::Error> {
+        let total_len = self.clone().get_len().await?;
+        let offset = total_len.saturating_sub(len as u64);
+        let data = self.read_at(offset, len).await?;
+        Ok((data, total_len))
+    }
+
     /// Read the entire file into a `Vec<u8>`
     async fn read_all(self: Arc<Self>, limit: usize) -> Result<Vec<u8>, io::Error> {
         let mut take = self.stream(0, None).await?.take(limit as u64);

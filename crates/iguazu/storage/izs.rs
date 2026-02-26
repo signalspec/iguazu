@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::{cell::RefCell, collections::{HashMap, HashSet}, sync::Arc, task::{Context, Poll, Waker}};
 use std::fmt::Debug;
 
+use log::debug;
 use once_array::{OnceArray};
 use async_executor::Task;
 use elsa::FrozenMap;
@@ -12,63 +13,89 @@ use futures_lite::FutureExt;
 
 use crate::import::ImportError;
 use crate::izs::{self, CompressionMethod, FileMeta, Footer};
-use crate::schema::EntityStream;
+use crate::schema::{EntitySchema, EntityStream};
 use crate::storage::Pool;
 use crate::stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState};
 use crate::util::weak_map::WeakMap;
 use crate::io::ReadableFile;
 
-pub async fn load_meta(file: Arc<dyn ReadableFile>) -> Result<FileMeta, ImportError> {
-    let len = file.clone().get_len().await?;
-    let footer = file.clone().read_at(len.saturating_sub(Footer::LEN as u64), Footer::LEN).await?;
-    let footer = Footer::from_bytes(&footer).ok_or_else(|| ImportError::InvalidFile("Invalid footer".to_string()))?;
-
-    let meta_pos = len.checked_sub(Footer::LEN as u64 + footer.meta_len as u64)
-        .ok_or_else(|| ImportError::InvalidFile("Invalid metadata position".to_string()))?;
-    let meta = file.clone().read_at(meta_pos, footer.meta_len as usize).await?;
-    let meta = zstd::bulk::decompress(&meta, 16 * 1024 * 1024)
-        .map_err(|e| ImportError::InvalidFile(format!("Failed to decompress metadata: {}", e)))?;
-    serde_json::from_slice(&meta).map_err(|e| ImportError::InvalidFile(format!("Invalid metadata: {}", e)))
-}
-
-pub async fn load(file: Arc<dyn ReadableFile>, pool: Arc<Pool>) -> Result<EntityStream, ImportError> {
-    let meta = load_meta(file.clone()).await?;
-    let shared = Arc::new(Shared { file, pool });
-
-    meta.entity.try_map_data_async(move |s| {
-        let shared = shared.clone();
-        async move {
-            let index = shared.read_at(s.root, s.root_len as usize).await?;
-            let (block_offsets, block_lengths) = izs::read_block_index(&index);
-
-            let stream = IzsStream {
-                id: s.root,
-                shared: shared,
-                block_desc: BlockDesc { element_size: s.element, count: s.block },
-                compress: s.compress,
-                block_offsets,
-                block_lengths,
-                pos: s.end_idx,
-                cache: Mutex::new(WeakMap::new()),
-            };
-            Ok(Arc::new(stream) as Arc<dyn Stream>)
-        }
-    }).await
-}
-
-pub struct Shared {
+pub struct IzsFile {
     file: Arc<dyn ReadableFile>,
-    pool: Arc<Pool>,
+    tail: Vec<u8>,
+    file_size: u64,
 }
 
-impl Shared {
+impl IzsFile {
+    pub async fn new(file: Arc<dyn ReadableFile>) -> Result<Self, ImportError> {
+        let (tail, file_size) = file.clone().read_at_end(1024 * 1024).await?;
+        let s = Self { file, tail, file_size };
+        s.footer()?;
+        Ok(s)
+    }
+
     async fn read_at(&self, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
+        let tail_offset = self.file_size.saturating_sub(self.tail.len() as u64);
+        if let Some(pos) = offset.checked_sub(tail_offset) {
+            debug!("Reading {len} bytes at {offset} from tail (pos {pos})");
+            let end = (self.tail.len() as u64).min(pos + len as u64) as usize;
+            return Ok(self.tail[pos as usize..end].to_vec());
+        }
+
         self.file.clone().read_at(offset, len).await
+    }
+
+    fn footer(&self) -> Result<Footer, ImportError> {
+        let footer_offset = self.tail.len().checked_sub(Footer::LEN)
+            .ok_or_else(|| ImportError::InvalidFile("File too small for footer".to_string()))?;
+        Footer::from_bytes(&self.tail[footer_offset..])
+            .ok_or_else(|| ImportError::InvalidFile("Invalid footer".to_string()))
+    }
+
+    pub async fn load_meta(&self) -> Result<FileMeta, ImportError> {
+        let footer = self.footer()?;
+        let meta_pos = self.file_size.checked_sub(Footer::LEN as u64 + footer.meta_len as u64)
+            .ok_or_else(|| ImportError::InvalidFile("Invalid metadata position".to_string()))?;
+        let meta = self.read_at(meta_pos, footer.meta_len as usize).await?;
+        let meta = zstd::bulk::decompress(&meta, 16 * 1024 * 1024)
+            .map_err(|e| ImportError::InvalidFile(format!("Failed to decompress metadata: {}", e)))?;
+        serde_json::from_slice(&meta).map_err(|e| ImportError::InvalidFile(format!("Invalid metadata: {}", e)))
+    }
+
+    pub async fn load_schema(&self) -> Result<EntitySchema, ImportError> {
+        let meta = self.load_meta().await?;
+        Ok(meta.entity.schema())
+    }
+
+    pub async fn load_entity(self: Arc<Self>, pool: Arc<Pool>) -> Result<EntityStream, ImportError> {
+        let meta = self.load_meta().await?;
+
+        meta.entity.try_map_data_async(move |s| {
+            let shared = self.clone();
+            let pool = pool.clone();
+            async move {
+                let index = shared.read_at(s.root, s.root_len as usize).await?;
+                let (block_offsets, block_lengths) = izs::read_block_index(&index);
+
+                let stream = IzsStream {
+                    id: s.root,
+                    shared,
+                    pool,
+                    block_desc: BlockDesc { element_size: s.element, count: s.block },
+                    compress: s.compress,
+                    block_offsets,
+                    block_lengths,
+                    pos: s.end_idx,
+                    cache: Mutex::new(WeakMap::new()),
+                };
+                Ok(Arc::new(stream) as Arc<dyn Stream>)
+            }
+        }).await
     }
 }
 
 struct IzsStream {
-    shared: Arc<Shared>,
+    shared: Arc<IzsFile>,
+    pool: Arc<Pool>,
     id: u64,
 
     block_desc: BlockDesc,
@@ -122,7 +149,7 @@ impl IzsStream {
             };
 
             let buf = Arc::new(OnceArray::from(data.clone()));
-            self.shared.pool.cache.lock().unwrap().insert(buf.clone());
+            self.pool.cache.lock().unwrap().insert(buf.clone());
             self.cache.lock().unwrap().insert(block, buf.clone());
             Ok(buf)
         })
@@ -214,7 +241,7 @@ impl StreamAccess for IzsStreamAccess {
                         return self.blocks.insert(block, buf)
                     }
                     LoadBlockRes::Loading(fut) => {
-                        entry.insert_entry(self.stream.shared.pool.executor.spawn(fut))
+                        entry.insert_entry(self.stream.pool.executor.spawn(fut))
                     }
                 }
             }
