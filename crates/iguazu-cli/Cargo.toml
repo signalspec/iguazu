@@ -20,3 +20,4 @@ futures-lite = "2.6.0"
 async-executor.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+env_logger = "0.11.9"
