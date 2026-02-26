@@ -1745,6 +1745,7 @@ dependencies = [
  "rfd",
  "send_wrapper",
  "tracing-subscriber",
+ "url",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",

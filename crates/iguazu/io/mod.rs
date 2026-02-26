@@ -11,7 +11,7 @@ pub use fs::{FsFile, StdinFile, FsWritableFile};
 #[cfg(all(feature="web", target_family = "wasm"))]
 mod web;
 #[cfg(all(feature="web", target_family = "wasm"))]
-pub use web::WebFile;
+pub use web::{ WebFile, WebFetchFile };
 
 mod url;
 use ::url::Url;
@@ -48,7 +48,7 @@ pub trait ReadableFile: Send + Sync + 'static {
     }
 
     /// Create a stream for reading the file
-    async fn stream(self: Arc<Self>, offset: u64, len: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error>;
+    async fn stream(self: Arc<Self>, offset: u64, size: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error>;
 }
 
 #[async_trait]

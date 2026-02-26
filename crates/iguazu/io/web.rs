@@ -91,6 +91,109 @@ impl ReadableFile for WebFile {
     }
 }
 
+pub struct WebFetchFile {
+    url: Url,
+}
+
+impl WebFetchFile {
+    pub fn new(url: Url) -> WebFetchFile {
+        WebFetchFile { url }
+    }
+
+    async fn fetch_range(self: Arc<Self>, offset: u64, len: Option<u64>) -> Result<web_sys::Response, io::Error> {
+        let fetch_promise = {
+            let req = web_sys::Request::new_with_str(&self.url.as_str()).unwrap();
+
+            match (offset, len) {
+                (0, None) => { /* no range header */ },
+                (start, None) => {
+                    req.headers().set("Range", &format!("bytes={}-", start)).unwrap();
+                },
+                (start, Some(len)) => {
+                    req.headers().set("Range", &format!("bytes={}-{}", start, start + len - 1)).unwrap();
+                },
+            }
+
+            web_sys::window().unwrap().fetch_with_request(&req)
+        };
+
+        let response = SendWrapper::new(JsFuture::from(fetch_promise))
+            .await
+            .map_err(|e| {
+                io::Error::other(format!("GET {} failed: {:?}", self.url, e))
+            })?
+            .unchecked_into::<web_sys::Response>();
+
+        if response.ok() {
+            Ok(response)
+        } else {
+            Err(io::Error::other(format!("GET {} returned: {:?}", self.url, response.status())))
+        }
+    }
+}
+
+#[async_trait]
+impl ReadableFile for WebFetchFile {
+    fn filename(&self) -> Option<&str> {
+        self.url.path_segments().and_then(|segments| segments.last())
+    }
+
+    fn url(&self) -> Option<Url> {
+        Some(self.url.clone())
+    }
+
+    async fn get_len(self: Arc<Self>) -> Result<u64, std::io::Error> {
+        let fetch_promise = {
+            let init = web_sys::RequestInit::new();
+            init.set_method("HEAD");
+            let req = web_sys::Request::new_with_str_and_init(&self.url.as_str(), &init).unwrap();
+            web_sys::window().unwrap().fetch_with_request(&req)
+        };
+
+        let response = SendWrapper::new(JsFuture::from(fetch_promise)).await
+            .map_err(|e| io::Error::other(format!("HEAD {} failed: {:?}", self.url, e)))?
+            .unchecked_into::<web_sys::Response>();
+
+        if !response.ok() {
+            return Err(io::Error::other(format!("HEAD {} returned: {:?}", self.url, response.status())))
+        }
+
+        Ok(response.headers().get("Content-Length").ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0))
+    }
+
+    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
+        let array_buffer_promise = {
+            let response = self.fetch_range(offset, Some(len as u64)).await?;
+            response.array_buffer().map_err(|e| {
+                io::Error::other(format!("Failed to get array buffer promise: {:?}", e))
+            })?
+        };
+
+        let array_buffer = SendWrapper::new(JsFuture::from(array_buffer_promise))
+            .await
+            .map_err(|e| io::Error::other(format!("Failed to get array buffer: {:?}", e)))?;
+
+        let uint8_array = Uint8Array::new(&array_buffer);
+        Ok(uint8_array.to_vec())
+    }
+
+    async fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+        let response = self.fetch_range(start, len).await?;
+        let stream = response.body().ok_or_else(|| io::Error::other("Response has no body"))?;
+        Ok(Box::pin(ReadableStreamReader::new(stream)))
+    }
+
+    async fn relative(
+        &self,
+        _path: &RelativePath,
+    ) -> Result<Arc<dyn ReadableFile>, std::io::Error> {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "WebFile.relative not supported",
+        ))
+    }
+}
+
 pub struct ReadableStreamReader {
     reader: SendWrapper<ReadableStreamDefaultReader>,
     buf: Vec<u8>,

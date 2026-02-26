@@ -23,6 +23,14 @@ impl Welcome {
         }
     }
 
+    pub fn with_file(file: Arc<dyn ReadableFile>, pool: Arc<Pool>) -> Self {
+        let picker_task = Some(pool.executor.spawn(import_file(file, pool.clone())));
+        Self {
+            picker_task,
+            error: None,
+        }
+    }
+
     pub fn show(&mut self, vctx: &mut ViewerContext, ui: &mut Ui) -> WelcomeResponse {
         centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Center), |ui| {
             let mut loaded_entity = None;
@@ -102,8 +110,7 @@ async fn pick_file() -> Option<Arc<dyn ReadableFile>> {
     }
 }
 
-async fn pick_and_import_file(pool: Arc<Pool>) -> Option<Result<EntityStream, String>> {
-    let file = pick_file().await?;
+async fn import_file(file: Arc<dyn ReadableFile>, pool: Arc<Pool>) -> Option<Result<EntityStream, String>> {
     let filename = file.filename().unwrap_or("").to_owned();
 
     let Some(format) = IMPORTERS.first_for_filename(&filename) else {
@@ -111,15 +118,22 @@ async fn pick_and_import_file(pool: Arc<Pool>) -> Option<Result<EntityStream, St
     };
 
     let importer = format.importer();
-    let (mut entity, _completion) = match importer.import(file, None, pool.clone()).await {
+    let (mut entity, completion) = match importer.import(file, None, pool.clone()).await {
         Ok(v) => v,
         Err(e) => { return Some(Err(format!("Failed to import {}: {}", filename, e))); }
     };
+
+    pool.executor.spawn(completion).detach();
 
     let storage = MemoryStorage;
     entity.build_summaries(&pool.executor, &storage);
 
     Some(Ok(entity))
+}
+
+async fn pick_and_import_file(pool: Arc<Pool>) -> Option<Result<EntityStream, String>> {
+    let file = pick_file().await?;
+    import_file(file, pool).await
 }
 
 fn generate_demo_entity() -> EntityStream {

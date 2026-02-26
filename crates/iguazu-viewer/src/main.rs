@@ -53,10 +53,8 @@ fn main() -> Result<(), eframe::Error> {
 
     let state = if let Some(import) = cli.import {
         let (mut entity, completion) = block_on(import.import(IMPORTERS, pool.clone())).expect("Failed to load file");
-        block_on(completion).expect("Failed to complete import");
-
+        executor.spawn(completion).detach();
         entity.build_summaries(&executor, &storage);
-
         AppState::Viewer(Viewer::new(entity))
     } else {
         AppState::Welcome(Welcome::new())
@@ -88,6 +86,15 @@ fn main() {
 
     let web_options = eframe::WebOptions::default();
 
+    let query_string = web_sys::window()
+        .expect("No window")
+        .location()
+        .search()
+        .expect("Failed to get query string");
+
+    let url_params: Vec<_> = url::form_urlencoded::parse(query_string.trim_start_matches("?").as_bytes()).collect();
+    let input_url = url_params.iter().find(|(key, _)| key == "url").and_then(|(_, value)| value.to_string().parse().ok());
+
     let executor = Arc::new(async_executor::Executor::new());
     wasm_bindgen_futures::spawn_local({
         let executor = executor.clone();
@@ -109,7 +116,12 @@ fn main() {
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("the_canvas_id was not a HtmlCanvasElement");
 
-        let state = AppState::Welcome(Welcome::new());
+        let state = if let Some(url) = input_url {
+            let file = Arc::new(iguazu::io::WebFetchFile::new(url)) as Arc<dyn iguazu::io::ReadableFile>;
+            AppState::Welcome(Welcome::with_file(file, pool.clone()))
+        } else {
+            AppState::Welcome(Welcome::new())
+        };
 
         let start_result = eframe::WebRunner::new()
             .start(
