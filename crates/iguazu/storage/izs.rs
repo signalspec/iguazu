@@ -12,7 +12,7 @@ use elsa::FrozenMap;
 use futures_lite::FutureExt;
 
 use crate::import::ImportError;
-use crate::izs::{self, CompressionMethod, FileMeta, Footer};
+use crate::izs::{BlockIndex, CompressionMethod, FileMeta, Footer};
 use crate::schema::{EntitySchema, EntityStream};
 use crate::storage::Pool;
 use crate::stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState};
@@ -74,7 +74,7 @@ impl IzsFile {
             let pool = pool.clone();
             async move {
                 let index = shared.read_at(s.root, s.root_len as usize).await?;
-                let (block_offsets, block_lengths) = izs::read_block_index(&index);
+                let block_index = BlockIndex::parse(&index);
 
                 let stream = IzsStream {
                     id: s.root,
@@ -82,8 +82,7 @@ impl IzsFile {
                     pool,
                     block_desc: BlockDesc { element_size: s.element, count: s.block },
                     compress: s.compress,
-                    block_offsets,
-                    block_lengths,
+                    block_index,
                     pos: s.end_idx,
                     cache: Mutex::new(WeakMap::new()),
                 };
@@ -99,14 +98,8 @@ struct IzsStream {
     id: u64,
 
     block_desc: BlockDesc,
-
     compress: CompressionMethod,
-
-    /// Positions of the compressed blocks within the file
-    block_offsets: Vec<u64>,
-
-    /// Lengths of the compressed blocks.
-    block_lengths: Vec<u32>,
+    block_index: BlockIndex,
 
     /// Number of elements
     pos: u64,
@@ -122,7 +115,7 @@ enum LoadBlockRes<F> {
 
 impl IzsStream {
     fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static> {
-        let Some(&offset) = self.block_offsets.get(block as usize) else {
+        let Some(&offset) = self.block_index.offsets.get(block as usize) else {
             return LoadBlockRes::NotFound;
         };
 
@@ -133,7 +126,7 @@ impl IzsStream {
 
         let block_bytes = self.block_desc.size();
         let compression = self.compress;
-        let len = self.block_lengths[block as usize] as usize;
+        let len = self.block_index.lengths[block as usize] as usize;
         log::debug!("Loading block {block} of {}:{:x} at {} len {}", self.shared.file.filename().unwrap_or("<unknown>"), self.id, offset, len);
         LoadBlockRes::Loading(async move {
             let data = self.shared.read_at(offset, len).await?;

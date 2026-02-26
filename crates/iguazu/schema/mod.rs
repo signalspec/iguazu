@@ -336,11 +336,35 @@ impl<S> Entity<S> {
     }
 
     pub fn data(&self) -> Option<&S> {
-        match &self {
+        match self {
             Entity::Data { data, .. } => Some(data),
             Entity::Union { data, .. } => Some(data),
             Entity::VariableArray { data, .. } => Some(data),
             _ => None,
+        }
+    }
+
+    pub fn each_data_mut(&mut self, f: &mut impl FnMut(&mut S)) {
+        match self {
+            Entity::Group { children, .. } | Entity::Record { children, ..} => {
+                for child in children.values_mut() {
+                    child.each_data_mut(f);
+                }
+            }
+            Entity::Union { data, .. } => f(data),
+            Entity::FixedArray { child, .. } | Entity::Tuple { child, .. } => {
+                child.each_data_mut(f)
+            }
+            Entity::VariableArray { data, child, .. } => {
+                f(data);
+                child.each_data_mut(f);
+            }
+            Entity::Data { data, summaries, .. } => {
+                f(data);
+                for s in summaries.values_mut() {
+                    s.levels.iter_mut().for_each(|level| f(level));
+                }
+            }
         }
     }
 

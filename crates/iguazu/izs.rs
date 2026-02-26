@@ -1,5 +1,5 @@
 /// Common code for the .izs (Iguazu Signal) file format
-use std::{io, pin::Pin, sync::Arc};
+use std::{io, mem, pin::Pin, sync::Arc};
 
 use async_executor::Executor;
 use futures_lite::{AsyncWrite, AsyncWriteExt};
@@ -72,34 +72,57 @@ pub struct StreamMeta {
     pub compress: CompressionMethod,
 }
 
-enum WriteState {
-    Writing {
-        file: Pin<Box<dyn AsyncWrite + Send>>,
-        pos: u64,
-    },
-    Error,
+struct WriteState {
+    file: Pin<Box<dyn AsyncWrite + Send>>,
+    pos: u64,
+    block_indexes: Vec<u8>,
+    error: bool,
 }
 
 impl WriteState {
+    fn new(file: Pin<Box<dyn AsyncWrite + Send>>) -> Self {
+        Self {
+            file,
+            pos: 0,
+            block_indexes: Vec::new(),
+            error: false,
+        }
+    }
+
+    fn check_error(&self) -> Result<(), io::Error> {
+        if self.error {
+            Err(io::Error::other("write failed due to previous error"))
+        } else {
+            Ok(())
+        }
+    }
+
     async fn write_block(&mut self, data: &[u8]) -> Result<u64, io::Error> {
-        match *self {
-            WriteState::Writing { ref mut file, ref mut pos } => {
-                let old_pos = *pos;
-                match file.write_all(data).await {
-                    Ok(()) => {
-                        *pos += data.len() as u64;
-                        Ok(old_pos)
-                    }
-                    Err(e) => {
-                        *self = WriteState::Error;
-                        Err(e)
-                    }
-                }
+        self.check_error()?;
+        let old_pos = self.pos;
+        match self.file.write_all(data).await {
+            Ok(()) => {
+                self.pos += data.len() as u64;
+                Ok(old_pos)
             }
-            WriteState::Error => {
-                Err(io::Error::other("write failed due to previous error"))
+            Err(e) => {
+                self.error = true;
+                Err(e)
             }
         }
+    }
+
+    /// Append a block index to the buffer to be written at the end of the file.
+    ///
+    /// These are concatenated and written just before the metadata, such that
+    /// they can be read out of the prefetched tail of the file.
+    ///
+    /// Returns the byte offset within the buffer.
+    fn add_block_index(&mut self, block_index: &BlockIndex) -> (u64, u32) {
+        let before = self.block_indexes.len() as u64;
+        block_index.serialize_into(&mut self.block_indexes);
+        let after = self.block_indexes.len() as u64;
+        (before, (after - before) as u32)
     }
 }
 
@@ -108,8 +131,7 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
     let element = desc.element_size;
     let block_size = 1024 * 1024;
 
-    let mut block_offsets = Vec::new();
-    let mut block_lengths = Vec::new();
+    let mut block_index = BlockIndex::new();
     let mut pos = 0;
 
     let mut iter = stream.iter().await.map_err(ExportError::Io)?;
@@ -117,8 +139,7 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
         let block = iter.read_to_vec(block_size).await.map_err(ExportError::Source)?;
         let compressed_block = zstd::bulk::compress(&block, 0).unwrap();
         let offset = write.lock().await.write_block(&compressed_block).await?;
-        block_offsets.push(offset);
-        block_lengths.push(compressed_block.len() as u32);
+        block_index.push(offset, compressed_block.len() as u32);
         pos += (block.len() / element.bytes()) as u64;
 
         if block.len() < block_size * element.bytes() {
@@ -126,57 +147,74 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
         }
     }
 
-    // Write the block index
-    let buf = write_block_index(block_offsets, block_lengths);
-    let root = write.lock().await.write_block(&buf).await?;
-    let root_len = buf.len() as u32;
+    let (root, root_len) = write.lock().await.add_block_index(&block_index);
 
     Ok(StreamMeta {
         element,
         block: block_size,
-        root,
+        root, // Within the block index buffer, its offset is added when it is written out.
         root_len,
         end_idx: pos,
         compress: CompressionMethod::Zstd,
     })
 }
 
-fn write_block_index(block_offsets: Vec<u64>, block_lengths: Vec<u32>) -> Vec<u8> {
-    let mut buf = Vec::new();
-    for &offset in &block_offsets {
-        buf.extend_from_slice(&offset.to_le_bytes());
-    }
-    for &len in &block_lengths {
-        buf.extend_from_slice(&len.to_le_bytes());
-    }
-    buf
+pub(crate) struct BlockIndex {
+    /// Positions of the compressed blocks within the file
+    pub offsets: Vec<u64>,
+
+    /// Lengths of the compressed blocks.
+    pub lengths: Vec<u32>,
 }
 
-pub fn read_block_index(data: &[u8]) -> (Vec<u64>, Vec<u32>) {
-    let len = data.len() / 12;
-    let block_offsets = data[..len * 8].as_chunks::<8>().0.iter().map(|&c| u64::from_le_bytes(c)).collect();
-    let block_lengths = data[len * 8..][..len * 4].as_chunks::<4>().0.iter().map(|&c| u32::from_le_bytes(c)).collect();
-    (block_offsets, block_lengths)
-}
+impl BlockIndex {
+    fn new() -> Self {
+        Self {
+            offsets: Vec::new(),
+            lengths: Vec::new(),
+        }
+    }
 
-async fn write_entity(
-    ex: Arc<Executor<'static>>,
-    write: Arc<AsyncMutex<WriteState>>,
-    entity: EntityStream
-) -> Result<Entity<StreamMeta>, ExportError> {
-    entity.try_map_data_async(move |stream| ex.spawn(write_stream(write.clone(), stream))).await
+    fn push(&mut self, offset: u64, length: u32) {
+        self.offsets.push(offset);
+        self.lengths.push(length);
+    }
+
+    fn serialize_into(&self, buf: &mut Vec<u8>){
+        for &offset in &self.offsets {
+            buf.extend_from_slice(&offset.to_le_bytes());
+        }
+        for &len in &self.lengths {
+            buf.extend_from_slice(&len.to_le_bytes());
+        }
+    }
+
+    pub fn parse(data: &[u8]) -> Self {
+        let len = data.len() / 12;
+        let offsets = data[..len * 8].as_chunks::<8>().0.iter().map(|&c| u64::from_le_bytes(c)).collect();
+        let lengths = data[len * 8..][..len * 4].as_chunks::<4>().0.iter().map(|&c| u32::from_le_bytes(c)).collect();
+        Self { offsets, lengths }
+    }
 }
 
 pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<Box<dyn AsyncWrite + Send>>) -> Result<(), ExportError> {
-    let write = Arc::new(AsyncMutex::new(WriteState::Writing { file, pos: 0 }));
+    let write = Arc::new(AsyncMutex::new(WriteState::new(file)));
 
     // Write header
     write.lock().await.write_block(&HEADER_MAGIC).await?;
 
     // Write entities
-    let meta_entity = write_entity(ex.clone(), write.clone(), entity).await?;
+    let w = write.clone();
+    let mut meta_entity = entity.try_map_data_async(move |stream| ex.spawn(write_stream(w.clone(), stream))).await?;
 
     let mut write = write.lock().await;
+
+    // Write block indexes and update the positions in StreamMeta
+    let block_indexes = mem::take(&mut write.block_indexes);
+    let block_index_start_pos = write.write_block(&block_indexes).await?;
+    meta_entity.each_data_mut(&mut |stream| {
+        stream.root += block_index_start_pos;
+    });
 
     // Write metadata
     let meta = FileMeta {
@@ -195,11 +233,6 @@ pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<
     let footer_bytes = footer.to_bytes();
     write.write_block(&footer_bytes).await?;
 
-    if let WriteState::Writing { ref mut file, .. } = *write {
-        file.flush().await?;
-    } else {
-        unreachable!();
-    }
-
+    write.file.flush().await?;
     Ok(())
 }
