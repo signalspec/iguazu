@@ -65,39 +65,28 @@ fn make_summary<T: Element + Default, const N: usize, const R: usize>(
 
     let task = executor.spawn(async move {
         let mut iter = stream.iter().await.map_err(|e| e.to_string())?;
-        let mut buffer = [T::default(); N];
-        let mut pos = 0;
 
         poll_fn(move |cx| {
             loop {
-                let r = ready!(iter.poll_next(cx));
+                let r = ready!(iter.poll_next(cx).at_least(N * size_of::<T>()));
                 let out_buf = ready!(output.poll_buf(cx))?;
                 match r {
-                    Ok(data) if data.is_empty() => {
-                        log::info!("Summary task completed len = {}", output.pos());
-                        return Poll::Ready(Ok(()));
-                    }
-                    Err(e) => return Poll::Ready(Err(e)),
-                    Ok(mut src) => {
+                    Err(e) => return Poll::Ready(Err(e.to_string())),
+                    Ok(mut src) if src.len() > N * size_of::<T>() => {
                         let mut consumed = 0;
-                        while out_buf.remaining_capacity() > 0 {
-                            // Assumes that the block size is a multiple of the output array size
-                            let (copy, rest) = src.split_at((N * size_of::<T>() - pos).min(src.len()));
-                            bytemuck::cast_slice_mut(&mut buffer)[pos..(pos + copy.len())].copy_from_slice(copy);
-                            pos = pos + copy.len();
-                            debug_assert_eq!(copy.len() % size_of::<T>(), 0);
-                            consumed += copy.len() / size_of::<T>();
-                            if pos == N * size_of::<T>() {
-                                let r = f(buffer);
-                                out_buf.extend_from_slice(bytemuck::cast_slice(&r[..]));
-                                pos = 0;
-                                src = rest;
-                            } else {
-                                break;
-                            }
+                        while out_buf.remaining_capacity() > 0 && let Some(copy) = src.split_off(..N * size_of::<T>()) {
+                            let mut buffer = [T::default(); N];
+                            bytemuck::cast_slice_mut(&mut buffer).copy_from_slice(copy);
+                            consumed += N;
+                            let r = f(buffer);
+                            out_buf.extend_from_slice(bytemuck::cast_slice(&r[..]));
                         }
                         output.commit();
                         iter.consume(consumed);
+                    }
+                    Ok(_) => {
+                        log::info!("Summary task completed, len = {}", output.pos());
+                        return Poll::Ready(Ok(()));
                     }
                 }
             }

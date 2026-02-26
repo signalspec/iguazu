@@ -9,7 +9,7 @@ use atomic_waker::AtomicWaker;
 use elsa::sync::FrozenVec;
 use slab::Slab;
 use crate::storage::Storage;
-use crate::stream::{ArcStream, StreamWriter};
+use crate::stream::{ArcStream, IterState, StreamWriter};
 use crate::Idx;
 use crate::{Element, ElementSize, stream::{Stream, StreamAccess, BlockDesc, StreamIter, StreamState}};
 
@@ -133,34 +133,19 @@ pub struct MemoryStreamIter {
 }
 
 impl StreamIter for MemoryStreamIter {
-    fn element_type(&self) -> ElementSize {
-        self.stream.element_type
+    fn desc(&self) -> BlockDesc {
+        self.stream.desc()
     }
 
-    fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
-        self.stream.register(self.id, cx.waker());
-
-        let Some(block) = self.stream.blocks.get(self.block) else {
-            if self.stream.streaming() {
-                return Poll::Pending;
-            } else {
-                return Poll::Ready(Ok(&[]));
-            }
-        };
-
-        let Some(data) = block.get(self.pos * self.stream.element_type.bytes()..) else {
-            if self.stream.streaming() {
-                return Poll::Pending;
-            } else {
-                return Poll::Ready(Ok(&[]));
-            }
-        };
-
-        if data.is_empty() && self.stream.streaming() {
-            return Poll::Pending;
+    fn poll_next(&mut self, cx: &mut Context) -> IterState<'_> {
+        let block = self.stream.blocks.get(self.block).map_or(&[][..], |b| b.as_slice());
+        let data = &block[self.pos * self.stream.element_type.bytes()..];
+        if block.len() < BLOCK_SIZE * self.stream.element_type.bytes() && self.stream.streaming() {
+            self.stream.register(self.id, cx.waker());
+            IterState::Partial(data)
+        } else {
+            IterState::Complete(data)
         }
-
-        Poll::Ready(Ok(data))
     }
 
     fn consume(&mut self, len: usize) {

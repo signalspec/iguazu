@@ -25,30 +25,64 @@ pub trait StreamAccess: Send  {
     fn end(&mut self);
 }
 
-pub trait StreamIter: Send {
-    fn element_type(&self) -> ElementSize;
+#[derive(Debug, PartialEq)]
+pub enum IterState<'a> {
+    /// The data received so far. Polling again may return more contiguous data.
+    Partial(&'a [u8]),
 
-    fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>>;
+    /// The data received in this block. Polling again will not return more data until this amount is consumed.
+    ///
+    /// If empty, indicates end of stream.
+    Complete(&'a [u8]),
+
+    /// An error has occurred.
+    Error(&'a str),
+}
+
+impl<'a> IterState<'a> {
+    pub fn complete_block(self) -> Poll<Result<&'a [u8], &'a str>> {
+        match self {
+            IterState::Partial(_) => Poll::Pending,
+            IterState::Complete(data) => Poll::Ready(Ok(data)),
+            IterState::Error(e) => Poll::Ready(Err(e)),
+        }
+    }
+
+    pub fn at_least(self, needed_bytes: usize) -> Poll<Result<&'a [u8], &'a str>> {
+        match self {
+            IterState::Partial(data) if data.len() > needed_bytes => Poll::Ready(Ok(data)),
+            IterState::Partial(_) => Poll::Pending,
+            IterState::Complete(data) => Poll::Ready(Ok(data)),
+            IterState::Error(e) => Poll::Ready(Err(e)),
+        }
+    }
+}
+
+pub trait StreamIter: Send {
+    fn desc(&self) -> BlockDesc;
+
+    fn poll_next(&mut self, cx: &mut Context) -> IterState<'_>;
 
     fn consume(&mut self, len: usize);
 }
 
 impl dyn StreamIter {
     pub async fn read_to_vec(&mut self, len: usize) -> Result<Vec<u8>, String> {
-        let element_type = self.element_type();
-        let mut buf = Vec::with_capacity(len * element_type.bytes());
-        loop {
-            let l = poll_fn(|cx| {
-                let block = ready!(self.poll_next(cx))?;
-                let l = (block.len() / element_type.bytes()).min(len - buf.len() / element_type.bytes());
-                buf.extend_from_slice(&block[.. l * element_type.bytes()]);
-                Poll::Ready(Result::<usize, String>::Ok(l))
-            }).await?;
+        let element_size = self.desc().element_size;
+        let mut buf = Vec::with_capacity(len * element_size.bytes());
+        poll_fn(|cx| -> Poll<Result<(), String>> {
+            loop {
+                let block = ready!(self.poll_next(cx).complete_block())?;
+                let l = (block.len() / element_size.bytes()).min(len - buf.len() / element_size.bytes());
+                buf.extend_from_slice(&block[.. l * element_size.bytes()]);
 
-            if l == 0 { break; }
-
-            self.consume(l); // TODO: elements
-        }
+                if l > 0 {
+                    self.consume(l);
+                } else {
+                    return Poll::Ready(Ok(()));
+                }
+            }
+        }).await?;
         Ok(buf)
     }
 }

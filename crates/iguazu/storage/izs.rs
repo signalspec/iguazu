@@ -14,9 +14,9 @@ use crate::import::ImportError;
 use crate::izs::{self, CompressionMethod, FileMeta, Footer};
 use crate::schema::EntityStream;
 use crate::storage::Pool;
-use crate::stream::{StreamAccess, StreamIter, Stream, BlockDesc, StreamState};
+use crate::stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState};
 use crate::util::weak_map::WeakMap;
-use crate::{io::ReadableFile, ElementSize};
+use crate::io::ReadableFile;
 
 pub async fn load_meta(file: Arc<dyn ReadableFile>) -> Result<FileMeta, ImportError> {
     let len = file.clone().get_len().await?;
@@ -166,7 +166,7 @@ impl Stream for IzsStream {
         Box::pin(async move {
             Ok(Box::new(IzsStreamIter {
                 stream: self.clone(),
-                state: IterState::Empty,
+                state: IzsIterState::Empty,
                 block: 0,
                 pos: 0,
             }) as Box<dyn StreamIter>)
@@ -255,61 +255,70 @@ impl StreamAccess for IzsStreamAccess {
 
 struct IzsStreamIter {
     stream: Arc<IzsStream>,
-    state: IterState,
+    state: IzsIterState,
 
     /// Block number
     block: u64,
 
-    /// Position within block
+    /// Position within block in elements
     pos: usize,
 }
 
-enum IterState {
+enum IzsIterState {
     Empty,
     Loading(Pin<Box<dyn Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static>>),
     Loaded(Arc<OnceArray<u8>>),
+    Error(String),
 }
 
 impl StreamIter for IzsStreamIter {
-    fn element_type(&self) -> ElementSize {
-        self.stream.block_desc.element_size
+    fn desc(&self) -> BlockDesc {
+        self.stream.desc()
     }
 
-    fn poll_next(&mut self, cx: &mut Context) -> Poll<Result<&[u8], String>> {
+    fn poll_next(&mut self, cx: &mut Context) -> IterState<'_> {
         loop {
             match self.state {
-                IterState::Empty => {
-                    self.state = match self.stream.clone().load_block(self.block) {
-                        LoadBlockRes::NotFound => return Poll::Ready(Ok(&[])),
-                        LoadBlockRes::Cached(buf) => IterState::Loaded(buf),
-                        LoadBlockRes::Loading(fut) => IterState::Loading(Box::pin(fut)),
+                IzsIterState::Empty => {
+                    match self.stream.clone().load_block(self.block) {
+                        LoadBlockRes::NotFound => return IterState::Complete(&[]),
+                        LoadBlockRes::Cached(buf) => {
+                            self.state = IzsIterState::Loaded(buf);
+                        }
+                        LoadBlockRes::Loading(fut) => {
+                            self.state = IzsIterState::Loading(Box::pin(fut));
+                        }
                     };
                 }
-                IterState::Loading(ref mut fut) => {
+                IzsIterState::Loading(ref mut fut) => {
                     match fut.as_mut().poll(cx) {
                         Poll::Ready(Ok(buf)) => {
-                            self.state = IterState::Loaded(buf);
-                            continue;
+                            self.state = IzsIterState::Loaded(buf);
                         }
-                        Poll::Ready(Err(e)) => return Poll::Ready(Err(e.to_string())),
-                        Poll::Pending => return Poll::Pending,
+                        Poll::Ready(Err(e)) => {
+                            self.state = IzsIterState::Error(e.to_string());
+                        }
+                        Poll::Pending => return IterState::Partial(&[]),
                     }
                 }
-                IterState::Loaded(ref buf) => {
-                    return Poll::Ready(Ok(&buf[self.pos * self.stream.block_desc.element_size.bytes()..]));
+                IzsIterState::Loaded(ref buf) => {
+                    return IterState::Complete(&buf[self.pos * self.stream.block_desc.element_size.bytes()..]);
+                }
+                IzsIterState::Error(ref err) => {
+                    return IterState::Error(err)
                 }
             }
         }
     }
 
-    fn consume(&mut self, len: usize) {
-        debug_assert!(self.pos + len <= self.stream.block_desc.count);
-        self.pos += len;
+    fn consume(&mut self, count: usize) {
+        debug_assert!(self.pos + count <= self.stream.block_desc.count);
+        self.pos += count;
 
         if self.pos >= self.stream.block_desc.count {
             self.block += 1;
             self.pos = 0;
-            self.state = IterState::Empty;
+            self.state = IzsIterState::Empty;
         }
     }
 }
