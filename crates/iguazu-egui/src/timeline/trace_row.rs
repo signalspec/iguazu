@@ -70,18 +70,18 @@ impl<'a> TraceRow<'a> {
             let x2 = idx_scale.x_from_idx(range.max);
 
             match elem {
-                TraceElement::Loading => {
-                }
-                TraceElement::Dense => {
+                TraceElement::Dense | TraceElement::Loading => {
                     let xr = Rangef::new(x1, x2);
                     if xr.span() <= stroke_width {
                         painter.vline(xr.center(), padded_rect.y_range(), stroke);
                     } else {
-                        painter.rect_filled(
-                            Rect::from_x_y_ranges(xr, padded_rect.y_range().expand(stroke_width / 2.0)),
-                            0.0,
-                            color,
-                        );
+                        let rect = Rect::from_x_y_ranges(xr, padded_rect.y_range().expand(stroke_width / 2.0));
+                        let fill = if matches!(elem, TraceElement::Loading) && xr.span() >= 8.0 {
+                            color.gamma_multiply(0.5)
+                        } else {
+                            color
+                        };
+                        painter.rect_filled(rect, 0.0, fill);
                     }
                 }
                 TraceElement::Value(val) => {
@@ -193,19 +193,18 @@ impl<'a> LogicRow<'a> {
             let x2 = idx_scale.x_from_idx(idx2);
 
             match elem {
-                TraceElement::Loading => {
-
-                }
-                TraceElement::Dense => {
+                TraceElement::Dense | TraceElement::Loading => {
                     let xr = Rangef::new(x1, x2);
                     if xr.span() <= stroke_width {
                         painter.vline(xr.center(), padded_rect.y_range(), stroke);
                     } else {
-                        painter.rect_filled(
-                            Rect::from_x_y_ranges(xr, padded_rect.y_range().expand(stroke_width / 2.0)),
-                            0.0,
-                            color,
-                        );
+                        let rect = Rect::from_x_y_ranges(xr, padded_rect.y_range().expand(stroke_width / 2.0));
+                        let fill = if matches!(elem, TraceElement::Loading) && xr.span() >= 8.0 {
+                            color.gamma_multiply(0.5)
+                        } else {
+                            color
+                        };
+                        painter.rect_filled(rect, 0.0, fill);
                     }
                 }
                 TraceElement::Value(val) => {
