@@ -31,16 +31,17 @@ pub struct ViewManager {
 }
 
 impl ViewManager {
-    pub fn new(waker: Waker) -> Self {
+    pub fn new() -> Self {
         ViewManager {
-            waker,
+            waker: Waker::noop().clone(),
             streams: FrozenMap::default(),
         }
     }
 
-    pub fn begin(&mut self) {
+    pub fn begin(&mut self, waker: &Waker) {
+        self.waker.clone_from(waker);
         for (_, stream) in self.streams.as_mut().iter_mut() {
-            stream.begin(&self.waker);
+            stream.begin(waker);
         }
     }
 
@@ -61,10 +62,12 @@ impl ViewManager {
         if let Some(s) = self.streams.get(&key(stream)) {
             return s;
         } else {
-            self.streams.insert(key(stream), stream.clone().access())
+            let mut s = stream.clone().access();
+            s.begin(&self.waker);
+            self.streams.insert(key(stream), s)
         }
     }
-    
+
     pub fn int_view<'a>(&'a self, entity: &EntityStream) -> Option<IntView<'a>> {
         IntView::new(self, entity)
     }
@@ -89,5 +92,3 @@ impl ViewManager {
         EventView::new(self, entity)
     }
 }
-
-

@@ -159,7 +159,8 @@ fn test_traceview() {
     use async_executor::Executor;
     use futures_lite::future::block_on;
 
-    let vm = super::ViewManager::new(Waker::noop().clone());
+    let mut vm = super::ViewManager::new();
+    vm.begin(&Waker::noop().clone());
 
     let mut writer = MemoryStreamWriter::new(crate::ElementSize::U8);
     writer.extend_from_slice(&[0b101; 50]);

@@ -157,7 +157,8 @@ fn test_event_view() {
     use std::task::Waker;
     use indexmap::indexmap;
 
-    let vm = super::ViewManager::new(Waker::noop().clone());
+    let mut vm = super::ViewManager::new();
+    vm.begin(&Waker::noop().clone());
 
     let data = MemoryStream::new(&[
         1000u64, 1010,

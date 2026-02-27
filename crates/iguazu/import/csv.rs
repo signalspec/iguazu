@@ -517,7 +517,7 @@ fn test_csv() {
     let (entity, completion) = block_on(importer.load(file, schema)).unwrap();
     block_on(completion).unwrap();
 
-    let vm = crate::view::ViewManager::new(std::task::Waker::noop().clone());
+    let vm = crate::view::ViewManager::new();
     let timestamp = vm.int_view(entity.child("timestamp").unwrap()).unwrap();
     assert_eq!(timestamp.get_u64(0), Some(1000));
     assert_eq!(timestamp.get_u64(1), Some(1100));

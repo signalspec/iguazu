@@ -38,13 +38,13 @@ impl ViewerContext {
         let waker: Waker = Arc::new(RepaintWaker { context: egui_ctx.clone() }).into();
         Self {
             pool,
-            view_manager: ViewManager::new(waker.clone()),
+            view_manager: ViewManager::new(),
             waker,
         }
     }
 
     pub fn begin(&mut self) {
-        self.view_manager.begin();
+        self.view_manager.begin(&self.waker);
     }
 
     pub fn end(&mut self) {

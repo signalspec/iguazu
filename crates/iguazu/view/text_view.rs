@@ -192,7 +192,8 @@ fn test_textview() {
     use crate::stream::ArcStream;
     use std::task::Waker;
 
-    let vm = super::ViewManager::new(Waker::noop().clone());
+    let mut vm = super::ViewManager::new();
+    vm.begin(&Waker::noop().clone());
 
     let bits = EntityStream::field_data(
         FieldKind::Bits { bits: 2 }, MemoryStream::new::<u8>(&[0b10, 0b01, 0b00]),
