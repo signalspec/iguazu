@@ -10,11 +10,14 @@ use crate::{schema::{Field, FieldKind, Summary}, storage::Storage, stream::ArcSt
 
 pub fn build_default_summaries(executor: &Executor<'static>, storage: &dyn Storage, stream: &ArcStream, field: &Field, summaries: &mut IndexMap<EcoString, Summary<ArcStream>>) {
     match field.kind {
-        FieldKind::Bits{..} | FieldKind::BitStruct{..} => {
-            make_summary_levels(executor, storage, stream, field, summaries, "bit_and_or", bit_summary1, bit_summary_reduce);
+        FieldKind::Bits {..} | FieldKind::BitStruct {..} => {
+            make_summary_levels(executor, storage, stream, field, summaries, "bit_and_or", bit_summary1, 2, bit_summary_reduce);
         }
         FieldKind::Int { .. } | FieldKind::Signed { .. } | FieldKind::Float32 | FieldKind::Float64 => {
-            make_summary_levels(executor, storage, stream, field, summaries, "range", range_summary1, range_summary_reduce);
+            make_summary_levels(executor, storage, stream, field, summaries, "range", range_summary1, 2, range_summary_reduce);
+        }
+        FieldKind::Timestamp { .. } => {
+            make_summary_levels(executor, storage, stream, field, summaries, "skip", skip_summary1, 3, skip_summary_reduce);
         }
         _ => { log::info!("No summaries for field kind {:?}", field.kind); }
     }
@@ -28,19 +31,18 @@ fn make_summary_levels(
     summaries: &mut IndexMap<EcoString, Summary<ArcStream>>,
     key: &str,
     initial: impl Fn(&Executor<'static>, &dyn Storage, ArcStream, &Field) -> Option<(Task<Result<(), String>>, ArcStream)>,
+    initial_level: u8,
     reduce: impl Fn(&Executor<'static>, &dyn Storage, ArcStream, &Field) -> Option<(Task<Result<(), String>>, ArcStream)>,
 ) {
     let wanted_levels = stream.state().end.checked_ilog2().unwrap_or(0).saturating_sub(8) as usize;
     let summary = summaries.entry(key.into()).or_insert(Summary::empty());
 
-    log::info!("Building {key} summary to level {}", wanted_levels);
-
     if summary.levels.is_empty() && wanted_levels > 0 {
-        log::info!("Building initial {key} summary at level 2");
+        log::info!("Building initial {key} summary at level {initial_level}");
         if let Some((task, stream)) = initial(executor, storage, stream.clone(), field) {
             task.detach();
             summary.levels.push(stream);
-            summary.base_level = 2;
+            summary.base_level = initial_level;
         }
     }
 
@@ -167,5 +169,31 @@ fn range_summary_reduce(executor: &Executor<'static>, storage: &dyn Storage, str
         (FieldKind::Float32, ElementSize::U32) => make_summary(executor, storage, stream, min_max_reduce_float::<f32>),
         (FieldKind::Float64, ElementSize::U64) => make_summary(executor, storage, stream, min_max_reduce_float::<f64>),
         _ => return None,
+    })
+}
+
+pub(crate) fn skip_summary1(executor: &Executor<'static>, storage: &dyn Storage, stream: ArcStream, _field: &Field) -> Option<(Task<Result<(), String>>, ArcStream)> {
+    fn skip_initial<T: Copy + BitOr<Output = T> + BitAnd<Output = T>>(arr: [T; 8]) -> [T; 1] {
+        [arr[7]]
+    }
+
+    Some(match stream.desc().element_size {
+        ElementSize::U8 => make_summary(executor, storage, stream, skip_initial::<u8>),
+        ElementSize::U16 => make_summary(executor, storage, stream, skip_initial::<u16>),
+        ElementSize::U32 => make_summary(executor, storage, stream, skip_initial::<u32>),
+        ElementSize::U64 => make_summary(executor,storage, stream, skip_initial::<u64>),
+    })
+}
+
+pub(crate) fn skip_summary_reduce(executor: &Executor<'static>, storage: &dyn Storage, stream: ArcStream, _field: &Field) -> Option<(Task<Result<(), String>>, ArcStream)> {
+    fn skip_reduce<T: Copy + BitOr<Output = T> + BitAnd<Output = T>>(arr: [T; 2]) -> [T; 1] {
+        [arr[1]]
+    }
+
+    Some(match stream.desc().element_size {
+        ElementSize::U8 => make_summary(executor, storage, stream, skip_reduce::<u8>),
+        ElementSize::U16 => make_summary(executor, storage, stream, skip_reduce::<u16>),
+        ElementSize::U32 => make_summary(executor, storage, stream, skip_reduce::<u32>),
+        ElementSize::U64 => make_summary(executor, storage, stream, skip_reduce::<u64>),
     })
 }
