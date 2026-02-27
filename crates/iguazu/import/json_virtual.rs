@@ -1,6 +1,6 @@
 use std::{pin::Pin, sync::Arc};
 
-use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::StreamRef}, storage::{ FlatFileOpts, FlatFileStream, Pool }, stream::ArcStream};
+use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::StreamRef}, storage::{ FlatFileOpts, FlatFileStream, Pool }, stream::ArcStream, summary::StoredSummaryMap};
 
 use super::{ImportError, Importer};
 
@@ -29,9 +29,9 @@ impl Importer for VirtualImporter {
     }
 }
 
-async fn load(file: Arc<dyn ReadableFile>) -> Result<Entity<StreamRef>, ImportError> {
+async fn load(file: Arc<dyn ReadableFile>) -> Result<Entity<StreamRef, StoredSummaryMap<StreamRef>>, ImportError> {
     let data = file.read_all(1024 * 1024 * 16).await?;
-    serde_json::from_slice::<Entity<StreamRef>>(&data).map_err(|e| ImportError::InvalidFile(e.to_string()))
+    serde_json::from_slice::<Entity<StreamRef, StoredSummaryMap<StreamRef>>>(&data).map_err(|e| ImportError::InvalidFile(e.to_string()))
 }
 
 async fn create_stream(src_file: Arc<dyn ReadableFile>, pool: Arc<Pool>, stream: StreamRef) -> Result<ArcStream, ImportError> {

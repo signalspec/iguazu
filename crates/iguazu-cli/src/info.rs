@@ -25,7 +25,7 @@ pub fn main(args: &Cli) -> Result<(), String> {
     })
 }
 
-pub fn info_tree<D>(w: &mut impl Write, root_name: &str, entity: &Entity<D>) {
+pub fn info_tree<D, L>(w: &mut impl Write, root_name: &str, entity: &Entity<D, L>) {
     info_tree_inner(w, "", root_name, entity).unwrap()
 }
 
@@ -55,7 +55,7 @@ fn info_tree_field(w: &mut impl Write, top: bool, prefix: &str, name: &str, fiel
     }
 }
 
-fn info_tree_inner<D>(w: &mut impl Write, prefix: &str, name: &str, entity: &Entity<D>) -> std::io::Result<()> {
+fn info_tree_inner<D, S>(w: &mut impl Write, prefix: &str, name: &str, entity: &Entity<D, S>) -> std::io::Result<()> {
     match entity {
         Entity::Group { children, .. } => {
             header_line(w, true, name, "Group")?;

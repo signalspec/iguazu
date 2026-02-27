@@ -11,8 +11,7 @@ use analog_row::YAxisRow;
 use ecow::EcoString;
 use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
-use iguazu::{schema::{attribute::display::{AccentColor, TimelineRow}, Entity, EntityStream, Field, FieldKind, Summary}, stream::ArcStream, time::{TimeRange, Time}};
-use indexmap::IndexMap;
+use iguazu::{schema::{Entity, EntityStream, Field, FieldKind, attribute::display::{AccentColor, TimelineRow}}, stream::ArcStream, summary::LiveSummaryMap, time::{Time, TimeRange}};
 use trace_row::{LogicRow, TraceRow};
 use crate::{ egui_util:: shadow_line::draw_shadow_line, ViewerContext };
 
@@ -268,7 +267,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
         color: Option<AccentColor>,
         name: EcoString,
         field: &Field,
-        summaries: &IndexMap<EcoString, Summary<ArcStream>>,
+        summaries: &LiveSummaryMap,
     ) {
         let color = field.accent_color().or(color);
         match field.timeline_row() {

@@ -1,4 +1,4 @@
-use std::{any::TypeId, convert::Infallible};
+use std::{convert::Infallible, fmt::Debug};
 
 use async_executor:: Executor;
 use attribute::AttributeValue;
@@ -14,10 +14,20 @@ pub mod fmt;
 
 pub mod json_virtual;
 
-use crate::{schema::attribute::Attribute, storage::Storage, stream::ArcStream};
+use crate::{schema::attribute::Attribute, storage::Storage, stream::ArcStream, summary::{BorrowedSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap, Summary, SummaryMap}};
 
 pub type Name = String;
 pub type Path = String;
+
+/// Types that can be used as the data of an `Entity`.
+pub trait EntityData: Sized + Clone + Send + Sync + 'static {
+    type SummaryMap: SummaryMap<Data = Self>;
+    fn skip_serialize(&self) -> bool { false }
+}
+
+impl EntityData for ArcStream {
+    type SummaryMap = LiveSummaryMap;
+}
 
 /// Placeholder for `data` field in `EntitySchema` which does not carry data of its own.
 #[derive(Debug, Default, Clone)]
@@ -36,55 +46,77 @@ impl serde::Serialize for Ignored {
     }
 }
 
-fn is_ignored<T: Serialize + 'static>(_: &T) -> bool {
-    TypeId::of::<T>() == TypeId::of::<Ignored>()
+impl EntityData for Ignored {
+    type SummaryMap = Ignored;
+
+    fn skip_serialize(&self) -> bool {
+        true
+    }
 }
 
-pub type EntitySchema = Entity<Ignored>;
-pub type EntityStream = Entity<ArcStream>;
+impl SummaryMap for Ignored {
+    type Data = Ignored;
+
+    fn iter(&self) -> impl Iterator<Item = (EcoString, BorrowedSummary<'_, Self::Data>)> {
+        std::iter::empty()
+    }
+
+    fn is_empty(&self) -> bool {
+        true
+    }
+}
+
+impl FromIterator<(EcoString, StoredSummary<Ignored>)> for Ignored {
+    fn from_iter<T: IntoIterator<Item = (EcoString, StoredSummary<Ignored>)>>(_iter: T) -> Self {
+        Ignored
+    }
+}
+
+pub type EntitySchema = Entity<Ignored, Ignored>;
+pub type EntityStream = Entity<ArcStream, LiveSummaryMap>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all="snake_case")]
-pub enum Entity<S: 'static> {
+pub enum Entity<D, S> {
     Group {
-        children: IndexMap<EcoString, Entity<S>>,
+        children: IndexMap<EcoString, Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
     },
     Record {
-        children: IndexMap<EcoString, Entity<S>>,
+        children: IndexMap<EcoString, Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
     },
     Union {
-        #[serde(skip_serializing_if = "is_ignored")]
-        data: S,
+        #[serde(skip_serializing_if = "EntityData::skip_serialize", bound(serialize = "D: Serialize + EntityData", deserialize = "D: Deserialize<'de> + EntityData"))]
+        data: D,
 
-        variants: IndexMap<EcoString, Entity<S>>,
+        variants: IndexMap<EcoString, Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
     },
     FixedArray {
         elements: u32,
-        child: Box<Entity<S>>,
+        child: Box<Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
     },
     Tuple {
         fields: IndexMap<EcoString, AttributeMap>,
-        child: Box<Entity<S>>,
+        child: Box<Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
     },
     VariableArray {
-        #[serde(skip_serializing_if = "is_ignored")]
-        data: S,
-        child: Box<Entity<S>>,
+        #[serde(skip_serializing_if = "EntityData::skip_serialize",  bound(serialize = "D: Serialize + EntityData", deserialize = "D: Deserialize<'de> + EntityData"))]
+        data: D,
+        child: Box<Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
@@ -94,11 +126,11 @@ pub enum Entity<S: 'static> {
         #[serde(flatten)]
         field: Field,
 
-        #[serde(skip_serializing_if = "is_ignored")]
-        data: S,
+        #[serde(skip_serializing_if = "EntityData::skip_serialize")]
+        data: D,
 
-        #[serde(skip_serializing_if = "IndexMap::is_empty", default = "Default::default")]
-        summaries: IndexMap<EcoString, Summary<S>>,
+        #[serde(skip_serializing_if = "SummaryMap::is_empty", default = "Default::default", bound(serialize = "S: Serialize + SummaryMap", deserialize = "S: Deserialize<'de> + SummaryMap + Default"))]
+        summaries: S,
     }
 }
 
@@ -193,7 +225,7 @@ impl Field {
     }
 }
 
-impl<S> Entity<S> {
+impl<D, S> Entity<D, S> {
     pub fn record() -> Self {
         Entity::Record { children: IndexMap::new(), attributes: Default::default() }
     }
@@ -202,7 +234,7 @@ impl<S> Entity<S> {
         Entity::Group { children: IndexMap::new(), attributes: Default::default() }
     }
 
-    pub fn field_data(kind: FieldKind, data: S) -> Self {
+    pub fn field_data(kind: FieldKind, data: D) -> Self where S: Default {
         Entity::Data {
             data,
             field: Field {
@@ -237,7 +269,7 @@ impl<S> Entity<S> {
         }
     }
 
-    pub fn tuple(child: Entity<S>, fields: IndexMap<EcoString, AttributeMap>) -> Self {
+    pub fn tuple(child: Entity<D, S>, fields: IndexMap<EcoString, AttributeMap>) -> Self {
         Entity::Tuple { child: Box::new(child), fields, attributes: Default::default() }
     }
 
@@ -258,7 +290,7 @@ impl<S> Entity<S> {
         self
     }
 
-    pub fn child(&self, child: &str) -> Option<&Entity<S>> {
+    pub fn child(&self, child: &str) -> Option<&Entity<D, S>> {
         match *self {
             Entity::Group { ref children, .. } | Entity::Record { ref children, .. } => {
                 children.get(child)
@@ -272,7 +304,7 @@ impl<S> Entity<S> {
         }
     }
 
-    pub fn child_mut(&mut self, child: &str) -> Option<&mut Entity<S>> {
+    pub fn child_mut(&mut self, child: &str) -> Option<&mut Entity<D, S>> {
         match *self {
             Entity::Group { ref mut children, .. } | Entity::Record { ref mut children, .. } => {
                 children.get_mut(child)
@@ -300,7 +332,7 @@ impl<S> Entity<S> {
         }
     }
 
-    pub fn with_child(mut self, name: EcoString, child: Entity<S>) -> Self {
+    pub fn with_child(mut self, name: EcoString, child: Entity<D, S>) -> Self {
         match &mut self {
             Entity::Group { children, .. }
             | Entity::Record { children, .. } => {
@@ -311,7 +343,7 @@ impl<S> Entity<S> {
         self
     }
 
-    pub fn select(&self, path: &str) -> Option<&Entity<S>> {
+    pub fn select(&self, path: &str) -> Option<&Entity<D, S>> {
         let mut current = self;
         for part in path.split('.') {
             current = current.child(part)?;
@@ -319,7 +351,7 @@ impl<S> Entity<S> {
         Some(current)
     }
 
-    pub fn select_mut(&mut self, path: &str) -> Option<&mut Entity<S>> {
+    pub fn select_mut(&mut self, path: &str) -> Option<&mut Entity<D, S>> {
         let mut current = self;
         for part in path.split('.') {
             current = current.child_mut(part)?;
@@ -334,8 +366,10 @@ impl<S> Entity<S> {
         }
         Some(current)
     }
+}
 
-    pub fn data(&self) -> Option<&S> {
+impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
+    pub fn data(&self) -> Option<&D> {
         match self {
             Entity::Data { data, .. } => Some(data),
             Entity::Union { data, .. } => Some(data),
@@ -344,31 +378,7 @@ impl<S> Entity<S> {
         }
     }
 
-    pub fn each_data_mut(&mut self, f: &mut impl FnMut(&mut S)) {
-        match self {
-            Entity::Group { children, .. } | Entity::Record { children, ..} => {
-                for child in children.values_mut() {
-                    child.each_data_mut(f);
-                }
-            }
-            Entity::Union { data, .. } => f(data),
-            Entity::FixedArray { child, .. } | Entity::Tuple { child, .. } => {
-                child.each_data_mut(f)
-            }
-            Entity::VariableArray { data, child, .. } => {
-                f(data);
-                child.each_data_mut(f);
-            }
-            Entity::Data { data, summaries, .. } => {
-                f(data);
-                for s in summaries.values_mut() {
-                    s.levels.iter_mut().for_each(|level| f(level));
-                }
-            }
-        }
-    }
-
-    pub fn try_map_data<T: Send, E: Send>(&self, f: &mut impl FnMut(&S) -> Result<T, E>) -> Result<Entity<T>, E> {
+    pub fn try_map_data<T: EntityData + Send, E: Send>(&self, f: &mut impl FnMut(&D) -> Result<T, E>) -> Result<Entity<T, T::SummaryMap>, E> {
         match self {
             Entity::Group { children, attributes } => {
                 let children = children.iter()
@@ -407,30 +417,35 @@ impl<S> Entity<S> {
                 let data = f(data)?;
                 let summaries = summaries.iter()
                     .map(|(name, summary)| {
-                        summary.try_map_data(f).map(|s| (name.clone(), s))
+                        let levels = summary.levels.iter().map(|d| f(d)).collect::<Result<Vec<_>, E>>()?;
+                        Ok((name.clone(), Summary { base_level: summary.base_level, levels: levels.into_boxed_slice() }))
                     })
-                    .collect::<Result<IndexMap<_, _>, E>>()?;
+                    .collect::<Result<T::SummaryMap, E>>()?;
                 Ok(Entity::Data { data, field: field.clone(), summaries })
             }
         }
     }
 
-    pub async fn try_map_data_async<T, E, F, R>(&self, f: F) -> Result<Entity<T>, E>
+    pub async fn try_map_data_async<T, TM, E, F, R>(&self, f: F) -> Result<Entity<T, TM>, E>
     where
+        D: Send + Sync + 'static,
         S: Send + Sync + 'static,
-        T: Send + Sync + 'static,
+        T: EntityData<SummaryMap = TM> + Send + Sync + 'static,
+        TM: SummaryMap<Data = T> + Send + Sync + 'static,
         E: Send + 'static,
-        F: Fn(&S) -> R + Send + Sync + Clone,
+        F: Fn(&D) -> R + Send + Sync + Clone,
         R: Future<Output = Result<T, E>> + Send,
     {
-        async fn map_children<S, T, E, F, R>(
-            children: &IndexMap<EcoString, Entity<S>>,
+        async fn map_children<D, S, T, TM, E, F, R>(
+            children: &IndexMap<EcoString, Entity<D, S>>,
             f: &F
-        ) -> Result<IndexMap<EcoString, Entity<T>>, E> where
-            S: Send + Sync + 'static,
-            T: Send + Sync + 'static,
+        ) -> Result<IndexMap<EcoString, Entity<T, TM>>, E> where
+            D: EntityData + Send + Sync + 'static,
+            S: SummaryMap<Data = D> + Send + Sync + 'static,
+            T: EntityData + Send + Sync + 'static,
+            TM: SummaryMap<Data = T> + Send + Sync + 'static,
             E: Send + 'static,
-            F: Fn(&S) -> R + Send + Sync + Clone,
+            F: Fn(&D) -> R + Send + Sync + Clone,
             R: Future<Output = Result<T, E>> + Send
         {
             Ok(futures_util::future::try_join_all(children.iter().map(|(k, v)| async {
@@ -439,42 +454,33 @@ impl<S> Entity<S> {
             })).await?.into_iter().collect())
         }
 
-        async fn map_summary<S, T, E, F, R>(
-            summary: &Summary<S>,
-            f: &F
-        ) -> Result<Summary<T>, E> where
-            S: Send + Sync + 'static,
-            T: Send + Sync + 'static,
-            E: Send + 'static,
-            F: Fn(&S) -> R + Send + Sync + Clone,
-            R: Future<Output = Result<T, E>> + Send
-        {
-            let levels = futures_util::future::try_join_all(summary.levels.iter().map(f)).await?;
-            Ok(Summary { base_level: summary.base_level, levels })
-        }
-
-        async fn map_summaries<S, T, E, F, R>(summaries: &IndexMap<EcoString, Summary<S>>, f: &F) -> Result<IndexMap<EcoString, Summary<T>>, E>
+        async fn map_summaries<D, S, T, TM, E, F, R>(summaries: &S, f: &F) -> Result<TM, E>
         where
-            S: Send + Sync + 'static,
-            T: Send + Sync + 'static,
+            D: EntityData + Send + Sync + 'static,
+            S: SummaryMap<Data = D> + Send + Sync + 'static,
+            T: EntityData + Send + Sync + 'static,
+            TM: SummaryMap<Data = T> + Send + Sync + 'static,
             E: Send + 'static,
-            F: Fn(&S) -> R + Send + Sync + Clone,
+            F: Fn(&D) -> R + Send + Sync + Clone,
             R: Future<Output = Result<T, E>> + Send
         {
-            Ok(futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async {
-                let v = map_summary(v, f).await?;
-                Ok::<_, E>((k.clone(), v))
-            })).await?.into_iter().collect())
+            let summaries: Vec<(EcoString, StoredSummary<T>)> = futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async move {
+                let levels: Vec<T> = futures_util::future::try_join_all(v.levels.iter().map(f)).await?;
+                Ok((k.clone(), Summary { base_level: v.base_level, levels: levels.into_boxed_slice() }))
+            })).await?;
+            Ok(summaries.into_iter().collect())
         }
 
-        fn map_entity<S, T, E, F, R>(
-            schema: &Entity<S>,
+        fn map_entity<D, S, T, TM, E, F, R>(
+            schema: &Entity<D, S>,
             f: &F
-        ) -> impl Future<Output = Result<Entity<T>, E>> + Send where
-            S: Send + Sync + 'static,
-            T: Send + Sync + 'static,
+        ) -> impl Future<Output = Result<Entity<T, TM>, E>> + Send where
+            D: EntityData + Send + Sync + 'static,
+            S: SummaryMap<Data = D> + Send + Sync + 'static,
+            T: EntityData + Send + Sync + 'static,
+            TM: SummaryMap<Data = T> + Send + Sync + 'static,
             E: Send + 'static,
-            F: Fn(&S) -> R + Send + Sync + Clone,
+            F: Fn(&D) -> R + Send + Sync + Clone,
             R: Future<Output = Result<T, E>> + Send
         {
             async move {
@@ -525,6 +531,32 @@ impl<S> Entity<S> {
 
     pub fn schema(&self) -> EntitySchema {
         self.try_map_data(&mut |_| Ok::<Ignored, Infallible>(Ignored)).unwrap()
+    }
+}
+
+impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
+    pub fn each_data_mut(&mut self, f: &mut impl FnMut(&mut D)) {
+        match self {
+            Entity::Group { children, .. } | Entity::Record { children, ..} => {
+                for child in children.values_mut() {
+                    child.each_data_mut(f);
+                }
+            }
+            Entity::Union { data, .. } => f(data),
+            Entity::FixedArray { child, .. } | Entity::Tuple { child, .. } => {
+                child.each_data_mut(f)
+            }
+            Entity::VariableArray { data, child, .. } => {
+                f(data);
+                child.each_data_mut(f);
+            }
+            Entity::Data { data, summaries, .. } => {
+                f(data);
+                for s in summaries.0.values_mut() {
+                    s.levels.iter_mut().for_each(|level| f(level));
+                }
+            }
+        }
     }
 }
 
@@ -611,23 +643,5 @@ impl EntityStream {
                 crate::summary::build_default_summaries(executor, storage, data, field, summaries);
             }
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Summary<S> {
-    pub base_level: u8,
-    pub levels: Vec<S>,
-}
-
-impl<S> Summary<S> {
-    pub const fn empty() -> Self {
-        Summary { base_level: 255, levels: Vec::new() }
-    }
-
-    fn try_map_data<T, E>(&self, f: &mut impl FnMut(&S) -> Result<T, E>) -> Result<Summary<T>, E> {
-        let base_level = self.base_level;
-        let levels = self.levels.iter().map(|level| f(level)).collect::<Result<Vec<_>, _>>()?;
-        Ok(Summary { base_level, levels })
     }
 }

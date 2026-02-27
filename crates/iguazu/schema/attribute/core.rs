@@ -58,7 +58,7 @@ pub enum TimeDisplay {
 
 string_attribute!(TimeDisplay);
 
-impl<D> Entity<D> {
+impl<D, S> Entity<D, S> {
     pub fn sample_rate(&self) -> Option<f64> {
         self.attribute(SAMPLE_RATE)
     }

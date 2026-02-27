@@ -5,7 +5,7 @@ use async_executor::Executor;
 use futures_lite::{AsyncWrite, AsyncWriteExt};
 use serde::{Deserialize, Serialize};
 
-use crate::{export::ExportError, schema::{Entity, EntityStream}, stream::ArcStream, ElementSize};
+use crate::{ElementSize, export::ExportError, schema::{Entity, EntityData, EntityStream}, stream::ArcStream, summary::StoredSummaryMap};
 use async_lock::Mutex as AsyncMutex;
 
 pub const HEADER_MAGIC: [u8; 8] = [ 0x00, 0x21, 0x4a, 0xd9, 0xff, 0x90, 0xba, 0xed ];
@@ -47,7 +47,7 @@ impl Footer {
 
 #[derive(Serialize, Deserialize)]
 pub struct FileMeta {
-    pub entity: Entity<StreamMeta>,
+    pub entity: Entity<StreamMeta, StoredSummaryMap<StreamMeta>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -70,6 +70,10 @@ pub struct StreamMeta {
     pub root_len: u32,
     pub end_idx: u64,
     pub compress: CompressionMethod,
+}
+
+impl EntityData for StreamMeta {
+    type SummaryMap = StoredSummaryMap<StreamMeta>;
 }
 
 struct WriteState {

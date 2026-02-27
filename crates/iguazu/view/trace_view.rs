@@ -1,4 +1,4 @@
-use crate::{schema::Summary, stream::{ArcStream, BlockDesc, StreamState}, view::ViewManager, Idx, IdxRange};
+use crate::{Idx, IdxRange, summary::BorrowedSummary, stream::{ArcStream, BlockDesc, StreamState}, view::ViewManager};
 
 use super::IntView;
 
@@ -15,7 +15,7 @@ pub struct TraceView<'a> {
 }
 
 impl<'a> TraceView<'a> {
-    pub fn new(vm: &'a ViewManager, stream: ArcStream, summary: &Summary<ArcStream>) -> Self {
+    pub fn new(vm: &'a ViewManager, stream: ArcStream, summary: BorrowedSummary<'_, ArcStream>) -> Self {
         TraceView {
             base: IntView::new_from_stream(vm, &stream),
             base_level: summary.base_level,
@@ -154,7 +154,7 @@ pub enum TraceElement {
 
 #[test]
 fn test_traceview() {
-    use crate::{ stream::ArcStream, schema::{Field, FieldKind}, storage::{MemoryStorage, MemoryStreamWriter} };
+    use crate::{ stream::ArcStream, schema::{Field, FieldKind}, summary::LiveSummary, storage::{MemoryStorage, MemoryStreamWriter} };
     use std::task::Waker;
     use async_executor::Executor;
     use futures_lite::future::block_on;
@@ -171,7 +171,7 @@ fn test_traceview() {
     let stream: ArcStream = writer.stream().clone();
     drop(writer);
 
-    let trace_view = TraceView::new(&vm, stream.clone(), &Summary::empty());
+    let trace_view = TraceView::new(&vm, stream.clone(), BorrowedSummary::empty());
 
     let mut results = Vec::new();
     trace_view.scan(IdxRange { min: 0, max: 250 },
@@ -198,9 +198,9 @@ fn test_traceview() {
     let (task, summary2) = crate::summary::bit_summary_reduce(&executor, storage, summary1.clone(), &field).unwrap();
     block_on(executor.run(task)).unwrap();
 
-    let summary = Summary { levels: vec![summary1, summary2], base_level: 2 };
+    let summary = LiveSummary::new(2, [summary1, summary2]);
 
-    let trace_view = TraceView::new(&vm, stream, &summary);
+    let trace_view = TraceView::new(&vm, stream, summary.borrow());
 
     let mut results = Vec::new();
     trace_view.scan(IdxRange { min: 0, max: 200 },

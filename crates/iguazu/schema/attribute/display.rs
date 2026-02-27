@@ -2,7 +2,7 @@ use ecow::EcoString;
 use strum::{EnumString, IntoStaticStr};
 
 use super::{Attribute, string_attribute};
-use crate::schema::{attribute::AttributeValue, AttributeMap, Entity, Field, FieldKind};
+use crate::schema::{AttributeMap, Entity, Field, FieldKind, attribute::AttributeValue};
 
 pub const DISPLAY: Attribute<Display> = Attribute::named("display:default");
 pub const ACCENT_COLOR: Attribute<AccentColor> = Attribute::named("display:accent_color");
@@ -78,7 +78,7 @@ pub enum TimelineRow {
 }
 string_attribute!(TimelineRow);
 
-impl<D> Entity<D> {
+impl<D, S> Entity<D, S> {
     pub fn display_default(&self) -> Option<Display> {
         self.attribute(DISPLAY)
             .or(if self.time().is_some() || self.sample_rate().is_some() {
