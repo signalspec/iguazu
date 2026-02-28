@@ -534,7 +534,7 @@ dependencies = [
  "async-task",
  "futures-io",
  "futures-lite",
- "piper 0.2.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "piper",
 ]
 
 [[package]]
@@ -1717,7 +1717,7 @@ dependencies = [
  "num-complex",
  "num-traits",
  "once-array",
- "piper 0.2.4 (git+https://github.com/kevinmehall/piper.git?rev=5ef4e1324232adda03a2932c24c83432038ee397)",
+ "piper",
  "send_wrapper",
  "serde",
  "serde_json",
@@ -2694,19 +2694,9 @@ checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
 
 [[package]]
 name = "piper"
-version = "0.2.4"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96c8c490f422ef9a4efd2cb5b42b76c8613d7e7dfc1caf667b8a3350a5acc066"
-dependencies = [
- "atomic-waker",
- "fastrand",
- "futures-io",
-]
-
-[[package]]
-name = "piper"
-version = "0.2.4"
-source = "git+https://github.com/kevinmehall/piper.git?rev=5ef4e1324232adda03a2932c24c83432038ee397#5ef4e1324232adda03a2932c24c83432038ee397"
+checksum = "c835479a4443ded371d6c535cbfd8d31ad92c5d23ae9770a61bc155e4992a3c1"
 dependencies = [
  "atomic-waker",
  "fastrand",

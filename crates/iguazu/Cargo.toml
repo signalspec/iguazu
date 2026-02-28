@@ -49,7 +49,7 @@ default = ["csv", "izs"]
 
 [target.'cfg(any(target_family = "unix", target_family = "windows"))'.dependencies]
 blocking = { version = "1.6.1", optional = true }
-piper = { git = "https://github.com/kevinmehall/piper.git", rev = "5ef4e1324232adda03a2932c24c83432038ee397", optional = true }
+piper = { version = "0.2.5", optional = true }
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 web-sys = { version = "0.3.82", features = ["File", "Blob", "ReadableStream", "ReadableStreamDefaultReader", "ReadableStreamReadResult", "Window", "Request", "RequestInit", "Response", "Headers"], optional = true }
