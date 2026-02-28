@@ -1,9 +1,9 @@
-use std::{any::TypeId, convert::Infallible, sync::Arc};
+use std::{any::TypeId, convert::Infallible};
 
-use async_executor::{ Executor, Task };
+use async_executor:: Executor;
 use attribute::AttributeValue;
 use ecow::{eco_format, EcoString};
-use futures_lite::{future, stream, StreamExt};
+use futures_lite::future;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -415,120 +415,104 @@ impl<S> Entity<S> {
         }
     }
 
-    pub async fn try_map_data_async<T, E, F, R>(self, f: F) -> Result<Entity<T>, E>
+    pub async fn try_map_data_async<T, E, F, R>(&self, f: F) -> Result<Entity<T>, E>
     where
-        S: Send + 'static,
-        T: Send + 'static,
+        S: Send + Sync + 'static,
+        T: Send + Sync + 'static,
         E: Send + 'static,
-        F: Fn(S) -> R + Send + Clone + 'static,
-        R: Future<Output = Result<T, E>> + Send + 'static,
+        F: Fn(&S) -> R + Send + Sync + Clone,
+        R: Future<Output = Result<T, E>> + Send,
     {
-        let executor = Arc::new(Executor::new());
-
         async fn map_children<S, T, E, F, R>(
-            ex: Arc<Executor<'static>>,
-            children: IndexMap<EcoString, Entity<S>>,
-            f: F
+            children: &IndexMap<EcoString, Entity<S>>,
+            f: &F
         ) -> Result<IndexMap<EcoString, Entity<T>>, E> where
-            S: Send + 'static,
-            T: Send + 'static,
+            S: Send + Sync + 'static,
+            T: Send + Sync + 'static,
             E: Send + 'static,
-            F: Fn(S) -> R + Send + Clone + 'static,
-            R: Future<Output = Result<T, E>> + Send + 'static
+            F: Fn(&S) -> R + Send + Sync + Clone,
+            R: Future<Output = Result<T, E>> + Send
         {
-            let child_tasks: Vec<(EcoString, Task<_>)> = children.into_iter().map(|(k, v)| {
-                (k, ex.spawn(map_entity(ex.clone(), v, f.clone())))
-            }).collect();
-
-            stream::iter(child_tasks)
-                .then(|(k, f_v)| async move { Ok::<_, E>((k, f_v.await?)) })
-                .try_collect().await
+            Ok(futures_util::future::try_join_all(children.iter().map(|(k, v)| async {
+                let v = map_entity(v, f).await?;
+                Ok::<_, E>((k.clone(), v))
+            })).await?.into_iter().collect())
         }
 
         async fn map_summary<S, T, E, F, R>(
-            ex: Arc<Executor<'static>>,
-            summary: Summary<S>,
-            f: F
+            summary: &Summary<S>,
+            f: &F
         ) -> Result<Summary<T>, E> where
-            S: Send + 'static,
-            T: Send + 'static,
+            S: Send + Sync + 'static,
+            T: Send + Sync + 'static,
             E: Send + 'static,
-            F: Fn(S) -> R + Send + Clone + 'static,
-            R: Future<Output = Result<T, E>> + Send + 'static
+            F: Fn(&S) -> R + Send + Sync + Clone,
+            R: Future<Output = Result<T, E>> + Send
         {
-            let Summary { base_level, levels } = summary;
-            let child_tasks: Vec<Task<_>> = levels.into_iter().map(|s| {
-                ex.spawn(f(s))
-            }).collect();
-
-            let levels = stream::iter(child_tasks).then(|f| f).try_collect().await?;
-            Ok(Summary { base_level, levels })
+            let levels = futures_util::future::try_join_all(summary.levels.iter().map(f)).await?;
+            Ok(Summary { base_level: summary.base_level, levels })
         }
 
-        async fn map_summaries<S, T, E, F, R>(ex: Arc<Executor<'static>>, summaries: IndexMap<EcoString, Summary<S>>, f: F) -> Result<IndexMap<EcoString, Summary<T>>, E>
+        async fn map_summaries<S, T, E, F, R>(summaries: &IndexMap<EcoString, Summary<S>>, f: &F) -> Result<IndexMap<EcoString, Summary<T>>, E>
         where
-            S: Send + 'static,
-            T: Send + 'static,
+            S: Send + Sync + 'static,
+            T: Send + Sync + 'static,
             E: Send + 'static,
-            F: Fn(S) -> R + Send + Clone + 'static,
-            R: Future<Output = Result<T, E>> + Send + 'static
+            F: Fn(&S) -> R + Send + Sync + Clone,
+            R: Future<Output = Result<T, E>> + Send
         {
-            let child_tasks: Vec<(EcoString, Task<_>)> = summaries.into_iter().map(|(k, v)| {
-                (k, ex.spawn(map_summary(ex.clone(), v, f.clone())))
-            }).collect();
-
-            stream::iter(child_tasks)
-                .then(|(k, f_v)| async move { Ok::<_, E>((k, f_v.await?)) })
-                .try_collect().await
+            Ok(futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async {
+                let v = map_summary(v, f).await?;
+                Ok::<_, E>((k.clone(), v))
+            })).await?.into_iter().collect())
         }
 
         fn map_entity<S, T, E, F, R>(
-            ex: Arc<Executor<'static>>,
-            schema: Entity<S>,
-            f: F
+            schema: &Entity<S>,
+            f: &F
         ) -> impl Future<Output = Result<Entity<T>, E>> + Send where
-            S: Send + 'static,
-            T: Send + 'static,
+            S: Send + Sync + 'static,
+            T: Send + Sync + 'static,
             E: Send + 'static,
-            F: Fn(S) -> R + Send + Clone + 'static,
-            R: Future<Output = Result<T, E>> + Send + 'static
+            F: Fn(&S) -> R + Send + Sync + Clone,
+            R: Future<Output = Result<T, E>> + Send
         {
             async move {
-                match schema {
-                    Entity::Group { children, attributes } => {
-                        let children = map_children(ex, children, f).await?;
+                match *schema {
+                    Entity::Group { ref children, ref attributes } => {
+                        let children = map_children(children, f).await?;
                         Ok(Entity::Group { children, attributes: attributes.clone() })
                     }
-                    Entity::Record { children, attributes } => {
-                        let children = map_children(ex, children, f).await?;
+                    Entity::Record { ref children, ref attributes } => {
+                        let children = map_children(children, f).await?;
                         Ok(Entity::Record { children, attributes: attributes.clone() })
                     }
-                    Entity::Data { data, ref field, summaries } => {
+                    Entity::Data { ref data, ref field, ref summaries } => {
                         let (data, summaries) = future::try_zip(
                             f(data),
-                            map_summaries(ex, summaries, f),
+                            map_summaries(summaries, f),
                         ).await?;
                         Ok(Entity::Data { field: field.clone(), data, summaries })
                     }
-                    Entity::Union { data, variants, attributes } => {
+                    Entity::Union { ref data, ref variants, ref attributes } => {
                         let (data, variants) = future::try_zip(
                             f(data),
-                            map_children(ex, variants, f)
+                            map_children(variants, f)
                         ).await?;
                         Ok(Entity::Union { data, variants, attributes: attributes.clone() })
                     }
-                    Entity::FixedArray { elements, child, attributes } => {
-                        let child = Box::new(ex.spawn(map_entity(ex.clone(), *child, f)).await?);
-                        Ok(Entity::FixedArray { elements, child, attributes: attributes.clone() })
+                    Entity::FixedArray { ref elements, ref child, ref attributes } => {
+                        let child = Box::new(Box::pin(map_entity(child, f)).await?);
+                        Ok(Entity::FixedArray { elements: elements.clone(), child, attributes: attributes.clone() })
                     }
-                    Entity::Tuple { fields, child, attributes } => {
-                        let child = Box::new(ex.spawn(map_entity(ex.clone(), *child, f)).await?);
-                        Ok(Entity::Tuple { fields, child, attributes: attributes.clone() })
+                    Entity::Tuple { ref fields, ref child, ref attributes } => {
+                        let child = Box::new(Box::pin(map_entity(child, f)).await?);
+                        Ok(Entity::Tuple { fields: fields.clone(), child, attributes: attributes.clone() })
                     }
-                    Entity::VariableArray { data, child, attributes } => {
+                    Entity::VariableArray { ref data, ref child, ref attributes } => {
                         let (data, child) = future::try_zip(
                             f(data),
-                            ex.spawn(map_entity(ex.clone(), *child, f))
+                            Box::pin(map_entity(child, f))
                         ).await?;
                         Ok(Entity::VariableArray { data, child: Box::new(child), attributes: attributes.clone() })
                     }
@@ -536,7 +520,7 @@ impl<S> Entity<S> {
             }
         }
 
-        executor.run(map_entity(executor.clone(), self, f)).await
+        map_entity(self, &f).await
     }
 
     pub fn schema(&self) -> EntitySchema {

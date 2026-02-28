@@ -60,7 +60,7 @@ pub enum CompressionMethod {
 }
 
 /// Stream info in `data` of the metadata
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct StreamMeta {
     #[serde(alias = "element_type")] // Pre-0.1
     pub element: ElementSize,
@@ -205,7 +205,7 @@ pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<
 
     // Write entities
     let w = write.clone();
-    let mut meta_entity = entity.try_map_data_async(move |stream| ex.spawn(write_stream(w.clone(), stream))).await?;
+    let mut meta_entity = entity.try_map_data_async(move |stream| ex.spawn(write_stream(w.clone(), stream.clone()))).await?;
 
     let mut write = write.lock().await;
 

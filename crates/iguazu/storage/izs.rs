@@ -71,15 +71,16 @@ impl IzsFile {
 
         meta.entity.try_map_data_async(move |s| {
             let shared = self.clone();
-            let pool = pool.clone();
-            async move {
+            let pool_inner = pool.clone();
+            let s = s.clone();
+            pool.executor.spawn(async move {
                 let index = shared.read_at(s.root, s.root_len as usize).await?;
                 let block_index = BlockIndex::parse(&index);
 
                 let stream = IzsStream {
                     id: s.root,
                     shared,
-                    pool,
+                    pool: pool_inner,
                     block_desc: BlockDesc { element_size: s.element, count: s.block },
                     compress: s.compress,
                     block_index,
@@ -87,7 +88,7 @@ impl IzsFile {
                     cache: Mutex::new(WeakMap::new()),
                 };
                 Ok(Arc::new(stream) as Arc<dyn Stream>)
-            }
+            })
         }).await
     }
 }

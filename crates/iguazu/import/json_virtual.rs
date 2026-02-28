@@ -23,7 +23,7 @@ impl Importer for VirtualImporter {
     fn import(&self, file: Arc<dyn ReadableFile>, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
         Box::pin(async move {
             let schema = load(file.clone()).await?;
-            let entity = schema.try_map_data_async(move |s| create_stream(file.clone(), pool.clone(), s)).await?;
+            let entity = schema.try_map_data_async(move |s| pool.executor.spawn(create_stream(file.clone(), pool.clone(), s.clone()))).await?;
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }
