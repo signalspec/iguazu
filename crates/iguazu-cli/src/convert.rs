@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use clap::Args;
-use iguazu::{cli::{ExportOpts, ImportOpts}, export::EXPORTERS, import::IMPORTERS, storage::MemoryStorage};
+use iguazu::{cli::{ExportOpts, ImportOpts}, export::EXPORTERS, import::IMPORTERS, storage::{MemoryStorage, Storage}};
 use futures_lite::future::{self, block_on};
 
 #[derive(Args)]
@@ -20,12 +20,14 @@ pub struct Cli {
 pub fn main(args: &Cli) -> Result<(), String> {
     let executor = Arc::new(async_executor::Executor::new());
     let pool = Arc::new(iguazu::storage::Pool::new(executor.clone(), 256 * 1024 * 1024));
+    let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
 
     block_on(executor.run(async {
         let (mut entity, import_completion) = args.import.import(IMPORTERS, pool).await?;
+        let import_completion = executor.spawn(import_completion);
 
         if args.build_summary {
-            entity.build_summaries(&executor, &MemoryStorage);
+            entity.build_summaries(&executor, &storage).await?;
         }
 
         let export_completion = args.export.export(EXPORTERS, executor.clone(), entity);

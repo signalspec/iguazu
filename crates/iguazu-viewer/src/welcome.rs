@@ -2,7 +2,7 @@ use std::{sync::Arc, task::Poll};
 
 use async_executor::Task;
 use egui::{Button, Color32, Layout, Pos2, Rect, RichText, Ui, UiBuilder, Vec2};
-use iguazu::{import::IMPORTERS, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::{MemoryStorage, MemoryStream, Pool}, stream::ArcStream};
+use iguazu::{import::IMPORTERS, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::{MemoryStream, Pool, Storage}, stream::ArcStream};
 use iguazu_egui::ViewerContext;
 use rfd::AsyncFileDialog;
 
@@ -23,8 +23,8 @@ impl Welcome {
         }
     }
 
-    pub fn with_file(file: Arc<dyn ReadableFile>, pool: Arc<Pool>) -> Self {
-        let picker_task = Some(pool.executor.spawn(import_file(file, pool.clone())));
+    pub fn with_file(file: Arc<dyn ReadableFile>, storage: Arc<dyn Storage>, pool: Arc<Pool>) -> Self {
+        let picker_task = Some(pool.executor.spawn(import_file(file, storage, pool.clone())));
         Self {
             picker_task,
             error: None,
@@ -47,7 +47,7 @@ impl Welcome {
 
             if ui.add_sized((ui.available_width(), 0.0), Button::new("Open file…")).clicked() {
                 self.error = None;
-                self.picker_task = Some(vctx.spawn(pick_and_import_file(vctx.pool().clone())));
+                self.picker_task = Some(vctx.spawn(pick_and_import_file(vctx.pool().clone(), vctx.default_storage().clone())));
             }
 
             if let Some(t) = &mut self.picker_task && let Poll::Ready(res) = vctx.poll_unpin(t) {
@@ -110,7 +110,7 @@ async fn pick_file() -> Option<Arc<dyn ReadableFile>> {
     }
 }
 
-async fn import_file(file: Arc<dyn ReadableFile>, pool: Arc<Pool>) -> Option<Result<EntityStream, String>> {
+async fn import_file(file: Arc<dyn ReadableFile>, storage: Arc<dyn Storage>, pool: Arc<Pool>) -> Option<Result<EntityStream, String>> {
     let filename = file.filename().unwrap_or("").to_owned();
 
     let Some(format) = IMPORTERS.first_for_filename(&filename) else {
@@ -124,16 +124,14 @@ async fn import_file(file: Arc<dyn ReadableFile>, pool: Arc<Pool>) -> Option<Res
     };
 
     pool.executor.spawn(completion).detach();
-
-    let storage = MemoryStorage;
-    entity.build_summaries(&pool.executor, &storage);
+    entity.build_summaries(&pool.executor, &storage).detach();
 
     Some(Ok(entity))
 }
 
-async fn pick_and_import_file(pool: Arc<Pool>) -> Option<Result<EntityStream, String>> {
+async fn pick_and_import_file(pool: Arc<Pool>, storage: Arc<dyn Storage>) -> Option<Result<EntityStream, String>> {
     let file = pick_file().await?;
-    import_file(file, pool).await
+    import_file(file, storage, pool).await
 }
 
 fn generate_demo_entity() -> EntityStream {

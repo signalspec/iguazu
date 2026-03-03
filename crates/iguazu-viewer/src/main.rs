@@ -5,7 +5,7 @@ use std::sync::Arc;
 use eframe::{egui, CreationContext};
 use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
 
-use iguazu::storage::Pool;
+use iguazu::storage::{Pool, Storage};
 use iguazu_egui::ViewerContext;
 
 mod welcome;
@@ -24,7 +24,7 @@ fn main() -> Result<(), eframe::Error> {
 
     use iguazu::cli::ImportOpts;
     use iguazu::import::IMPORTERS;
-    use iguazu::storage::MemoryStorage;
+    use iguazu::storage::{MemoryStorage, Storage};
     use iguazu_egui::egui_util::titlebar::ViewportBuilderExt;
 
     #[derive(Parser)]
@@ -48,13 +48,12 @@ fn main() -> Result<(), eframe::Error> {
     });
 
     let pool = Arc::new(iguazu::storage::Pool::new(executor.clone(), 16 * 1024 * 1024));
-
-    let storage = MemoryStorage;
+    let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
 
     let state = if let Some(import) = cli.import {
         let (mut entity, completion) = block_on(import.import(IMPORTERS, pool.clone())).expect("Failed to load file");
         executor.spawn(completion).detach();
-        entity.build_summaries(&executor, &storage);
+        entity.build_summaries(&executor, &storage).detach();
         AppState::Viewer(Viewer::new(entity))
     } else {
         AppState::Welcome(Welcome::new())
@@ -72,7 +71,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Iguazu Viewer",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc, pool, state)))),
+        Box::new(|cc| Ok(Box::new(App::new(cc, pool, storage, state)))),
     )
 }
 
@@ -103,6 +102,7 @@ fn main() {
         }
     });
     let pool = Arc::new(iguazu::storage::Pool::new(executor, 64 * 1024 * 1024));
+    let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
 
     wasm_bindgen_futures::spawn_local(async {
         let document = web_sys::window()
@@ -127,7 +127,7 @@ fn main() {
             .start(
                 canvas,
                 web_options,
-                Box::new(move |cc| Ok(Box::new(App::new(cc, pool, state)))),
+                Box::new(move |cc| Ok(Box::new(App::new(cc, pool, storage, state)))),
             )
             .await;
 
@@ -160,7 +160,7 @@ struct App {
 }
 
 impl App {
-    fn new(cc: &CreationContext, pool: Arc<Pool>, state: AppState) -> Self {
+    fn new(cc: &CreationContext, pool: Arc<Pool>, storage: Arc<dyn Storage>,state: AppState) -> Self {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         cc.egui_ctx.tessellation_options_mut(|o| {
             // Rounding causes jitter and gaps in timeline logic traces
@@ -173,7 +173,7 @@ impl App {
 
         App {
             state,
-            vctx: ViewerContext::new(pool, &cc.egui_ctx),
+            vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
         }
     }

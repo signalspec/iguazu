@@ -1,6 +1,5 @@
 use std::{convert::Infallible, fmt::Debug};
 
-use async_executor:: Executor;
 use attribute::AttributeValue;
 use ecow::{eco_format, EcoString};
 use futures_lite::future;
@@ -14,7 +13,7 @@ pub mod fmt;
 
 pub mod json_virtual;
 
-use crate::{schema::attribute::Attribute, storage::Storage, stream::ArcStream, summary::{BorrowedSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap, Summary, SummaryMap}};
+use crate::{schema::attribute::Attribute, stream::ArcStream, summary::{BorrowedSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap, Summary, SummaryMap}};
 
 pub type Name = String;
 pub type Path = String;
@@ -615,32 +614,6 @@ impl EntitySchema {
             Entity::Tuple { ref fields, ref child, ref attributes } => {
                 let child = Box::new(child.wrap_single(data)?);
                 Some(Entity::Tuple { fields: fields.clone(), child, attributes: attributes.clone() })
-            }
-        }
-    }
-}
-
-impl EntityStream {
-    pub fn build_summaries(&mut self, executor: &Executor<'static>, storage: &dyn Storage) {
-        match *self {
-            Entity::Group { ref mut children, .. } | Entity::Record { ref mut children, .. } => {
-                for child in children.values_mut() {
-                    child.build_summaries(executor, storage);
-                }
-            }
-            Entity::Union { ref mut variants, .. } => {
-                for variant in variants.values_mut() {
-                    variant.build_summaries(executor, storage);
-                }
-            }
-            Entity::FixedArray { ref mut child, .. } | Entity::Tuple { ref mut child, .. } => {
-                child.build_summaries(executor, storage);
-            }
-            Entity::VariableArray { ref mut child, .. } => {
-                child.build_summaries(executor, storage);
-            }
-            Entity::Data { ref mut summaries, ref field, ref data } => {
-                crate::summary::build_default_summaries(executor, storage, data, field, summaries);
             }
         }
     }

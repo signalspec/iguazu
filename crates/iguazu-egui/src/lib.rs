@@ -8,7 +8,7 @@ pub mod table;
 use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
 use async_executor::Executor;
-use iguazu::{storage::Pool, view::ViewManager};
+use iguazu::{storage::{Pool, Storage}, view::ViewManager};
 pub use timeline::TimelineView;
 
 struct RepaintWaker {
@@ -27,6 +27,7 @@ impl std::task::Wake for RepaintWaker {
 
 pub struct ViewerContext {
     pool: Arc<Pool>,
+    default_storage: Arc<dyn Storage>,
 
     view_manager: ViewManager,
 
@@ -34,10 +35,11 @@ pub struct ViewerContext {
     waker: Waker,
 }
 impl ViewerContext {
-    pub fn new(pool: Arc<Pool>, egui_ctx: &egui::Context) -> Self {
+    pub fn new(pool: Arc<Pool>, default_storage: Arc<dyn Storage>, egui_ctx: &egui::Context) -> Self {
         let waker: Waker = Arc::new(RepaintWaker { context: egui_ctx.clone() }).into();
         Self {
             pool,
+            default_storage,
             view_manager: ViewManager::new(),
             waker,
         }
@@ -53,6 +55,10 @@ impl ViewerContext {
 
     pub fn pool(&self) -> &Arc<Pool> {
         &self.pool
+    }
+
+    pub fn default_storage(&self) -> &Arc<dyn Storage> {
+        &self.default_storage
     }
 
     pub fn executor(&self) -> &Arc<Executor<'static>> {

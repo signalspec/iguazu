@@ -154,8 +154,11 @@ pub enum TraceElement {
 
 #[test]
 fn test_traceview() {
-    use crate::{ stream::ArcStream, schema::{Field, FieldKind}, summary::LiveSummary, storage::{MemoryStorage, MemoryStreamWriter} };
+    env_logger::builder().is_test(true).filter_module("iguazu", log::LevelFilter::Debug).try_init().ok();
+
+    use crate::{ stream::ArcStream, storage::Storage, schema::{Entity, FieldKind, EntityStream}, storage::{MemoryStorage, MemoryStreamWriter} };
     use std::task::Waker;
+    use std::sync::Arc;
     use async_executor::Executor;
     use futures_lite::future::block_on;
 
@@ -167,6 +170,7 @@ fn test_traceview() {
     writer.extend_from_slice(&[0b100; 100]);
     writer.extend_from_slice(&[0b110; 2]);
     writer.extend_from_slice(&[0b010; 50]);
+    writer.extend_from_slice(&[0b000; 4000]); // pad it such that it builds two summary levels
     writer.commit();
     let stream: ArcStream = writer.stream().clone();
     drop(writer);
@@ -186,21 +190,20 @@ fn test_traceview() {
         (IdxRange { min: 50, max: 150 }, TraceElement::Value(0b100)),
         (IdxRange { min: 150, max: 152 }, TraceElement::Value(0b110)),
         (IdxRange { min: 152, max: 202 }, TraceElement::Value(0b010)),
+        (IdxRange { min: 202, max: 250 }, TraceElement::Value(0b000)),
     ]);
 
-    let executor = Executor::new();
-    let storage = &MemoryStorage;
-    let field = Field { kind: FieldKind::Bits { bits: 8 }, attributes: Default::default() };
+    let executor = Arc::new(Executor::new());
+    let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
+    let mut entity = EntityStream::field_data(FieldKind::Bits { bits: 8 }, stream);
 
-    let (task, summary1) = crate::summary::bit_summary1(&executor, storage, stream.clone(), &field).unwrap();
-    block_on(executor.run(task)).unwrap();
+    block_on(executor.run(entity.build_summaries(&executor, &storage))).unwrap();
 
-    let (task, summary2) = crate::summary::bit_summary_reduce(&executor, storage, summary1.clone(), &field).unwrap();
-    block_on(executor.run(task)).unwrap();
+    let Entity::Data { data, summaries, .. } = &entity else { unreachable!() };
+    let summary = summaries.get("bit_and_or");
+    assert_eq!(summary.levels.len(), 2);
 
-    let summary = LiveSummary::new(2, [summary1, summary2]);
-
-    let trace_view = TraceView::new(&vm, stream, summary.borrow());
+    let trace_view = TraceView::new(&vm, data.clone(), summary);
 
     let mut results = Vec::new();
     trace_view.scan(IdxRange { min: 0, max: 200 },
