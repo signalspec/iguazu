@@ -1,6 +1,6 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
-use iguazu::{IdxRange, schema::{Field, attribute::{core::NumberRange, display::AccentColor}}, stream::ArcStream, summary::{LiveSummaryMap}, time::{Time, TimeRange}, view::{RangeElement, RangeView}};
+use iguazu::{IdxRange, schema::{FieldRef, attribute::{core::NumberRange, display::AccentColor}}, time::{Time, TimeRange}, view::{RangeElement, RangeView}};
 
 use crate::{color::named_color, ViewerContext};
 
@@ -36,14 +36,13 @@ pub(crate) struct YAxisRow<'a> {
 }
 
 impl<'a> YAxisRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, field: &Field, summaries: &LiveSummaryMap) -> Option<YAxisRow<'a>> {
-        if offset != 0 {
+    pub fn field(vcx: &'a ViewerContext, field: FieldRef<'_>, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> Option<YAxisRow<'a>> {
+        if field.bit_offset != 0 {
             return None;
         }
-        let summary = summaries.get("range");
-        let view = RangeView::new(&vcx.view_manager, stream, field, summary)?;
+        let view = RangeView::new(&vcx.view_manager, field)?;
         let color = color.unwrap_or(AccentColor::Green);
-        let y_range = field.number_range()?;
+        let y_range = field.field.number_range()?;
 
         Some(YAxisRow {
             sample_rate,

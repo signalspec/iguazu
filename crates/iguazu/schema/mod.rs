@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt::Debug};
+use std::{convert::Infallible, fmt::Debug, ops::Deref};
 
 use attribute::AttributeValue;
 use ecow::{eco_format, EcoString};
@@ -615,6 +615,47 @@ impl EntitySchema {
                 let child = Box::new(child.wrap_single(data)?);
                 Some(Entity::Tuple { fields: fields.clone(), child, attributes: attributes.clone() })
             }
+        }
+    }
+}
+
+impl EntityStream {
+    pub fn as_field(&self) -> Option<FieldRef<'_>> {
+        match self {
+            Entity::Data { data, field, summaries } => Some(FieldRef { data, field, summaries, bit_offset: 0 }),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct FieldRef<'a> {
+    pub data: &'a ArcStream,
+    pub bit_offset: u8,
+    pub field: &'a Field,
+    pub summaries: &'a LiveSummaryMap,
+}
+
+impl Deref for FieldRef<'_> {
+    type Target = Field;
+
+    fn deref(&self) -> &Self::Target {
+        self.field
+    }
+}
+
+impl FieldRef<'_> {
+    pub fn bit_struct_fields(&self) -> Option<impl Iterator<Item = (EcoString, FieldRef<'_>)>> {
+        match self.kind {
+            FieldKind::BitStruct { ref children } => {
+                let mut bit_offset = self.bit_offset;
+                Some(children.iter().map(move |(name, field)| {
+                    let r = (name.clone(), FieldRef { bit_offset, field, ..*self });
+                    bit_offset += field.kind.width();
+                    r
+                }))
+            }
+            _ => None,
         }
     }
 }

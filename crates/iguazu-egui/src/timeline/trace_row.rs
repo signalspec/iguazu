@@ -1,5 +1,5 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{IdxRange, schema::{Field, attribute::display::AccentColor, fmt::TextFormat}, stream::ArcStream, summary::LiveSummaryMap, time::{Time, TimeRange}, view::{TraceElement, TraceView}};
+use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor, fmt::TextFormat}, time::{Time, TimeRange}, view::{TraceElement, TraceView}};
 use ecow::EcoString;
 
 use crate::{color::named_color, ViewerContext};
@@ -17,13 +17,13 @@ pub struct TraceRow<'a> {
 }
 
 impl<'a> TraceRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, field: &Field, summaries: &LiveSummaryMap) -> TraceRow<'a> {
-        let summary = summaries.get("bit_and_or");
-        let view = TraceView::new(&vcx.view_manager, stream.clone(), summary);
+    pub fn field(vcx: &'a ViewerContext, field: FieldRef, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> TraceRow<'a> {
+        let summary = field.summaries.get("bit_and_or");
+        let view = TraceView::new(&vcx.view_manager, field.data.clone(), summary);
         let width = field.kind.width();
         let color = color.unwrap_or(AccentColor::Green);
-        let formatter = TextFormat::new(offset, field);
-        TraceRow { view, sample_rate, label, color, formatter, offset, width }
+        let formatter = TextFormat::new(field.bit_offset, field.field);
+        TraceRow { view, sample_rate, label, color, formatter, offset: field.bit_offset, width }
     }
 
     pub fn time_range(&self) -> TimeRange {
@@ -131,11 +131,11 @@ pub struct LogicRow<'a> {
 }
 
 impl<'a> LogicRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, stream: &ArcStream, sample_rate: f64, offset: u8, color: Option<AccentColor>, label: EcoString, _field: &Field, summaries: &LiveSummaryMap) -> LogicRow<'a> {
-        let summary = summaries.get("bit_and_or");
-        let view = TraceView::new(&vcx.view_manager, stream.clone(), summary);
+    pub fn field(vcx: &'a ViewerContext, field: FieldRef, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> LogicRow<'a> {
+        let summary = field.summaries.get("bit_and_or");
+        let view = TraceView::new(&vcx.view_manager, field.data.clone(), summary);
         let color = color.unwrap_or(AccentColor::Green);
-        LogicRow { view, sample_rate, label, color, offset }
+        LogicRow { view, sample_rate, label, color, offset: field.bit_offset }
     }
 
     pub fn time_range(&self) -> TimeRange {

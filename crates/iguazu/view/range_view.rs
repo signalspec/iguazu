@@ -1,4 +1,4 @@
-use crate::{Idx, IdxRange, schema::Field, stream::{ArcStream, StreamState}, summary::BorrowedSummary, view::{NumberView, ViewManager}};
+use crate::{Idx, IdxRange, schema::FieldRef, stream::StreamState, view::{NumberView, ViewManager}};
 
 pub struct RangeView<'a> {
     view: NumberView<'a>,
@@ -11,11 +11,12 @@ pub struct RangeView<'a> {
 }
 
 impl<'a> RangeView<'a> {
-    pub fn new(vm: &'a ViewManager, stream: &ArcStream, field: &Field, summary: BorrowedSummary<'_, ArcStream>) -> Option<Self> {
+    pub fn new(vm: &'a ViewManager, field: FieldRef<'_>) -> Option<Self> {
+        let summary = field.summaries.get("range");
         Some(RangeView {
-            view: NumberView::new(vm, stream, field)?,
+            view: NumberView::new(vm, field.data, field.field)?,
             base_level: summary.base_level,
-            summaries: summary.levels.iter().map(|s| NumberView::new(vm, s, field)).collect::<Option<Vec<_>>>()?,
+            summaries: summary.levels.iter().map(|s| NumberView::new(vm, s, field.field)).collect::<Option<Vec<_>>>()?,
         })
     }
 
