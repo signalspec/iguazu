@@ -256,9 +256,9 @@ impl StreamIter for FileStreamIter {
 
     fn poll_next(&mut self, cx: &mut Context) -> IterState<'_> {
         let element_size = self.block_desc.element_size.bytes();
-        if self.write_offset < self.buffer.len() && self.end.is_none() {
+        while self.write_offset < self.buffer.len() && self.end.is_none() {
             match self.file_stream.as_mut().poll_read(cx, &mut self.buffer[self.write_offset..]) {
-                Poll::Pending => (),
+                Poll::Pending => break,
                 Poll::Ready(Ok(0)) => {
                     self.end = Some(Ok(()));
                 }
@@ -294,6 +294,7 @@ impl StreamIter for FileStreamIter {
 
 #[test]
 fn test_iter() {
+    use futures_lite::future::block_on;
     let cx = &mut Context::from_waker(&Waker::noop());
 
     struct Replay(std::slice::Iter<'static, Poll<Result<&'static [u8], &'static str>>>);
@@ -301,7 +302,7 @@ fn test_iter() {
     impl AsyncRead for Replay {
         fn poll_read(
             self: Pin<&mut Self>,
-            _cx: &mut Context<'_>,
+            cx: &mut Context<'_>,
             buf: &mut [u8],
         ) -> Poll<io::Result<usize>> {
             match self.get_mut().0.next() {
@@ -309,7 +310,10 @@ fn test_iter() {
                     buf[..r.len()].copy_from_slice(r);
                     Poll::Ready(Ok(r.len()))
                 }
-                Some(Poll::Pending) => Poll::Pending,
+                Some(Poll::Pending) => {
+                    cx.waker().wake_by_ref();
+                    Poll::Pending
+                }
                 Some(Poll::Ready(Err(e))) => Poll::Ready(Err(std::io::Error::other(*e))),
                 None => Poll::Ready(Ok(0),)
             }
@@ -319,8 +323,11 @@ fn test_iter() {
     let src = Box::pin(Replay(const { &[
         Poll::Pending,
         Poll::Ready(Ok(&[1u8, 2] as &[u8])),
+        Poll::Pending,
         Poll::Ready(Ok(&[3])),
+        Poll::Pending,
         Poll::Ready(Ok(&[4])),
+        Poll::Pending,
         Poll::Pending,
         Poll::Ready(Ok(&[5, 6, 7, 8])),
         Poll::Ready(Ok(&[9, 10, 11, 12, 13, 14, 15, 16])),
@@ -339,7 +346,6 @@ fn test_iter() {
     iter.consume(2);
     assert_eq!(iter.poll_next(cx), IterState::Complete(&[9, 10, 11, 12, 13, 14, 15, 16]));
     iter.consume(4);
-    assert_eq!(iter.poll_next(cx), IterState::Partial(&[16, 17]));
     assert_eq!(iter.poll_next(cx), IterState::Complete(&[16, 17]));
     iter.consume(1);
     assert_eq!(iter.poll_next(cx), IterState::Complete(&[]));
@@ -349,8 +355,17 @@ fn test_iter() {
         Poll::Ready(Err("err")),
     ]}.iter()));
     let mut iter = FileStreamIter::new(BlockDesc { element_size: ElementSize::U16, count: 4 }, src);
-    assert_eq!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
     assert_eq!(iter.poll_next(cx), IterState::Complete(&[1, 2]));
     iter.consume(1);
     assert_eq!(iter.poll_next(cx), IterState::Error("err"));
+
+    let src = Box::pin(Replay(const { &[
+        Poll::Ready(Ok(&[1u8, 2, 3, 4] as &[u8])),
+        Poll::Pending,
+        Poll::Pending,
+        Poll::Ready(Ok(&[5, 6])),
+        Poll::Pending,
+    ]}.iter()));
+    let mut iter = Box::new(FileStreamIter::new(BlockDesc { element_size: ElementSize::U8, count: 4 }, src)) as Box<dyn StreamIter>;
+    assert_eq!(block_on(iter.read_to_vec(10)), Ok(vec![1u8, 2, 3, 4, 5, 6]));
 }
