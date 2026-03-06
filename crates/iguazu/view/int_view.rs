@@ -8,6 +8,7 @@ use super::ViewManager;
 pub struct IntView<'a> {
     view: &'a dyn StreamAccess,
     desc: BlockDesc,
+    state: StreamState,
     cache: RefCell<(u64, &'a [u8])>,
 }
 
@@ -15,8 +16,9 @@ impl<'a> IntView<'a> {
     pub fn new_from_stream(vm: &'a ViewManager, stream: &ArcStream) -> Self {
         let view = vm.stream(stream);
         let desc = stream.desc();
+        let state = stream.state();
         let cache = RefCell::new((u64::MAX, &[][..]));
-        IntView { view, desc, cache }
+        IntView { view, desc, state, cache }
     }
 
     pub fn new(vm: &'a ViewManager, entity: &EntityStream) -> Option<Self> {
@@ -29,7 +31,7 @@ impl<'a> IntView<'a> {
     }
 
     pub fn state(&self) -> StreamState {
-        self.view.state()
+        self.state
     }
 
     pub fn bounds(&self) -> IdxRange {

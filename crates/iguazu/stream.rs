@@ -104,7 +104,7 @@ impl BlockDesc {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StreamState {
     pub end: Idx,
     pub streaming: bool,

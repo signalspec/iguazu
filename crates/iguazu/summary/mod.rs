@@ -113,8 +113,64 @@ impl<D> StoredSummary<D> {
     }
 }
 
-impl<D> Summary<&[D]> {
+impl<'a, D> Summary<&'a [D]> {
     pub const fn empty() -> Self {
         Summary { base_level: 255, levels: &[] }
     }
+
+    pub fn max_level(&self) -> u8 {
+        if self.levels.is_empty() {
+            0
+        } else {
+            (self.base_level as usize + self.levels.len() - 1).try_into().unwrap_or(u8::MAX)
+        }
+    }
+
+    pub fn get(&self, level: u8) -> Option<&'a D> {
+        self.levels.get(level.checked_sub(self.base_level)? as usize)
+    }
+
+    pub fn at_least_level(&self, level: u8) -> Summary<&'a [D]> {
+        if let Some(min_i) = level.checked_sub(self.base_level) {
+            if let Some(levels) = self.levels.get(min_i as usize ..) {
+                Summary { base_level: level, levels }
+            } else {
+                Summary::empty()
+            }
+        } else {
+            self.clone()
+        }
+    }
+
+    pub fn limit_to_level(&self, level: u8) -> Summary<&'a [D]> {
+        if let Some(max_i) = level.checked_sub(self.base_level) {
+            Summary { base_level: self.base_level, levels: &self.levels[..(max_i as usize).min(self.levels.len())] }
+        } else {
+            Summary::empty()
+        }
+    }
+
+    pub fn iter_levels(&self) -> impl DoubleEndedIterator<Item = (u8, &D)> {
+        self.levels.iter().enumerate().map(move |(i, level)| (self.base_level + i as u8, level))
+    }
+}
+
+#[test]
+fn test_summary_ops() {
+    let s = BorrowedSummary { base_level: 2, levels: &[20, 30, 40, 50] };
+    assert_eq!(s.get(0), None);
+    assert_eq!(s.get(1), None);
+    assert_eq!(s.get(2), Some(&20));
+    assert_eq!(s.get(5), Some(&50));
+    assert_eq!(s.get(6), None);
+
+    assert_eq!(s.iter_levels().collect::<Vec<_>>(), vec![(2, &20), (3, &30), (4, &40), (5, &50)]);
+
+    assert_eq!(s.at_least_level(1).iter_levels().collect::<Vec<_>>(), vec![(2, &20), (3, &30), (4, &40), (5, &50)]);
+    assert_eq!(s.at_least_level(4).iter_levels().collect::<Vec<_>>(), vec![(4, &40), (5, &50)]);
+    assert_eq!(s.at_least_level(6).iter_levels().collect::<Vec<_>>(), vec![]);
+
+    assert_eq!(s.limit_to_level(2).iter_levels().collect::<Vec<_>>(), vec![]);
+    assert_eq!(s.limit_to_level(3).iter_levels().collect::<Vec<_>>(), vec![(2, &20)]);
+    assert_eq!(s.limit_to_level(6).iter_levels().collect::<Vec<_>>(), vec![(2, &20), (3, &30), (4, &40), (5, &50)]);
 }

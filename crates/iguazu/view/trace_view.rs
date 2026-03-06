@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use crate::{Idx, IdxRange, summary::BorrowedSummary, stream::{ArcStream, BlockDesc, StreamState}, view::ViewManager};
+use crate::{Idx, IdxRange, stream::{ArcStream, BlockDesc, StreamState}, summary::{BorrowedSummary, StoredSummary}, view::ViewManager};
 
 use super::IntView;
 
@@ -8,20 +8,17 @@ use super::IntView;
 pub struct TraceView<'a> {
     /// Highest resolution original stream
     base: IntView<'a>,
-
-    /// Level of `summaries[0]`
-    base_level: u8,
-
-    /// Summaries from densest to coarsest
-    summaries: Vec<IntView<'a>>,
+    summary: StoredSummary<IntView<'a>>,
 }
 
 impl<'a> TraceView<'a> {
     pub fn new(vm: &'a ViewManager, stream: ArcStream, summary: BorrowedSummary<'_, ArcStream>) -> Self {
         TraceView {
             base: IntView::new_from_stream(vm, &stream),
-            base_level: summary.base_level,
-            summaries: summary.levels.iter().map(|s| IntView::new_from_stream(vm, s)).collect(),
+            summary: StoredSummary {
+                base_level: summary.base_level,
+                levels: summary.levels.iter().map(|s| IntView::new_from_stream(vm, s)).collect(),
+            }
         }
     }
 
@@ -44,18 +41,18 @@ impl<'a> TraceView<'a> {
         min_width: NonZeroU64,
         mut f: impl FnMut(IdxRange, TraceElement)
     ) {
-        let max_end = self.base.state().end;
+        let base_end = self.base.state().end;
         let mut pos = range.min;
+
+        // Round down to the next-lower power of two
+        let min_width_level = min_width.ilog2() as u8;
+
+        let summary = self.summary.borrow();
+        let min_summary_level = if summary.levels.is_empty() { 63 } else { summary.base_level.min(63) };
+        let min_summary_skip = 1 << min_summary_level;
 
         let mut last_pos = range.min;
         let mut last_state = None;
-
-        let base_level = self.base_level as u32;
-        let base_width = 1u64.checked_shl(base_level).unwrap_or(u64::MAX);
-
-        // Round down to the next-lower power of two
-        let min_width =  1 << (63u32.saturating_sub(min_width.leading_zeros()));
-
         let mut emit = |pos: Idx, state: TraceElement| {
             if let Some(last_state) = last_state && state != last_state {
                 f(IdxRange { min: last_pos, max: pos }, last_state);
@@ -64,26 +61,42 @@ impl<'a> TraceView<'a> {
             last_state = Some(state);
         };
 
-        'scan: while pos < range.max.min(max_end) {
+        let scan_end = range.max.min(base_end);
+
+        if min_width_level >= summary.max_level() + 4 {
+            // Not enough summary levels to avoid scanning too much, so wait for summary or give up
+            emit(pos, TraceElement::Loading);
+            pos = scan_end;
+        }
+
+        'scan: while pos < scan_end {
             let max_level = if pos == range.min {
                 // On the first iteration, try all summaries
-                self.summaries.len()
+                63
             } else {
-                // Skip summaries that have already been tried at this position
-                pos.trailing_zeros().saturating_sub(base_level - 1) as usize
+                // Skip coarse summaries that have already been tried at this position
+                pos.trailing_zeros() as u8 + 1
             };
 
-            for (level, summary) in self.summaries.iter().take(max_level).enumerate().rev() {
-                let level = level as u32 + base_level;
-                let width = 1u64 << level.min(63);
+            for (level, s_view) in summary.limit_to_level(max_level).iter_levels().rev() {
+                let width = 1u64 << level;
                 let end = (pos & !(width - 1)).saturating_add(width);
 
-                if end > max_end {
+                if end > s_view.state().end / 2 * width {
                     // This summary isn't built yet
-                    continue;
+
+                    if level > min_width_level || (scan_end - pos) / 16 < width {
+                        // If near the end, use finer levels
+                        continue;
+                    } else {
+                        // This would require scanning too much, so wait for summary to be built
+                        emit(pos, TraceElement::Loading);
+                        pos = scan_end;
+                        break 'scan;
+                    }
                 }
 
-                let (Some(lo), Some(hi)) = (summary.get_u64(pos / width * 2), summary.get_u64(pos / width * 2 + 1)) else {
+                let (Some(lo), Some(hi)) = (s_view.get_u64(pos / width * 2), s_view.get_u64(pos / width * 2 + 1)) else {
                     emit(pos, TraceElement::Loading);
                     pos = end;
                     continue 'scan;
@@ -95,49 +108,23 @@ impl<'a> TraceView<'a> {
                     continue 'scan;
                 }
 
-                if width / 2 < min_width {
+                if level <= min_width_level {
                     emit(pos, TraceElement::Dense);
                     pos = end;
                     continue 'scan;
                 }
             }
 
-            let end = (pos & !(base_width - 1)).saturating_add(base_width).min(max_end).min(range.max);
+            let end = (pos & !(min_summary_skip - 1)).saturating_add(min_summary_skip).min(scan_end);
 
-            if min_width > 1 {
-                while pos < end {
-                    if let Some(val) = self.base.get_u64(pos).map(|v| v & mask) {
-                        let mut same = 1;
-
-                        while pos + same < end && self.base.get_u64(pos + same).map(|v| v & mask) == Some(val) {
-                            same += 1;
-                        }
-
-                        if same >= min_width || pos + same >= end {
-                            emit(pos, TraceElement::Value(val));
-                        } else if self.base.get_u64(pos + same).is_none() {
-                            emit(pos, TraceElement::Loading);
-                        } else {
-                            emit(pos, TraceElement::Dense);
-                        }
-
-                        pos += same;
-                    } else {
-                        emit(pos, TraceElement::Loading);
-                        pos += 1;
-                    }
+            while pos < end {
+                if let Some(v) = self.base.get_u64(pos) {
+                    emit(pos, TraceElement::Value(v & mask));
+                } else {
+                    emit(pos, TraceElement::Loading);
                 }
-            } else {
-                for _ in pos..end {
-                    if let Some(v) = self.base.get_u64(pos) {
-                        emit(pos, TraceElement::Value(v & mask));
-                    } else {
-                        emit(pos, TraceElement::Loading);
-                    }
-                    pos += 1;
-                }
+                pos += 1;
             }
-
         }
 
         if let Some(last_state) = last_state {
@@ -236,5 +223,62 @@ fn test_traceview() {
         (IdxRange { min: 56, max: 144 }, TraceElement::Value(0b100)),
         (IdxRange { min: 144, max: 152 }, TraceElement::Dense),
         (IdxRange { min: 152, max: 200 }, TraceElement::Value(0b010)),
+    ]);
+}
+
+#[test]
+fn test_traceview_zoom() {
+    use crate::{ schema::{Entity, EntityStream, FieldKind}, storage::{MemoryStorage, MemoryStream, Storage} };
+    use std::task::Waker;
+    use std::sync::Arc;
+    use async_executor::Executor;
+    use futures_lite::future::block_on;
+
+    env_logger::builder().is_test(true).filter_module("iguazu", log::LevelFilter::Debug).try_init().ok();
+
+    let executor = Arc::new(Executor::new());
+    let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
+    let mut vm = super::ViewManager::new();
+    vm.begin(&Waker::noop().clone());
+
+    let mut input = vec![0u8; 120_001];
+    input[45678] = 1;
+    input[76543..77777].fill(2);
+    let stream = MemoryStream::new(&input[..]);
+    let mut entity = EntityStream::field_data(FieldKind::Bits { bits: 8 }, stream);
+    block_on(executor.run(entity.build_summaries(&executor, &storage))).unwrap();
+
+    let Entity::Data { data, summaries, .. } = &entity else { unreachable!() };
+    let summary = summaries.get("bit_and_or");
+    assert_eq!(summary.levels.len(), (input.len() / 1024).ilog2() as usize);
+
+    let trace_view = TraceView::new(&vm, data.clone(), summary);
+
+    let scan = |mask, min_width, range| {
+        let mut results = Vec::new();
+        trace_view.scan(range,
+            mask,
+            NonZeroU64::new(min_width).unwrap(),
+            |range, elem| {
+                results.push((range.max, elem));
+            }
+        );
+        results
+    };
+
+    use TraceElement::*;
+
+    assert_eq!(scan(0b10, 1, IdxRange { min: 0, max: 200_000 }), vec![
+        (76543, TraceElement::Value(0)),
+        (77777, TraceElement::Value(2)),
+        (120_001, TraceElement::Value(0)),
+    ]);
+
+    assert_eq!(scan(0b10, 64, IdxRange { min: 0, max: 200_000 }), vec![
+        (76543 & !63, Value(0)),
+        ((76543 & !63) + 64, Dense),
+        (77777 & !63, Value(2)),
+        ((77777 & !63) + 64, Dense),
+        (120_001, Value(0)),
     ]);
 }
