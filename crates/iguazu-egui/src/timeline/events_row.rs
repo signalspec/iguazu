@@ -67,7 +67,7 @@ impl<'a> EventsRow<'a> {
             .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
             .map(|pos| pos.x);
 
-        for evt in self.event_view.range(idx_scale.visible, idx_scale.min_visible_width(painter.ctx().pixels_per_point())) {
+        for evt in self.event_view.range(idx_scale.visible, idx_scale.min_visible_width(painter.ctx().pixels_per_point()).get()) {
             match evt {
                 iguazu::view::Event::Event(t_range, idx) => {
                     let r = evt_rect(t_range);

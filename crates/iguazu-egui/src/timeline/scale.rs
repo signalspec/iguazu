@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use egui::{NumExt, Rangef};
 use iguazu::{ Idx, IdxRange, time::{TimeRange, Time}};
 
@@ -162,8 +164,8 @@ impl IdxScale {
         self.period
     }
 
-    pub(crate) fn min_visible_width(&self, points_per_px: f32) -> u64 {
-        (1.0 / points_per_px / self.x_scale).ceil() as u64
+    pub(crate) fn min_visible_width(&self, points_per_px: f32) -> NonZeroU64 {
+        NonZeroU64::new((1.0 / points_per_px / self.x_scale).ceil() as u64).unwrap_or(NonZeroU64::new(1).unwrap())
     }
 }
 

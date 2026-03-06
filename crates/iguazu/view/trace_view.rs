@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use crate::{Idx, IdxRange, summary::BorrowedSummary, stream::{ArcStream, BlockDesc, StreamState}, view::ViewManager};
 
 use super::IntView;
@@ -39,7 +41,7 @@ impl<'a> TraceView<'a> {
         &self,
         range: IdxRange,
         mask: u64,
-        min_width: u64,
+        min_width: NonZeroU64,
         mut f: impl FnMut(IdxRange, TraceElement)
     ) {
         let max_end = self.base.state().end;
@@ -180,7 +182,7 @@ fn test_traceview() {
     let mut results = Vec::new();
     trace_view.scan(IdxRange { min: 0, max: 250 },
         0b111,
-        1,
+        NonZeroU64::new(1).unwrap(),
         |range, elem| {
             results.push((range, elem));
         }
@@ -208,7 +210,7 @@ fn test_traceview() {
     let mut results = Vec::new();
     trace_view.scan(IdxRange { min: 0, max: 200 },
         0b111,
-        1,
+        NonZeroU64::new(1).unwrap(),
         |range, elem| {
             results.push((range, elem));
         }
@@ -223,7 +225,7 @@ fn test_traceview() {
     let mut results = Vec::new();
     trace_view.scan(IdxRange { min: 0, max: 200 },
         0b111,
-        8,
+        NonZeroU64::new(8).unwrap(),
         |range, elem| {
             results.push((range, elem));
         }

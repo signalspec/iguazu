@@ -1,3 +1,5 @@
+use std::num::NonZeroU64;
+
 use crate::{Idx, IdxRange, schema::FieldRef, stream::StreamState, view::{NumberView, ViewManager}};
 
 pub struct RangeView<'a> {
@@ -24,7 +26,7 @@ impl<'a> RangeView<'a> {
         self.view.state()
     }
 
-    pub fn for_each_elem(&self, range: IdxRange, min_width: u64, mut f: impl FnMut(RangeElement)) {
+    pub fn for_each_elem(&self, range: IdxRange, min_width: NonZeroU64, mut f: impl FnMut(RangeElement)) {
         let log_min_width = min_width.ilog2();
 
         if log_min_width <= self.base_level as u32 {
