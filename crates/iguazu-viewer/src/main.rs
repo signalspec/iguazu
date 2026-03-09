@@ -156,6 +156,7 @@ struct App {
     vctx: ViewerContext,
     state: AppState,
     frame_time_history: History<f32>,
+    enable_debug_ui: bool,
 }
 
 impl App {
@@ -174,6 +175,7 @@ impl App {
             state,
             vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
+            enable_debug_ui: std::env::var("IGUAZU_DEBUG_UI").is_ok(),
         }
     }
 }
@@ -189,6 +191,7 @@ impl eframe::App for App {
         #[cfg(not(target_arch = "wasm32"))]
         iguazu_egui::egui_util::titlebar::TitleBar::new().show(ctx, |ui| {
             ui.horizontal(|ui| {
+                ui.add_space(4.0);
                 ui.add(egui::Label::new("Iguazu Viewer").selectable(false));
             });
         });
@@ -208,7 +211,9 @@ impl eframe::App for App {
             }
         });
 
-        self.debug_ui(ctx);
+        if self.enable_debug_ui {
+            self.debug_ui(ctx);
+        }
 
         self.vctx.end();
         self.update_frame_time(ctx, frame);
