@@ -137,23 +137,22 @@ impl<'a> TextView<'a> {
                     let start = if idx == 0 { Some(0) } else { ends.get_u64(idx - 1) };
                     let end = ends.get_u64(idx);
 
-                    let (Some(min), Some(max)) = (start, end) else {
+                    if let Some(min) = start && let Some(max) = end && let Some(full_len) = max.checked_sub(min) {
+                        let mut buf = ArrayVec::<_, MAX_LEN>::new();
+
+                        for chunk in chars.loaded_chunks::<u8>(IdxRange { min, max: (min + full_len.min(MAX_LEN as u64)) }) {
+                            buf.try_extend_from_slice(chunk).unwrap();
+                        }
+
+                        if (buf.len() as u64) < full_len {
+                            write!(fmt, "{}…", DisplayUtf8Lossy::truncated(&buf))?;
+                        } else {
+                            write!(fmt, "{}", DisplayUtf8Lossy::new(&buf))?;
+                        }
+                    } else {
                         write!(fmt, "…")?;
                         continue;
                     };
-
-                    let full_len = max - min;
-                    let mut buf = ArrayVec::<_, MAX_LEN>::new();
-
-                    for chunk in chars.loaded_chunks::<u8>(IdxRange { min, max: (min + full_len.min(MAX_LEN as u64)) }) {
-                        buf.try_extend_from_slice(chunk).unwrap();
-                    }
-
-                    if (buf.len() as u64) < full_len {
-                        write!(fmt, "{}…", DisplayUtf8Lossy::truncated(&buf))?;
-                    } else {
-                        write!(fmt, "{}", DisplayUtf8Lossy::new(&buf))?;
-                    }
                 }
             }
         }
