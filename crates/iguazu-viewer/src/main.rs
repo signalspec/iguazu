@@ -5,7 +5,7 @@ use std::sync::Arc;
 use eframe::{egui, CreationContext};
 use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
 
-use iguazu::storage::{Pool, Storage};
+use iguazu::storage::{Pool, Storage, MemoryStorage};
 use iguazu_egui::ViewerContext;
 
 mod welcome;
@@ -24,7 +24,6 @@ fn main() -> Result<(), eframe::Error> {
 
     use iguazu::cli::ImportOpts;
     use iguazu::import::IMPORTERS;
-    use iguazu::storage::{MemoryStorage, Storage};
     use iguazu_egui::egui_util::titlebar::ViewportBuilderExt;
 
     #[derive(Parser)]
@@ -118,7 +117,7 @@ fn main() {
 
         let state = if let Some(url) = input_url {
             let file = Arc::new(iguazu::io::WebFetchFile::new(url)) as Arc<dyn iguazu::io::ReadableFile>;
-            AppState::Welcome(Welcome::with_file(file, pool.clone()))
+            AppState::Welcome(Welcome::with_file(file, storage.clone(), pool.clone()))
         } else {
             AppState::Welcome(Welcome::new())
         };

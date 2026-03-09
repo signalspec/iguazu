@@ -23,6 +23,7 @@ impl Welcome {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
     pub fn with_file(file: Arc<dyn ReadableFile>, storage: Arc<dyn Storage>, pool: Arc<Pool>) -> Self {
         let picker_task = Some(pool.executor.spawn(import_file(file, storage, pool.clone())));
         Self {
