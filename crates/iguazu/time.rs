@@ -17,8 +17,8 @@ impl Time {
     pub const MILLISECOND: Time = Time(1_000_000_000_000_000);
     pub const SECOND: Time =  Time(1_000_000_000_000_000_000);
     pub const MINUTE: Time = Time(60_000_000_000_000_000_000);
-    pub const HOUR: Time = Time(3600_000_000_000_000_000_000);
-    pub const DAY: Time = Time(86400_000_000_000_000_000_000);
+    pub const HOUR: Time = Time(3_600_000_000_000_000_000_000);
+    pub const DAY: Time = Time(86_400_000_000_000_000_000_000);
 
     /// Get the period for a frequency expressed as a ratio
     pub fn period_ratio(num: u64, denom: u64) -> Time {
@@ -56,9 +56,9 @@ impl Time {
         if exponent <= -128 {
             Time(0)
         } else if exponent < 0 {
-            Time((self.0 * (mantissa as i128) >> -exponent) * sign as i128)
+            Time(((self.0 * (mantissa as i128)) >> -exponent) * sign as i128)
         } else {
-            Time((self.0 * (mantissa as i128) << exponent) * sign as i128)
+            Time(((self.0 * (mantissa as i128)) << exponent) * sign as i128)
         }
     }
 
@@ -280,7 +280,7 @@ impl Display for FormatFixed {
             } else if hour > 0 {
                 write!(f, "{hour}:{minute:02}min")
             } else {
-                write!(f, "{hour}:{minute:02}min")
+                write!(f, "{minute:02}min")
             }
         } else {
             if day > 0 {

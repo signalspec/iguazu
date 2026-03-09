@@ -14,7 +14,7 @@ impl IzsImporter {
 impl Importer for IzsImporter {
     fn load_schema(&self, file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {
         Box::pin(async move {
-            Ok(IzsFile::new(file).await?.load_schema().await?)
+            IzsFile::new(file).await?.load_schema().await
         })
     }
 

@@ -26,7 +26,7 @@ impl Footer {
 
         let data = &data[data.len() - Self::LEN ..];
 
-        if &data[8..16] != FOOTER_MAGIC {
+        if data[8..16] != FOOTER_MAGIC {
             return None;
         }
 

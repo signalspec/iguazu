@@ -35,7 +35,7 @@ impl From<Display> for AttributeValue {
             Display::Timeline => "timeline",
             Display::Table => "table",
         };
-        m.insert("view".into(), EcoString::from(view_str));
+        m.insert("view", EcoString::from(view_str));
         AttributeValue::from(m)
     }
 }
@@ -119,7 +119,7 @@ impl Field {
                 | FieldKind::Character
                 | FieldKind::Enum { .. }
                 | FieldKind::Tagged { .. } => TimelineRow::Trace,
-                FieldKind::Timestamp { .. } => TimelineRow::Hidden,
+                FieldKind::Timestamp => TimelineRow::Hidden,
                 FieldKind::Int { .. }
                 | FieldKind::Signed { .. }
                 | FieldKind::Float32

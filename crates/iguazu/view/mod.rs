@@ -60,7 +60,7 @@ fn key(s: &ArcStream) -> usize {
 impl ViewManager {
     pub fn stream<'a>(&'a self, stream: &ArcStream) -> &'a dyn StreamAccess {
         if let Some(s) = self.streams.get(&key(stream)) {
-            return s;
+            s
         } else {
             let mut s = stream.clone().access();
             s.begin(&self.waker);

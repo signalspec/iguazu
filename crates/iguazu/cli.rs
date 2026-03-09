@@ -1,9 +1,9 @@
-use std::{path::PathBuf, pin::Pin, sync::Arc};
+use std::{path::{Path, PathBuf}, pin::Pin, sync::Arc};
 
 use async_executor::Executor;
 use clap::Args;
 
-use crate::{export::ExportFormat, import::{ImportError, ImportFormat, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile, StdinFile}, schema::{EntitySchema, EntityStream, Path}, storage::Pool};
+use crate::{export::ExportFormat, import::{ImportError, ImportFormat, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile, StdinFile}, schema::{EntitySchema, EntityStream}, storage::Pool};
 
 #[derive(Args, Clone, Debug)]
 #[group(requires = "filename")] // Allow `ImportOpts` to be optional (https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717)
@@ -82,7 +82,7 @@ impl ImportOpts {
     ///
     /// This is either the file specified by `filename`, or stdin if `filename` is `-`.
     pub async fn file(&self) -> Result<Arc<dyn ReadableFile>, String> {
-        Ok(if self.filename == Path::from("-") {
+        Ok(if self.filename == Path::new("-") {
             Arc::new(StdinFile::new()) as Arc<dyn ReadableFile>
         } else {
             Arc::new(FsFile::open(self.filename.clone())

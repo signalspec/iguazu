@@ -178,7 +178,7 @@ impl FieldKind {
             FieldKind::Null => 0,
             FieldKind::Bits { bits } => bits,
             FieldKind::Character => 8,
-            FieldKind::Timestamp { .. } => 64,
+            FieldKind::Timestamp => 64,
             FieldKind::Int { bits } => bits,
             FieldKind::Signed { bits } => bits,
             FieldKind::Float32 => 32,
@@ -416,7 +416,7 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                 let data = f(data)?;
                 let summaries = summaries.iter()
                     .map(|(name, summary)| {
-                        let levels = summary.levels.iter().map(|d| f(d)).collect::<Result<Vec<_>, E>>()?;
+                        let levels = summary.levels.iter().map(&mut *f).collect::<Result<Vec<_>, E>>()?;
                         Ok((name.clone(), Summary { base_level: summary.base_level, levels: levels.into_boxed_slice() }))
                     })
                     .collect::<Result<T::SummaryMap, E>>()?;
@@ -506,9 +506,9 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                         ).await?;
                         Ok(Entity::Union { data, variants, attributes: attributes.clone() })
                     }
-                    Entity::FixedArray { ref elements, ref child, ref attributes } => {
+                    Entity::FixedArray { elements, ref child, ref attributes } => {
                         let child = Box::new(Box::pin(map_entity(child, f)).await?);
-                        Ok(Entity::FixedArray { elements: elements.clone(), child, attributes: attributes.clone() })
+                        Ok(Entity::FixedArray { elements, child, attributes: attributes.clone() })
                     }
                     Entity::Tuple { ref fields, ref child, ref attributes } => {
                         let child = Box::new(Box::pin(map_entity(child, f)).await?);
@@ -534,7 +534,7 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
 }
 
 impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
-    pub fn each_data_mut(&mut self, f: &mut impl FnMut(&mut D)) {
+    pub fn each_data_mut(&mut self, mut f: &mut impl FnMut(&mut D)) {
         match self {
             Entity::Group { children, .. } | Entity::Record { children, ..} => {
                 for child in children.values_mut() {
@@ -552,7 +552,7 @@ impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
             Entity::Data { data, summaries, .. } => {
                 f(data);
                 for s in summaries.0.values_mut() {
-                    s.levels.iter_mut().for_each(|level| f(level));
+                    s.levels.iter_mut().for_each(&mut f);
                 }
             }
         }

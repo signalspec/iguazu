@@ -256,7 +256,7 @@ impl StreamAccess for IzsStreamAccess {
             }
         }
 
-        return &[];
+        &[]
     }
 
     fn state(&self) -> StreamState {

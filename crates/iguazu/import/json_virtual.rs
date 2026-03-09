@@ -38,9 +38,7 @@ async fn create_stream(src_file: Arc<dyn ReadableFile>, pool: Arc<Pool>, stream:
     match stream {
         StreamRef::FlatFile { ref file_name, element_size, offset, count } => {
             let file = src_file.relative(file_name).await?;
-            let mut opts = FlatFileOpts::default();
-            opts.offset = offset;
-            opts.count = count;
+            let opts = FlatFileOpts { offset, count, ..FlatFileOpts::default() };
             Ok(Arc::new(FlatFileStream::new(file, pool, element_size, &opts).await?))
         }
     }

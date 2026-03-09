@@ -45,7 +45,7 @@ impl<'a> NumberView<'a> {
             FieldKind::Signed { bits } => Some(Format::SInt { shift: 64 - bits, scale, offset }),
             FieldKind::Float32 => Some(Format::F32 { scale, offset }),
             FieldKind::Float64 => Some(Format::F64 { scale, offset }),
-            FieldKind::Timestamp { .. } => {
+            FieldKind::Timestamp => {
                 Some(Format::UInt { scale, offset: 0.0 })
             }
             _ => None,
@@ -63,7 +63,7 @@ impl<'a> NumberView<'a> {
             let v = elem.map(|elem| {
                 self.format.decode(elem)
             });
-            
+
             f(i, v)
         })
     }

@@ -23,7 +23,7 @@ impl<'a> TraceView<'a> {
     }
 
     pub fn desc(&self) -> &BlockDesc {
-        &self.base.desc()
+        self.base.desc()
     }
 
     pub fn state(&self) -> StreamState {

@@ -233,7 +233,7 @@ impl Importer for CsvImporter {
             }
         }
 
-        Ok(match option {
+        match option {
             "delimiter" => {
                 self.delimiter = parse_byte(value)?;
             }
@@ -263,7 +263,8 @@ impl Importer for CsvImporter {
                 };
             }
             _ => return Err("Unknown option".to_string()),
-        })
+        }
+        Ok(())
     }
 
     fn get(&self, option: &str) -> Option<String> {
@@ -272,18 +273,18 @@ impl Importer for CsvImporter {
                 b'\t' => "\\t".into(),
                 b'\n' => "\\n".into(),
                 b'\r' => "\\r".into(),
-                b if byte.is_ascii_graphic() => (byte as char).to_string(),
-                _ => format!("\\x{:02x}", byte),
+                b if b.is_ascii_graphic() => (b as char).to_string(),
+                b => format!("\\x{:02x}", b),
             }
         }
 
         match option {
             "delimiter" => Some(format!("{:?}", self.delimiter as char)),
-            "terminator" => Some(self.terminator.map(|b| char_repr(b)).unwrap_or("".into())),
-            "quote" => Some(self.quote.map(|b| char_repr(b)).unwrap_or("".into())),
-            "escape" => Some(self.escape.map(|b| char_repr(b)).unwrap_or("".into())),
+            "terminator" => Some(self.terminator.map(char_repr).unwrap_or("".into())),
+            "quote" => Some(self.quote.map(char_repr).unwrap_or("".into())),
+            "escape" => Some(self.escape.map(char_repr).unwrap_or("".into())),
             "double_quote" => Some(self.double_quote.to_string()),
-            "comment" => Some(self.comment.map(|b| char_repr(b)).unwrap_or("".into())),
+            "comment" => Some(self.comment.map(char_repr).unwrap_or("".into())),
             "skip" => Some(self.skip.to_string()),
             "columns" => Some(self.columns.as_ref().map(|cols| cols.join(",")).unwrap_or_else(|| "".into())),
             _ => None,
@@ -312,7 +313,7 @@ fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<Colu
             let children = children.iter().map(|(name, child)| {
                 let column = headers.iter().position(|h| h == name)
                     .ok_or_else(|| ImportError::SchemaMismatch(format!("No column found for field `{}`", name)))?;
-                let (entity, parser) = ColumnParser::new(&child)?;
+                let (entity, parser) = ColumnParser::new(child)?;
                 parsers[column] = parser;
                 Ok((name.clone(), entity))
             }).collect::<Result<IndexMap<_, _>, ImportError>>()?;
@@ -423,7 +424,7 @@ impl CsvParser {
             }
 
             let (res, nin, nout, nend) = self.reader.read_record(
-                &input,
+                input,
                 &mut self.out[outlen..],
                 &mut self.ends[endlen..],
             );
@@ -458,7 +459,7 @@ impl CsvParser {
             self.source.as_mut().consume(consumed);
         }
 
-        return Ok(());
+        Ok(())
     }
 }
 

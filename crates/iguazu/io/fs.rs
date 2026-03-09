@@ -133,16 +133,14 @@ impl ReadableFile for StdinFile {
         if !previously_used {
             Ok(Box::pin(FsFileStream::stdin()))
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(std::io::Error::other(
                 "Stdin can only be read once",
             ))
         }
     }
 
     async fn relative(&self, _path: &RelativePath) -> Result<Arc<dyn ReadableFile>, std::io::Error> {
-        Err(std::io::Error::new(
-            io::ErrorKind::Other,
+        Err(std::io::Error::other(
             "Stdin does not support relative path references",
         ))
     }
@@ -158,7 +156,7 @@ impl FsFileStream {
         let (reader, mut writer) = piper::pipe(2 * 1024 * 1024);
         let task = blocking::unblock(move || futures_lite::future::block_on(async {
             loop {
-                if poll_fn(|cx| writer.poll(cx)).await == false {
+                if !poll_fn(|cx| writer.poll(cx)).await {
                     return Ok(());
                 };
                 let buf = writer.write_buf(size.unwrap_or(u64::MAX).min(128 * 1024) as usize);

@@ -135,10 +135,8 @@ impl<'a> YAxisRow<'a> {
                         y: y_scale.y_from_value(max),
                     };
 
-                    if let Some(lpos) = last {
-                        if lpos.distance_sq(pos1) > min_dist_sq {
-                            painter.line_segment([lpos, pos1], stroke);
-                        }
+                    if let Some(lpos) = last && lpos.distance_sq(pos1) > min_dist_sq {
+                        painter.line_segment([lpos, pos1], stroke);
                     }
 
                     painter.line_segment([pos1, pos2], stroke);

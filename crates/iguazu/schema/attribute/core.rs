@@ -64,7 +64,7 @@ impl<D, S> Entity<D, S> {
     }
 
     pub fn sample_rate_as_period(&self) -> Option<Time> {
-        self.sample_rate().map(|sr| Time::period_float(sr))
+        self.sample_rate().map(Time::period_float)
     }
 
     pub fn time(&self) -> Option<EcoString> {
@@ -86,7 +86,7 @@ impl Field {
     }
 
     pub fn time_rate_as_period(&self) -> Option<Time> {
-        self.time_rate().map(|tr| Time::period_float(tr))
+        self.time_rate().map(Time::period_float)
     }
 
     pub fn time_epoch(&self) -> Option<Timestamp> {

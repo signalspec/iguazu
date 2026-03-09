@@ -92,7 +92,7 @@ impl TimelineView {
         ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
             let (_, top_rect) = ui.allocate_space(Vec2::new(0.0, 36.0));
 
-            let timeline_rect = Rect::from_x_y_ranges(time_x_range.clone(), top_rect.y_range());
+            let timeline_rect = Rect::from_x_y_ranges(time_x_range, top_rect.y_range());
 
             ui.painter().hline(
                 rect.x_range(),
@@ -159,7 +159,7 @@ impl TimelineView {
                 let shadow_width = 30.0;
                 let rect = egui::Rect::from_x_y_ranges(
                     time_x_left..=(time_x_left + shadow_width),
-                    rect.y_range().clone(),
+                    rect.y_range(),
                 );
 
                 draw_shadow_line(ui, rect, egui::Direction::LeftToRight, 0.4);
@@ -223,10 +223,8 @@ impl TimelineView {
             state.set_visible_range(time_ranges_ui.pan(-delta_x));
         }
 
-        if zoom_factor != 1.0 {
-            if let Some(pointer_pos) = pointer_pos {
-                state.set_visible_range(time_ranges_ui.zoom_at(pointer_pos.x, zoom_factor));
-            }
+        if zoom_factor != 1.0 && let Some(pointer_pos) = pointer_pos {
+            state.set_visible_range(time_ranges_ui.zoom_at(pointer_pos.x, zoom_factor));
         }
 
         if response.double_clicked() {

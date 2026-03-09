@@ -114,7 +114,7 @@ fn paint_ticks(
             };
 
             // Make line higher if it is stronger:
-            let line_top = lerp(line_y_range.clone(), lerp(0.75..=0.5, height_factor));
+            let line_top = lerp(line_y_range, lerp(0.75..=0.5, height_factor));
 
             shapes.push(egui::Shape::line_segment(
                 [pos2(line_x, line_top), pos2(line_x, line_y_range.max)],
@@ -128,7 +128,7 @@ fn paint_ticks(
                 egui_ctx.fonts_mut(|fonts| {
                     shapes.push(egui::Shape::text(
                         fonts,
-                        pos2(text_x, lerp(line_y_range.clone(), 0.5)),
+                        pos2(text_x, lerp(line_y_range, 0.5)),
                         Align2::LEFT_CENTER,
                         text,
                         font_id.clone(),

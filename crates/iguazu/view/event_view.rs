@@ -11,7 +11,7 @@ pub struct EventView<'v> {
 impl<'v> EventView<'v> {
     pub fn new(vm: &'v ViewManager, mut entity: &EntityStream) -> Option<Self> {
         while let Some(time_field) = entity.time() {
-            entity = entity.child(&*time_field)?;
+            entity = entity.child(&time_field)?;
         };
 
         let Entity::Tuple { child, .. } = &entity else { return None };
@@ -146,7 +146,7 @@ impl Iterator for EventViewIter<'_, '_> {
             }
         }
 
-        return Some(Event::Dense(evt_val_range))
+        Some(Event::Dense(evt_val_range))
     }
 }
 

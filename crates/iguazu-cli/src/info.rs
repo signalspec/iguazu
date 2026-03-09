@@ -15,7 +15,7 @@ pub struct Cli {
 pub fn main(args: &Cli) -> Result<(), String> {
     block_on(async {
         let filename = args.import.filename.file_name().and_then(|s| s.to_str()).unwrap_or("unknown");
-        let last_entity_path = args.import.entity.as_ref().and_then(|e| e.split('.').last());
+        let last_entity_path = args.import.entity.as_ref().and_then(|e| e.rsplit('.').next());
         let root_name = last_entity_path.unwrap_or(filename);
 
         let schema = args.import.schema_or_inferred(IMPORTERS).await?;
@@ -40,11 +40,11 @@ fn info_tree_field(w: &mut impl Write, top: bool, prefix: &str, name: &str, fiel
         FieldKind::Bits { .. } => header_line(w, top, name, "Bits"),
         FieldKind::Null => header_line(w, top, name, "Null"),
         FieldKind::Character => header_line(w, top, name, "Char"),
-        FieldKind::Timestamp { .. } => header_line(w, top, name, "Timestamp"),
+        FieldKind::Timestamp => header_line(w, top, name, "Timestamp"),
         FieldKind::Int { .. } => header_line(w, top, name, "Int"),
         FieldKind::Signed { .. } => header_line(w, top, name, "Signed Int"),
-        FieldKind::Float32 { .. } => header_line(w, top, name, "Float32"),
-        FieldKind::Float64 { .. } => header_line(w, top, name, "Float64"),
+        FieldKind::Float32 => header_line(w, top, name, "Float32"),
+        FieldKind::Float64 => header_line(w, top, name, "Float64"),
         FieldKind::Enum { .. } => header_line(w, top, name, "Enum"),
         FieldKind::Tagged { ref values, .. } => {
             header_line(w, top, name, "Tagged")?;

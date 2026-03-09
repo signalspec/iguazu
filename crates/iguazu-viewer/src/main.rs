@@ -194,7 +194,7 @@ impl eframe::App for App {
             });
         });
 
-        let central_panel = Frame::central_panel(&*ctx.style()).inner_margin(0.0);
+        let central_panel = Frame::central_panel(&ctx.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(central_panel).show(ctx, |ui| {
             match &mut self.state {
                 AppState::Welcome(welcome) => {

@@ -1,7 +1,7 @@
 use std::{sync::Arc, task::Poll};
 
 use async_executor::Task;
-use egui::{Button, Color32, Layout, Pos2, Rect, RichText, Ui, UiBuilder, Vec2};
+use egui::{Button, Color32, Layout, Rect, RichText, Ui, UiBuilder, Vec2};
 use iguazu::{import::IMPORTERS, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::{MemoryStream, Pool, Storage}, stream::ArcStream};
 use iguazu_egui::ViewerContext;
 use rfd::AsyncFileDialog;
@@ -83,7 +83,7 @@ fn centered_box<R>(ui: &mut Ui, size: Vec2, layout: Layout, child_ui: impl FnOnc
     let available_rect = ui.available_rect_before_wrap();
     let center = available_rect.center();
     let top_left = center - size * 0.5;
-    let box_rect = Rect::from_min_size(Pos2::from(top_left), size);
+    let box_rect = Rect::from_min_size(top_left, size);
 
     ui.scope_builder(
         UiBuilder::new().max_rect(box_rect).layout(layout),

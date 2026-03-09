@@ -1,4 +1,4 @@
-use std::{cell::RefCell, marker::PhantomData, u64};
+use std::{cell::RefCell, marker::PhantomData};
 
 use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess, BlockDesc, StreamState}, Element, ElementSize, Idx, IdxRange};
 
@@ -73,7 +73,7 @@ impl<'a> IntView<'a> {
 
         for block_i in min_block..max_block {
             let block = self.view.get_block(block_i);
-            let idx = (block_i as u64) * self.desc.count as u64;
+            let idx = block_i * self.desc.count as u64;
 
             let start = range.min.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
             let end = range.max.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;

@@ -242,13 +242,11 @@ impl<'a> LogicRow<'a> {
                     }
                 } else if (x1..x2 - interact_radius).contains(&hover_x) {
                     // hovering within the span
-                    if idx1 > range.min && idx2 < range.max {
-                        if x2 - x1 > 80.0 {
-                            let span_rect = Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range());
-                            let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx1);
-                            let text = width.format_relative(idx_scale.sample_period()).to_string();
-                            span_width_label(&painter, span_rect, span_rect.x_range().center(), Align::Center, &font_id, font_color, text);
-                        }
+                    if idx1 > range.min && idx2 < range.max && x2 - x1 > 80.0 {
+                        let span_rect = Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range());
+                        let width = idx_scale.t_from_idx(idx2) - idx_scale.t_from_idx(idx1);
+                        let text = width.format_relative(idx_scale.sample_period()).to_string();
+                        span_width_label(&painter, span_rect, span_rect.x_range().center(), Align::Center, &font_id, font_color, text);
                     }
                 }
             }

@@ -36,7 +36,7 @@ impl EntityStream {
                         FieldKind::Int { .. } | FieldKind::Signed { .. } | FieldKind::Float32 | FieldKind::Float64 => {
                             make_summary(tasks, storage, data, field, summaries, "range", 2, range_summary);
                         }
-                        FieldKind::Timestamp { .. } => {
+                        FieldKind::Timestamp => {
                             make_summary(tasks, storage, data, field, summaries, "skip", 3, skip_summary);
                         }
                         _ => { }

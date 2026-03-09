@@ -168,7 +168,7 @@ impl TextFormat {
                     write!(fmt, "{}", f32::from_bits(i as u32))?;
                 }
                 Element::Float64 => {
-                    write!(fmt, "{}", f64::from_bits(val as u64))?;
+                    write!(fmt, "{}", f64::from_bits(val))?;
                 }
                 Element::TimestampAbsolute { epoch, period  } => {
                     let d = Duration::try_from((val as i128) * period).ok();

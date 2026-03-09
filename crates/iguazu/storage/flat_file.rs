@@ -74,7 +74,7 @@ impl FlatFileStream {
         let element_type = ElementSize::from_bits(field.kind.width())
             .ok_or_else(|| ImportError::SchemaMismatch(format!("Field is {} bits wide. Must be <= 64.", field.kind.width())))?;
 
-        let stream = Self::new(file, pool, element_type, &opts).await.map_err(ImportError::Io)?;
+        let stream = Self::new(file, pool, element_type, opts).await.map_err(ImportError::Io)?;
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 
@@ -205,7 +205,7 @@ impl StreamAccess for FileStreamAccess {
 
         log::trace!("Block {block} of {} is still loading", self.stream.file.filename().unwrap_or("<unknown>"));
 
-        return &[];
+        &[]
     }
 
     fn state(&self) -> StreamState {

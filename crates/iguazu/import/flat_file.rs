@@ -79,7 +79,7 @@ impl Importer for FlatFileImporter {
     }
 
     fn set(&mut self, option: &str, value: &str) -> Result<(), String> {
-        Ok(match option {
+        match option {
             "offset" => self.opts.offset = value.parse().map_err(|_| "Invalid integer")?,
             "count" => self.opts.count = if value.is_empty() { None } else { Some(value.parse().map_err(|_| "Invalid integer")?) },
             "block_size" => self.opts.block_size = value.parse().map_err(|_| "Invalid integer")?,
@@ -92,7 +92,8 @@ impl Importer for FlatFileImporter {
                 }
             }
             _ => return Err("Unknown option".into()),
-        })
+        }
+        Ok(())
     }
 
     fn get(&self, option: &str) -> Option<String> {
