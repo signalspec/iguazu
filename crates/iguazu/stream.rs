@@ -1,3 +1,4 @@
+//! Stream abstraction for storing and reading raw signal data
 use std::{any::Any, fmt::Debug, future::poll_fn, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker, ready}};
 use once_array::OnceArrayWriter;
 

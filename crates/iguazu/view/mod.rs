@@ -1,3 +1,4 @@
+//! Types for accessing and interpreting signal data
 use std::{ sync::Arc, task::Waker};
 
 use elsa::sync::FrozenMap;

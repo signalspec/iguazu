@@ -1,3 +1,4 @@
+//! Downsampled overviews of data for zoomed-out views
 use std::{fmt::Debug, sync::Arc};
 
 use ecow::EcoString;

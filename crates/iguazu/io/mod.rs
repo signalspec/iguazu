@@ -1,3 +1,4 @@
+//! File I/O abstraction layer
 use std::{io, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;

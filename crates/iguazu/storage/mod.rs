@@ -1,3 +1,4 @@
+//! Data storage and access backends.
 mod cache;
 
 mod in_memory;

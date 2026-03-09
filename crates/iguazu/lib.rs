@@ -1,3 +1,4 @@
+//! Tools for viewing, storing, and sharing mixed-signal time series data
 #![allow(clippy::useless_format, clippy::type_complexity, clippy::manual_async_fn)]
 
 pub mod stream;

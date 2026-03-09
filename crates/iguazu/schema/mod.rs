@@ -1,3 +1,4 @@
+//! Types for signal metadata
 use std::{convert::Infallible, fmt::Debug, ops::Deref};
 
 use attribute::AttributeValue;
@@ -14,9 +15,6 @@ pub mod fmt;
 pub mod json_virtual;
 
 use crate::{schema::attribute::Attribute, stream::ArcStream, summary::{BorrowedSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap, Summary, SummaryMap}};
-
-pub type Name = String;
-pub type Path = String;
 
 /// Types that can be used as the data of an `Entity`.
 pub trait EntityData: Sized + Clone + Send + Sync + 'static {
@@ -71,9 +69,15 @@ impl FromIterator<(EcoString, StoredSummary<Ignored>)> for Ignored {
     }
 }
 
+/// Schema of an entity with only metadata.
 pub type EntitySchema = Entity<Ignored, Ignored>;
+
+/// Entity with metadata associated data streams and summaries.
 pub type EntityStream = Entity<ArcStream, LiveSummaryMap>;
 
+/// Generic entity type
+///
+/// See [`EntitySchema`] and [`EntityStream`] for common type aliases.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all="snake_case")]
 pub enum Entity<D, S> {
@@ -133,6 +137,7 @@ pub enum Entity<D, S> {
     }
 }
 
+/// Field defining the intepretation of bits within each element of s stream
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Field {
     #[serde(flatten)]
@@ -142,6 +147,7 @@ pub struct Field {
     pub attributes: AttributeMap,
 }
 
+/// Type of a [`Field`], defining the interpretation of bits within each element of a stream
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all="snake_case")]
 pub enum FieldKind {
@@ -628,11 +634,19 @@ impl EntityStream {
     }
 }
 
+/// Reference to a field within a stream.
 #[derive(Clone, Copy)]
 pub struct FieldRef<'a> {
+    /// Stream containing the data.
     pub data: &'a ArcStream,
+
+    /// Bit offset of the field within each element of the stream.
     pub bit_offset: u8,
+
+    /// The field defining the interpretation of bits.
     pub field: &'a Field,
+
+    /// The summaries at the level of the `Entity::Data` containing this field.
     pub summaries: &'a LiveSummaryMap,
 }
 

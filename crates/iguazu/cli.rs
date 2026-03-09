@@ -1,3 +1,4 @@
+//! Utilities for `clap` command line argument parsing
 use std::{path::{Path, PathBuf}, pin::Pin, sync::Arc};
 
 use async_executor::Executor;

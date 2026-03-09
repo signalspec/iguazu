@@ -1,3 +1,4 @@
+//! High precision time types
 use std::{fmt::Display, time::Duration};
 use num_traits::Float;
 
@@ -182,6 +183,7 @@ impl TryFrom<Time> for Duration {
     }
 }
 
+/// Range of times
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TimeRange {
     pub min: Time,
@@ -206,6 +208,7 @@ impl TimeRange {
     }
 }
 
+/// Formatter from [`Time::format_relative`].
 pub struct FormatRelative {
     time: Time,
     precision: Time,
@@ -250,6 +253,7 @@ fn test_format_relative() {
     assert_eq!(&format!("{}", (-70 * Time::NANOSECOND).format_relative(Time::NANOSECOND)), "-70 ns");
 }
 
+/// Formatter from [`Time::format_fixed`].
 pub struct FormatFixed {
     time: Time,
     precision: Time,
@@ -326,7 +330,8 @@ fn test_format_fixed() {
     assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_fixed(Time::PICOSECOND)), "42.123456789000s");
 }
 
-pub struct FormatFreq{
+/// Formatter from [`Time::format_period_as_freq`].
+pub struct FormatFreq {
     period: Time,
 }
 

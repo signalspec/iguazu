@@ -2,9 +2,21 @@
 
 Tools for viewing, storing, and sharing mixed-signal time series data
 
-## Data Model
+## Key features
 
-### Streams and physical types
+- Import from CSV and raw binary array files. *Future: JSON, WAV, SigMF, VCD, Sigrok srzip, etc.*
 
-### Entities and logical types
+- A native `.izs` (Iguazu Signal) file format supporting compression, metadata, random access, and incremental loading from static web hosting.
 
+- `Stream` abstraction layer for linear or random access to blocks of raw samples in memory, on disk, or from a remote server
+
+- `Schema` layer for interpreting raw samples as bit structs, fixed or floating point numbers, timestamps, text, enums, variable
+ or fixed-length arrays/packets, records, and hierarchical groups.
+
+- Flexible metadata attributes
+
+- Zoomable timeline viewer with analog signal plots, digital logic traces and event spans. *Future: spectrograms*
+
+- Table view
+
+- Rust library, CLI, egui-based viewer app for Linux, macOS, Windows, and web
