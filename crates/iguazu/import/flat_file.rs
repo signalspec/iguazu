@@ -97,7 +97,7 @@ impl FlatFileImporter {
         let (element, dtype) = match file.filename().unwrap_or("").rsplit('.').next().unwrap_or("") {
             "logic8" => (ElementSize::U8, DataType::Logic),
             "f32" => (ElementSize::U32, DataType::Real(ScalarType::Float)),
-            "cf32" | "cfile "=> (ElementSize::U32, DataType::Complex(ScalarType::Float)),
+            "cf32" | "cfile" => (ElementSize::U32, DataType::Complex(ScalarType::Float)),
             "u8" => (ElementSize::U8, DataType::Real(ScalarType::Unsigned)),
             "u16" => (ElementSize::U16, DataType::Real(ScalarType::Unsigned)),
             "u32" => (ElementSize::U32, DataType::Real(ScalarType::Unsigned)),
