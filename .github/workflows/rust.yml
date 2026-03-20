@@ -1,0 +1,91 @@
+name: Rust
+
+on:
+  - push
+  - pull_request
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions: {}
+
+jobs:
+  # format:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     - name: Cargo Fmt
+  #       run: cargo fmt --all -- --check
+
+  build:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          # - windows-latest
+          # - macos-latest
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        persist-credentials: false
+    - name: Install toolchain
+      uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      with:
+        toolchain: stable
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: |
+        cargo test --verbose
+
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        persist-credentials: false
+    - name: Install toolchain
+      uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      with:
+        toolchain: stable
+        targets: 'wasm32-unknown-unknown'
+    - uses: taiki-e/cache-cargo-install-action@59027ebf20a9617c4e819eb53ccd2673cb162b89 # v3.0.3
+      name: Install Trunk
+      with:
+        tool: trunk@0.21.14
+    - name: build
+      working-directory: crates/iguazu-viewer/
+      run: |
+        trunk build index.html --release -d dist
+        tar --zstd -cvf wasm-dist.tar.zstd -C dist ./
+    - name: Upload Artifact
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        archive: false
+        path: crates/iguazu-viewer/wasm-dist.tar.zstd
+
+  deploy-wasm:
+    needs: build-wasm
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/deploy'
+    environment:
+      name: deploy
+      url: https://app.iguazu.signalspec.org
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c #v8.0.1
+        with:
+          name: wasm-dist.tar.zstd
+          skip-decompress: true
+      - name: Upload
+        env:
+          GREBEDOC_DEPLOY_KEY: ${{ secrets.GREBEDOC_DEPLOY_KEY }}
+        run: |
+          curl https://grebedoc.dev/ -X PUT --fail-with-body \
+            -H "Host: app.iguazu.signalspec.org" \
+            -H "Authorization: Pages $GREBEDOC_DEPLOY_KEY" \
+            -H "Content-Type: application/x-tar+zstd" \
+            --data-binary @wasm-dist.tar.zstd
