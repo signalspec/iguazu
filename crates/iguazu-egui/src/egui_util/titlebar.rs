@@ -1,7 +1,7 @@
 // Based on egui-desktop under MIT license
 // https://github.com/PxlSyl/egui-desktop/tree/42f93944ba91ce871524e3d0e3a818320564023c
 
-use egui::{Align, Color32, Context, Frame, Id, Layout, Margin, Painter, PointerButton, Rect, Response, Sense, Stroke, StrokeKind, TopBottomPanel, Ui, Vec2, ViewportCommand, WidgetType};
+use egui::{Align, Color32, Context, Frame, Id, Layout, Margin, Painter, Panel, PointerButton, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, ViewportCommand, WidgetType};
 
 pub trait ViewportBuilderExt {
     fn with_custom_title_bar(self) -> Self;
@@ -44,19 +44,19 @@ impl TitleBar {
         }
     }
 
-    pub fn show(&mut self, ctx: &Context, inner: impl FnOnce(&mut Ui)) {
+    pub fn show(&mut self, parent_ui: &mut Ui, inner: impl FnOnce(&mut Ui)) {
         #[cfg(not(target_os ="macos"))]
-        self.check_resize(ctx);
+        self.check_resize(parent_ui.ctx());
 
-        TopBottomPanel::top(self.id)
-            .exact_height(self.height)
+        Panel::top(self.id)
+            .exact_size(self.height)
             .frame(
                 Frame::new()
-                    .fill(ctx.style().visuals.window_fill())
+                    .fill(parent_ui.style().visuals.window_fill())
                     .inner_margin(Margin::same(0))
                     .outer_margin(Margin::same(0)),
             )
-            .show(ctx, |ui| {
+            .show_inside(parent_ui, |ui| {
                 #[cfg(not(target_os ="macos"))]
                 self.interact(ui);
 

@@ -195,8 +195,8 @@ fn draw_y_ticks(ui: &mut egui::Ui, v_range: NumberRange, y_scale: &YScale, rect:
     let desired_tick_count = (rect.height() / desired_tick_spacing) as f64;
 
     let painter = ui.painter_at(rect);
-    let stroke = Stroke::new(1.0, ui.ctx().style().visuals.widgets.noninteractive.bg_stroke.color);
-    let zero_stroke = Stroke::new(1.0, ui.ctx().style().visuals.widgets.noninteractive.fg_stroke.color);
+    let stroke = Stroke::new(1.0, ui.style().visuals.widgets.noninteractive.bg_stroke.color);
+    let zero_stroke = Stroke::new(1.0, ui.style().visuals.widgets.noninteractive.fg_stroke.color);
 
     for v in generate_ticks(v_range, desired_tick_count) {
         let y = y_scale.y_from_value(v).round_to_pixel_center(ui.pixels_per_point());

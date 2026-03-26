@@ -36,17 +36,14 @@ impl Welcome {
         centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Center), |ui| {
             let mut loaded_entity = None;
 
-            ui.style_mut().text_styles.insert(
-                egui::TextStyle::Button,
-                egui::FontId::new(28.0, eframe::epaint::FontFamily::Proportional),
-            );
+            let button_font = egui::FontId::proportional(28.0);
             ui.style_mut().spacing.item_spacing.y = 16.0;
 
             if self.picker_task.is_some() {
                 ui.disable();
             }
 
-            if ui.add_sized((ui.available_width(), 0.0), Button::new("Open file…")).clicked() {
+            if ui.add_sized((ui.available_width(), 0.0), Button::new(RichText::new("Open file…").font(button_font.clone()))).clicked() {
                 self.error = None;
                 self.picker_task = Some(vctx.spawn(pick_and_import_file(vctx.pool().clone(), vctx.default_storage().clone())));
             }
@@ -65,7 +62,7 @@ impl Welcome {
                 }
             }
 
-            if ui.add_sized((ui.available_width(), 0.0),Button::new("Load demo data")).clicked() {
+            if ui.add_sized((ui.available_width(), 0.0), Button::new(RichText::new("Load demo data").font(button_font.clone()))).clicked() {
                 loaded_entity = Some(generate_demo_entity());
             }
 

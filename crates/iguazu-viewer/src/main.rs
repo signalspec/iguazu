@@ -185,19 +185,19 @@ impl eframe::App for App {
         [0.0; 4]
     }
 
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         self.vctx.begin();
 
         #[cfg(not(target_arch = "wasm32"))]
-        iguazu_egui::egui_util::titlebar::TitleBar::new().show(ctx, |ui| {
+        iguazu_egui::egui_util::titlebar::TitleBar::new().show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.add_space(4.0);
                 ui.add(egui::Label::new("Iguazu Viewer").selectable(false));
             });
         });
 
-        let central_panel = Frame::central_panel(&ctx.style()).inner_margin(0.0);
-        egui::CentralPanel::default().frame(central_panel).show(ctx, |ui| {
+        let central_panel = Frame::central_panel(ui.style()).inner_margin(0.0);
+        egui::CentralPanel::default().frame(central_panel).show_inside(ui, |ui| {
             match &mut self.state {
                 AppState::Welcome(welcome) => {
                     let res = welcome.show(&mut self.vctx, ui);
@@ -212,17 +212,16 @@ impl eframe::App for App {
         });
 
         if self.enable_debug_ui {
-            self.debug_ui(ctx);
+            self.debug_ui(ui);
         }
 
         self.vctx.end();
-        self.update_frame_time(ctx, frame);
+        self.update_frame_time(ui.ctx(), frame);
     }
 }
 
 impl App {
-    fn debug_ui(&mut self, ctx: &egui::Context) {
-        let mut ui = Ui::new(ctx.clone(), egui::Id::new("debug"), UiBuilder::default());
+    fn debug_ui(&mut self, ui: &mut Ui) {
         let debug = Rect::from_x_y_ranges(ui.max_rect().x_range(), (ui.max_rect().bottom() - 20.0)..=ui.max_rect().bottom());
         ui.scope_builder(
             UiBuilder::new()

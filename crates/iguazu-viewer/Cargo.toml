@@ -12,11 +12,11 @@ repository.workspace = true
 iguazu = { workspace = true, features = ["clap", "web"] }
 iguazu-egui.workspace = true
 egui.workspace = true
-eframe = { version = "0.33.0", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "wayland"] }
+eframe = { version = "0.34.0", default-features = false, features = ["default_fonts", "wgpu", "wayland"] }
 futures-lite = "2.6.0"
 clap = { workspace = true, features = ["derive"] }
 async-executor.workspace = true
-wgpu = { version = "27", features = ["webgl"] }
+wgpu = { version = "29", features = ["webgl"] }
 rfd = { version = "0.17.2", features = ["file-handle-inner"] }
 url = "2.5.7"
 
