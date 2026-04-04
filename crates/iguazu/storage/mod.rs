@@ -17,6 +17,9 @@ use crate::{stream::StreamWriter, ElementSize};
 #[cfg(feature = "izs")]
 pub mod izs;
 
+#[cfg(feature = "srzip")]
+pub mod srzip;
+
 /// A storage backend that can create writable streams
 pub trait Storage: Send + Sync {
     fn create_stream(&self, element_type: ElementSize) -> Box<dyn StreamWriter>;

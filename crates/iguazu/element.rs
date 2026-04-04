@@ -36,6 +36,17 @@ impl ElementSize {
             _ => None,
         }
     }
+
+    #[inline]
+    pub fn from_bytes(bits: u8) -> Option<Self> {
+        match bits {
+            ..=1 => Some(ElementSize::U8),
+            ..=2 => Some(ElementSize::U16),
+            ..=4 => Some(ElementSize::U32),
+            ..=8 => Some(ElementSize::U64),
+            _ => None,
+        }
+    }
 }
 
 pub trait Element: Send + Sync + bytemuck::Pod + bytemuck::NoUninit + bytemuck::Zeroable + bytemuck::AnyBitPattern + bytemuck::NoUninit {

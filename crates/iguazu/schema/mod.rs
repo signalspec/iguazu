@@ -241,6 +241,13 @@ impl Field {
         self
     }
 
+    pub fn with_attribute_opt<A: Into<AttributeValue>>(mut self, attr: Attribute<A>, val: Option<A>) -> Self {
+        if let Some(val) = val {
+            self.set_attribute(attr, val);
+        }
+        self
+    }
+
     pub fn child(&self, child: &str) -> Option<&Field> {
         match self.kind {
             FieldKind::BitStruct { ref children, .. } => {

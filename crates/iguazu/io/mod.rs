@@ -18,6 +18,9 @@ mod url;
 use ::url::Url;
 pub use url::{RelativePath, BadRelativePath};
 
+#[cfg(feature = "srzip")]
+pub(crate) mod zip;
+
 #[async_trait]
 pub trait ReadableFile: Send + Sync + 'static {
     /// Get the filename part of the path

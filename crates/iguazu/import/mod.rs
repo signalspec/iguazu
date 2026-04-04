@@ -23,6 +23,11 @@ mod izs;
 #[cfg(feature = "izs")]
 pub use izs::IzsImporter;
 
+#[cfg(feature = "srzip")]
+mod srzip;
+#[cfg(feature = "srzip")]
+pub use srzip::SrZipImporter;
+
 #[derive(Error, Debug)]
 pub enum ImportError {
     #[error("IO error: {0}")]
@@ -177,10 +182,19 @@ pub const TSV: ImportFormat = ImportFormat {
     importer: || Box::new(csv::CsvImporter::tsv())
 };
 
+#[cfg(feature = "srzip")]
+pub const SRZIP: ImportFormat = ImportFormat {
+    name: "Sigrok",
+    description: "Sigrok (srzip v2)",
+    extensions: &[".sr"],
+    importer: || Box::new(SrZipImporter::new())
+};
+
 pub const IMPORTERS: ImportFormats<'static> = ImportFormats(&[
     VIRTUAL,
     #[cfg(feature = "izs")] IZS,
     BIN, LOGIC8,
     #[cfg(feature = "csv")] CSV,
     #[cfg(feature = "csv")] TSV,
+    #[cfg(feature = "srzip")] SRZIP,
 ]);
