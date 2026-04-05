@@ -498,14 +498,14 @@ fn test_csv() {
                 summaries: Default::default(),
             }),
             ("value".into(), Entity::Data {
-                field: Field::new(FieldKind::Float32),
+                field: Field::new(FieldKind::Float32 { pos: 0 }),
                 data: Ignored,
                 summaries: Default::default(),
             }),
             ("str".into(), Entity::VariableArray {
                 data: Ignored,
                 child: Box::new(Entity::Data {
-                    field: Field::new(FieldKind::Character),
+                    field: Field::new(FieldKind::Character { pos: 0 }),
                     data: Ignored,
                     summaries: Default::default(),
                 }),

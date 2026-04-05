@@ -39,11 +39,11 @@ fn info_tree_field(w: &mut impl Write, top: bool, prefix: &str, name: &str, fiel
         }
         FieldKind::Bits { .. } => header_line(w, top, name, "Bits"),
         FieldKind::Null => header_line(w, top, name, "Null"),
-        FieldKind::Character => header_line(w, top, name, "Char"),
-        FieldKind::Timestamp => header_line(w, top, name, "Timestamp"),
+        FieldKind::Character { .. }=> header_line(w, top, name, "Char"),
+        FieldKind::Timestamp { .. }=> header_line(w, top, name, "Timestamp"),
         FieldKind::Int { .. } => header_line(w, top, name, "Int"),
         FieldKind::Signed { .. } => header_line(w, top, name, "Signed Int"),
-        FieldKind::Float32 => header_line(w, top, name, "Float32"),
+        FieldKind::Float32 { .. } => header_line(w, top, name, "Float32"),
         FieldKind::Float64 => header_line(w, top, name, "Float64"),
         FieldKind::Enum { .. } => header_line(w, top, name, "Enum"),
         FieldKind::Tagged { ref values, .. } => {

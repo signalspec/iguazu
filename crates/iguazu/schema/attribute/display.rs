@@ -114,15 +114,15 @@ impl Field {
             .unwrap_or_else(|| match &self.kind {
                 FieldKind::Null => TimelineRow::Hidden,
                 FieldKind::BitStruct { .. } => TimelineRow::Group,
-                FieldKind::Bits { bits: 1 } => TimelineRow::Logic,
+                FieldKind::Bits { bits: 1, .. } => TimelineRow::Logic,
                 FieldKind::Bits { .. }
-                | FieldKind::Character
+                | FieldKind::Character { .. }
                 | FieldKind::Enum { .. }
                 | FieldKind::Tagged { .. } => TimelineRow::Trace,
                 FieldKind::Timestamp => TimelineRow::Hidden,
                 FieldKind::Int { .. }
                 | FieldKind::Signed { .. }
-                | FieldKind::Float32
+                | FieldKind::Float32 { .. }
                 | FieldKind::Float64 => TimelineRow::YAxis,
             })
     }

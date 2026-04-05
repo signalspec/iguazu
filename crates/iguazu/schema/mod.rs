@@ -6,6 +6,7 @@ use ecow::{eco_format, EcoString};
 use futures_lite::future;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use num_traits::Zero;
 
 pub mod attribute;
 pub use attribute::AttributeMap;
@@ -14,7 +15,7 @@ pub mod fmt;
 
 pub mod json_virtual;
 
-use crate::{schema::attribute::Attribute, stream::ArcStream, summary::{BorrowedSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap, Summary, SummaryMap}};
+use crate::{ElementSize, schema::attribute::Attribute, stream::ArcStream, summary::{BorrowedSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap, Summary, SummaryMap}};
 
 /// Types that can be used as the data of an `Entity`.
 pub trait EntityData: Sized + Clone + Send + Sync + 'static {
@@ -153,23 +154,39 @@ pub struct Field {
 pub enum FieldKind {
     Null,
     Bits {
+        #[serde(default, skip_serializing_if = "Zero::is_zero")]
+        pos: u8,
         bits: u8,
     },
-    Character,
+    Character {
+        #[serde(default, skip_serializing_if = "Zero::is_zero")]
+        pos: u8
+    },
     Timestamp,
     Int {
+        #[serde(default, skip_serializing_if = "Zero::is_zero")]
+        pos: u8,
         bits: u8,
     },
     Signed {
+        #[serde(default, skip_serializing_if = "Zero::is_zero")]
+        pos: u8,
         bits: u8,
     },
-    Float32,
+    Float32 {
+        #[serde(default, skip_serializing_if = "Zero::is_zero")]
+        pos: u8
+    },
     Float64,
     Enum {
+        #[serde(default, skip_serializing_if = "Zero::is_zero")]
+        pos: u8,
         bits: u8,
         values: Vec<EcoString>,
     },
     Tagged {
+        #[serde(default, skip_serializing_if = "Zero::is_zero")]
+        tag_pos: u8,
         tag_bits: u8,
         values: IndexMap<EcoString, Field>,
     },
@@ -179,24 +196,30 @@ pub enum FieldKind {
 }
 
 impl FieldKind {
-    pub fn width(&self) -> u8 {
+    pub fn mask(&self) -> u64 {
         match *self {
             FieldKind::Null => 0,
-            FieldKind::Bits { bits } => bits,
-            FieldKind::Character => 8,
-            FieldKind::Timestamp => 64,
-            FieldKind::Int { bits } => bits,
-            FieldKind::Signed { bits } => bits,
-            FieldKind::Float32 => 32,
-            FieldKind::Float64 => 64,
-            FieldKind::Enum { bits, .. } => bits,
-            FieldKind::Tagged { tag_bits, ref values } => {
-                tag_bits + values.values().map(|v| v.kind.width()).fold(0, u8::max)
+            FieldKind::Bits { pos, bits, .. }
+            | FieldKind::Int { pos, bits, .. }
+            | FieldKind::Signed { pos, bits, .. }
+            | FieldKind::Enum { pos, bits, .. } => ((1u64 << bits) - 1) << pos,
+            FieldKind::Character { pos, .. } => 0xFF << pos,
+            FieldKind::Timestamp { .. } => u64::MAX,
+            FieldKind::Float32 { pos } => (u32::MAX as u64) << pos,
+            FieldKind::Float64 => u64::MAX,
+            FieldKind::Tagged { tag_pos, tag_bits, ref values, .. } => {
+                let tag_mask = ((1u64 << tag_bits) - 1) << tag_pos;
+                let inner_mask = values.values().map(|v| v.kind.mask()).fold(0, |a, b| a | b);
+                tag_mask | inner_mask
             }
             FieldKind::BitStruct { ref children } => {
-                children.values().map(|f| f.kind.width()).fold(0, u8::saturating_add)
+                children.values().map(|f| f.kind.mask()).fold(0, |a, b| a | b)
             }
         }
+    }
+
+    pub fn element_size(&self) -> ElementSize {
+        ElementSize::from_bits((u64::BITS - self.mask().leading_zeros()) as u8).unwrap()
     }
 }
 
@@ -218,12 +241,10 @@ impl Field {
         self
     }
 
-    pub fn child(&self, child: &str) -> Option<(u8, &Field)> {
+    pub fn child(&self, child: &str) -> Option<&Field> {
         match self.kind {
             FieldKind::BitStruct { ref children, .. } => {
-                let (i, _, child) = children.get_full(child)?;
-                let offset = children.values().take(i).map(|f| f.kind.width()).sum::<u8>();
-                Some((offset, child))
+                children.get(child)
             }
             _ => None,
         }
@@ -567,7 +588,7 @@ impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
 
 impl EntitySchema {
     pub fn bytes() -> Self {
-        Self::field(FieldKind::Bits { bits: 8 })
+        Self::field(FieldKind::Bits { bits: 8, pos: 0 })
     }
 
     pub fn logic8() -> Self {
@@ -575,7 +596,7 @@ impl EntitySchema {
             eco_format!("bit{b}"),
             Field {
                 attributes: Default::default(),
-                kind: FieldKind::Bits { bits: 1 },
+                kind: FieldKind::Bits { bits: 1, pos: b },
             }
         )).collect();
         Self::field(FieldKind::BitStruct { children })
@@ -628,7 +649,7 @@ impl EntitySchema {
 impl EntityStream {
     pub fn as_field(&self) -> Option<FieldRef<'_>> {
         match self {
-            Entity::Data { data, field, summaries } => Some(FieldRef { data, field, summaries, bit_offset: 0 }),
+            Entity::Data { data, field, summaries } => Some(FieldRef { data, field, summaries }),
             _ => None,
         }
     }
@@ -639,9 +660,6 @@ impl EntityStream {
 pub struct FieldRef<'a> {
     /// Stream containing the data.
     pub data: &'a ArcStream,
-
-    /// Bit offset of the field within each element of the stream.
-    pub bit_offset: u8,
 
     /// The field defining the interpretation of bits.
     pub field: &'a Field,
@@ -662,11 +680,8 @@ impl FieldRef<'_> {
     pub fn bit_struct_fields(&self) -> Option<impl Iterator<Item = (EcoString, FieldRef<'_>)>> {
         match self.kind {
             FieldKind::BitStruct { ref children } => {
-                let mut bit_offset = self.bit_offset;
                 Some(children.iter().map(move |(name, field)| {
-                    let r = (name.clone(), FieldRef { bit_offset, field, ..*self });
-                    bit_offset += field.kind.width();
-                    r
+                    (name.clone(), FieldRef { field, ..*self })
                 }))
             }
             _ => None,

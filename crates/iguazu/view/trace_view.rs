@@ -184,7 +184,7 @@ fn test_traceview() {
 
     let executor = Arc::new(Executor::new());
     let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
-    let mut entity = EntityStream::field_data(FieldKind::Bits { bits: 8 }, stream);
+    let mut entity = EntityStream::field_data(FieldKind::Bits { pos: 0, bits: 8 }, stream);
 
     block_on(executor.run(entity.build_summaries(&executor, &storage))).unwrap();
 
@@ -245,7 +245,7 @@ fn test_traceview_zoom() {
     input[45678] = 1;
     input[76543..77777].fill(2);
     let stream = MemoryStream::new(&input[..]);
-    let mut entity = EntityStream::field_data(FieldKind::Bits { bits: 8 }, stream);
+    let mut entity = EntityStream::field_data(FieldKind::Bits { pos: 0, bits: 8 }, stream);
     block_on(executor.run(entity.build_summaries(&executor, &storage))).unwrap();
 
     let Entity::Data { data, summaries, .. } = &entity else { unreachable!() };

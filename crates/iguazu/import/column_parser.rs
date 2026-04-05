@@ -54,7 +54,7 @@ impl ColumnParser {
         Ok(match schema {
             Entity::Data { data: Ignored, field, .. } => {
                 let (data, parser) = match &field.kind {
-                    FieldKind::Float32 => {
+                    FieldKind::Float32 { pos: 0 } => {
                         let writer = MemoryStreamWriter::new(ElementSize::U32);
                         let data = writer.stream().clone() as Arc<dyn Stream>;
                         (data, ColumnParser::Float32(writer))
@@ -94,7 +94,7 @@ impl ColumnParser {
                         let ends_stream = ends.stream().clone() as Arc<dyn Stream>;
 
                         let (data, parser) = match &field.kind {
-                            FieldKind::Character => {
+                            FieldKind::Character { pos: 0 } => {
                                 let chars = MemoryStreamWriter::new(ElementSize::U8);
                                 let data = chars.stream().clone() as Arc<dyn Stream>;
                                 (data, ColumnParser::String { ends, chars })

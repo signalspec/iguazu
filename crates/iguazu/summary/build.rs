@@ -30,10 +30,10 @@ impl EntityStream {
                 }
                 Entity::Data { ref mut summaries, ref field, ref data } => {
                     match field.kind {
-                        FieldKind::Bits {..} | FieldKind::BitStruct {..} => {
+                        FieldKind::Bits { .. } | FieldKind::BitStruct { .. } => {
                             make_summary(tasks, storage, data, field, summaries, "bit_and_or", 2, bit_summary);
                         }
-                        FieldKind::Int { .. } | FieldKind::Signed { .. } | FieldKind::Float32 | FieldKind::Float64 => {
+                        FieldKind::Int { pos: 0, .. } | FieldKind::Signed { pos: 0, .. } | FieldKind::Float32 { pos: 0, .. } | FieldKind::Float64 => {
                             make_summary(tasks, storage, data, field, summaries, "range", 2, range_summary);
                         }
                         FieldKind::Timestamp => {
@@ -269,15 +269,15 @@ fn range_summary(s: SummaryGen, field: &Field) {
     }
 
     match (&field.kind, s.stream.desc().element_size) {
-        (FieldKind::Int { .. }, ElementSize::U8) => s.build(min_max_initial::<u8>, min_max_reduce::<u8>),
-        (FieldKind::Int { .. }, ElementSize::U16) => s.build(min_max_initial::<u16>, min_max_reduce::<u16>),
-        (FieldKind::Int { .. }, ElementSize::U32) => s.build(min_max_initial::<u32>, min_max_reduce::<u32>),
-        (FieldKind::Int { .. }, ElementSize::U64) => s.build(min_max_initial::<u64>, min_max_reduce::<u64>),
-        (FieldKind::Signed { bits: 8 }, ElementSize::U8) => s.build(min_max_initial::<i8>, min_max_reduce::<i8>),
-        (FieldKind::Signed { bits: 16 }, ElementSize::U16) => s.build(min_max_initial::<i16>, min_max_reduce::<i16>),
-        (FieldKind::Signed { bits: 32 }, ElementSize::U32) => s.build(min_max_initial::<i32>, min_max_reduce::<i32>),
-        (FieldKind::Signed { bits: 64 }, ElementSize::U64) => s.build(min_max_initial::<i64>, min_max_reduce::<i64>),
-        (FieldKind::Float32, ElementSize::U32) => s.build(min_max_initial_float::<f32>, min_max_reduce_float::<f32>),
+        (FieldKind::Int { pos: 0, .. }, ElementSize::U8) => s.build(min_max_initial::<u8>, min_max_reduce::<u8>),
+        (FieldKind::Int { pos: 0, .. }, ElementSize::U16) => s.build(min_max_initial::<u16>, min_max_reduce::<u16>),
+        (FieldKind::Int { pos: 0, .. }, ElementSize::U32) => s.build(min_max_initial::<u32>, min_max_reduce::<u32>),
+        (FieldKind::Int { pos: 0, .. }, ElementSize::U64) => s.build(min_max_initial::<u64>, min_max_reduce::<u64>),
+        (FieldKind::Signed { pos: 0, bits: 8 }, ElementSize::U8) => s.build(min_max_initial::<i8>, min_max_reduce::<i8>),
+        (FieldKind::Signed { pos: 0, bits: 16 }, ElementSize::U16) => s.build(min_max_initial::<i16>, min_max_reduce::<i16>),
+        (FieldKind::Signed { pos: 0, bits: 32 }, ElementSize::U32) => s.build(min_max_initial::<i32>, min_max_reduce::<i32>),
+        (FieldKind::Signed { pos: 0, bits: 64 }, ElementSize::U64) => s.build(min_max_initial::<i64>, min_max_reduce::<i64>),
+        (FieldKind::Float32 { pos: 0 }, ElementSize::U32) => s.build(min_max_initial_float::<f32>, min_max_reduce_float::<f32>),
         (FieldKind::Float64, ElementSize::U64) => s.build(min_max_initial_float::<f64>, min_max_reduce_float::<f64>),
         _ => {}
     }
@@ -312,7 +312,7 @@ fn test_build_summary_live() {
 
     let mut writer = MemoryStreamWriter::new(crate::ElementSize::U8);
     let stream: ArcStream = writer.stream().clone();
-    let mut entity = EntityStream::field_data(FieldKind::Bits { bits: 8 }, stream);
+    let mut entity = EntityStream::field_data(FieldKind::Bits { pos: 0, bits: 8 }, stream);
 
     let summary_tasks = entity.build_summaries(&executor, &storage);
     assert_eq!(summary_tasks.len(), 1);
@@ -366,7 +366,7 @@ fn test_build_summary_completed() {
     writer.commit();
     let stream: ArcStream = writer.stream().clone();
     drop(writer);
-    let mut entity = EntityStream::field_data(FieldKind::Bits { bits: 8 }, stream);
+    let mut entity = EntityStream::field_data(FieldKind::Bits { pos: 0, bits: 8 }, stream);
 
     let summary_tasks = entity.build_summaries(&executor, &storage);
     assert_eq!(summary_tasks.len(), 1);

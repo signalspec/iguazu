@@ -41,9 +41,9 @@ impl<'a> NumberView<'a> {
         let offset = field.number_offset();
 
         let format = match field.kind {
-            FieldKind::Int { .. } => Some(Format::UInt { scale, offset }),
-            FieldKind::Signed { bits } => Some(Format::SInt { shift: 64 - bits, scale, offset }),
-            FieldKind::Float32 => Some(Format::F32 { scale, offset }),
+            FieldKind::Int { pos: 0, .. } => Some(Format::UInt { scale, offset }),
+            FieldKind::Signed { pos: 0, bits } => Some(Format::SInt { shift: 64 - bits, scale, offset }),
+            FieldKind::Float32 { pos: 0 }=> Some(Format::F32 { scale, offset }),
             FieldKind::Float64 => Some(Format::F64 { scale, offset }),
             FieldKind::Timestamp => {
                 Some(Format::UInt { scale, offset: 0.0 })

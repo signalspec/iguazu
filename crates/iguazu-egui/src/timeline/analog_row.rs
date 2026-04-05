@@ -37,9 +37,6 @@ pub(crate) struct YAxisRow<'a> {
 
 impl<'a> YAxisRow<'a> {
     pub fn field(vcx: &'a ViewerContext, field: FieldRef<'_>, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> Option<YAxisRow<'a>> {
-        if field.bit_offset != 0 {
-            return None;
-        }
         let view = RangeView::new(&vcx.view_manager, field)?;
         let color = color.unwrap_or(AccentColor::Green);
         let y_range = field.field.number_range()?;

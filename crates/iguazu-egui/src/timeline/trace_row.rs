@@ -12,18 +12,17 @@ pub struct TraceRow<'a> {
     formatter: TextFormat,
     label: EcoString,
     color: AccentColor,
-    offset: u8,
-    width: u8,
+    mask: u64,
 }
 
 impl<'a> TraceRow<'a> {
     pub fn field(vcx: &'a ViewerContext, field: FieldRef, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> TraceRow<'a> {
         let summary = field.summaries.get("bit_and_or");
         let view = TraceView::new(&vcx.view_manager, field.data.clone(), summary);
-        let width = field.kind.width();
+        let mask = field.kind.mask();
         let color = color.unwrap_or(AccentColor::Green);
-        let formatter = TextFormat::new(field.bit_offset, field.field);
-        TraceRow { view, sample_rate, label, color, formatter, offset: field.bit_offset, width }
+        let formatter = TextFormat::new(field.field);
+        TraceRow { view, sample_rate, label, color, formatter, mask }
     }
 
     pub fn time_range(&self) -> TimeRange {
@@ -61,10 +60,9 @@ impl<'a> TraceRow<'a> {
             max: idx_scale.visible.max.min(state.end),
         };
 
-        let mask = ((1 << self.width) - 1) << self.offset;
         let mut last = TraceElement::Loading;
 
-        self.view.scan(range, mask, idx_scale.min_visible_width(ui.pixels_per_point()), |range, elem| {
+        self.view.scan(range, self.mask, idx_scale.min_visible_width(ui.pixels_per_point()), |range, elem| {
             let x1 = idx_scale.x_from_idx(range.min);
             let x2 = idx_scale.x_from_idx(range.max);
 
@@ -124,7 +122,7 @@ impl<'a> TraceRow<'a> {
 
 pub struct LogicRow<'a> {
     view: TraceView<'a>,
-    offset: u8,
+    mask: u64,
     sample_rate: f64,
     label: EcoString,
     color: AccentColor,
@@ -134,8 +132,9 @@ impl<'a> LogicRow<'a> {
     pub fn field(vcx: &'a ViewerContext, field: FieldRef, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> LogicRow<'a> {
         let summary = field.summaries.get("bit_and_or");
         let view = TraceView::new(&vcx.view_manager, field.data.clone(), summary);
+        let mask = field.field.kind.mask();
         let color = color.unwrap_or(AccentColor::Green);
-        LogicRow { view, sample_rate, label, color, offset: field.bit_offset }
+        LogicRow { view, sample_rate, label, color, mask }
     }
 
     pub fn time_range(&self) -> TimeRange {
@@ -178,8 +177,6 @@ impl<'a> LogicRow<'a> {
         let stroke_width = 1.0;
         let stroke = Stroke::new(stroke_width, color);
 
-        let mask = 1 << self.offset;
-
         let hover_x = ui.input(|i| i.pointer.interact_pos())
             .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
             .map(|pos| pos.x);
@@ -187,7 +184,7 @@ impl<'a> LogicRow<'a> {
         let mut idx0 = 0;
         let mut prev_val = TraceElement::Loading;
 
-        self.view.scan(range, mask, min_width, |IdxRange { min: idx1, max: idx2 }, elem|{
+        self.view.scan(range, self.mask, min_width, |IdxRange { min: idx1, max: idx2 }, elem|{
             let x1 = idx_scale.x_from_idx(idx1);
             let x2 = idx_scale.x_from_idx(idx2);
 

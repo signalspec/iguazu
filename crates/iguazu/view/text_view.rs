@@ -65,7 +65,7 @@ impl<'a> TextView<'a> {
             match *entity {
                 Entity::Group { .. } | Entity::Record { .. } => {}
                 Entity::Data { ref data, ref field, .. } => {
-                    elements.push(Element::Field(IntView::new_from_stream(vm, data), TextFormat::new(0, field)));
+                    elements.push(Element::Field(IntView::new_from_stream(vm, data), TextFormat::new(field)));
                 },
                 Entity::Union { ref variants, .. } => {
                     // TODO: format inner
@@ -89,7 +89,7 @@ impl<'a> TextView<'a> {
                     match **child {
                         Entity::Data { data: ref inner_data, ref field, .. } => {
                             match field.kind {
-                                FieldKind::Character => {
+                                FieldKind::Character { pos: 0 }=> {
                                     elements.push(Element::Utf8Str {
                                         ends: IntView::new_from_stream(vm, ends),
                                         chars: IntView::new_from_stream(vm, inner_data)
@@ -195,28 +195,28 @@ fn test_textview() {
     vm.begin(&Waker::noop().clone());
 
     let bits = EntityStream::field_data(
-        FieldKind::Bits { bits: 2 }, MemoryStream::new::<u8>(&[0b10, 0b01, 0b00]),
+        FieldKind::Bits { pos: 0, bits: 2 }, MemoryStream::new::<u8>(&[0b10, 0b01, 0b00]),
     );
 
     let ints = EntityStream::field_data(
-        FieldKind::Int { bits: 8 }, MemoryStream::new::<u8>(&[1, 10, 99, 123]),
+        FieldKind::Int { pos: 0, bits: 8 }, MemoryStream::new::<u8>(&[1, 10, 99, 123]),
     );
 
     let scaled_ints = EntityStream::field_data(
-        FieldKind::Int { bits: 8 },
+        FieldKind::Int { pos: 0, bits: 8 },
         MemoryStream::new::<u8>(&[1, 10, 99, 123]),
     ).with_attribute(crate::schema::attribute::core::NUMBER_SCALE, 0.01);
 
     let signed_ints = EntityStream::field_data(
-        FieldKind::Signed { bits: 16 }, MemoryStream::new::<i16>(&[-10, 456, -1280, 9999]),
+        FieldKind::Signed { pos: 0, bits: 16 }, MemoryStream::new::<i16>(&[-10, 456, -1280, 9999]),
     );
 
     let floats = EntityStream::field_data(
-        FieldKind::Float32, MemoryStream::new::<f32>(&[3333.25, 12.0, 0.5]),
+        FieldKind::Float32 { pos: 0 }, MemoryStream::new::<f32>(&[3333.25, 12.0, 0.5]),
     );
 
     let chars = EntityStream::field_data(
-        FieldKind::Character, MemoryStream::new::<u8>(b"abc1234"),
+        FieldKind::Character { pos: 0 }, MemoryStream::new::<u8>(b"abc1234"),
     );
 
     let strings = Entity::VariableArray {

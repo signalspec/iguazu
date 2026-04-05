@@ -74,6 +74,7 @@ impl<'de> Deserialize<'de> for AttributeMap {
                         if matches!(key.as_ref(),
                             | "type"
                             | "bits"
+                            | "pos"
                             | "values"
                             | "tag_bits"
                             | "children"
