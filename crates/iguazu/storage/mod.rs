@@ -1,5 +1,6 @@
 //! Data storage and access backends.
 mod cache;
+mod common;
 
 mod in_memory;
 

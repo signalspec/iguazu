@@ -1,20 +1,16 @@
-use std::collections::hash_map;
 use std::io;
 use std::pin::Pin;
 use std::sync::Mutex;
-use std::{cell::RefCell, collections::{HashMap, HashSet}, sync::Arc, task::{Context, Poll, Waker}};
+use std::{sync::Arc, task::{Context, Poll}};
 use std::fmt::Debug;
 
 use log::debug;
-use once_array::{OnceArray};
-use async_executor::Task;
-use elsa::FrozenMap;
-use futures_lite::FutureExt;
+use once_array::OnceArray;
 
 use crate::import::ImportError;
 use crate::izs::{BlockIndex, CompressionMethod, FileMeta, Footer};
 use crate::schema::{EntitySchema, EntityStream};
-use crate::storage::Pool;
+use crate::storage::{Pool, common::{LoadBlock, LoadBlockRes, CommonStreamAccess}};
 use crate::stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState};
 use crate::util::weak_map::WeakMap;
 use crate::io::ReadableFile;
@@ -108,14 +104,8 @@ struct IzsStream {
     cache: Mutex<WeakMap<u64, OnceArray<u8>>>,
 }
 
-enum LoadBlockRes<F> {
-    Loading(F),
-    Cached(Arc<OnceArray<u8>>),
-    NotFound,
-}
-
-impl IzsStream {
-    fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static> {
+impl LoadBlock for IzsStream {
+    fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes {
         let Some(&offset) = self.block_index.offsets.get(block as usize) else {
             return LoadBlockRes::NotFound;
         };
@@ -129,7 +119,7 @@ impl IzsStream {
         let compression = self.compress;
         let len = self.block_index.lengths[block as usize] as usize;
         log::debug!("Loading block {block} of {}:{:x} at {} len {}", self.shared.file.filename().unwrap_or("<unknown>"), self.id, offset, len);
-        LoadBlockRes::Loading(async move {
+        LoadBlockRes::Loading(self.pool.executor.clone().spawn(async move {
             let data = self.shared.read_at(offset, len).await?;
             let data = match compression {
                 CompressionMethod::None => data,
@@ -146,7 +136,7 @@ impl IzsStream {
             self.pool.cache.lock().unwrap().insert(buf.clone());
             self.cache.lock().unwrap().insert(block, buf.clone());
             Ok(buf)
-        })
+        }))
     }
 }
 
@@ -171,16 +161,7 @@ impl Stream for IzsStream {
     }
 
     fn access(self: Arc<Self>) -> Box<dyn StreamAccess> {
-        Box::new(IzsStreamAccess {
-            stream: self.clone(),
-            blocks: FrozenMap::new(),
-            state: RefCell::new(IzsStreamAccessState {
-                used: HashSet::new(),
-                loading: HashMap::new(),
-                error: None,
-            }),
-            waker: std::task::Waker::noop().clone(),
-        })
+        Box::new(CommonStreamAccess::new(self))
     }
 
     fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
@@ -192,85 +173,6 @@ impl Stream for IzsStream {
                 pos: 0,
             }) as Box<dyn StreamIter>)
         })
-    }
-}
-
-struct IzsStreamAccess {
-    stream: Arc<IzsStream>,
-    blocks: FrozenMap<u64, Arc<OnceArray<u8>>>,
-    state: RefCell<IzsStreamAccessState>,
-    waker: Waker,
-}
-
-struct IzsStreamAccessState {
-    used: HashSet<u64>,
-    loading: HashMap<u64, Task<Result<Arc<OnceArray<u8>>, io::Error>>>,
-    error: Option<io::Error>,
-}
-
-impl StreamAccess for IzsStreamAccess {
-    fn get_block(&self, block: u64) -> &[u8] {
-        let mut state = self.state.borrow_mut();
-        state.used.insert(block);
-
-        if let Some(buf) = self.blocks.get(&block) {
-            // Block is already loaded
-            return buf;
-        }
-
-        let is_error = state.error.is_some();
-        let mut entry = match state.loading.entry(block) {
-            hash_map::Entry::Occupied(entry) => entry,
-            hash_map::Entry::Vacant(entry) => {
-                if is_error {
-                    return &[];
-                }
-
-                // Block is not loaded, start loading
-                match self.stream.clone().load_block(block) {
-                    LoadBlockRes::NotFound => {
-                        return &[];
-                    }
-                    LoadBlockRes::Cached(buf) => {
-                        return self.blocks.insert(block, buf)
-                    }
-                    LoadBlockRes::Loading(fut) => {
-                        entry.insert_entry(self.stream.pool.executor.spawn(fut))
-                    }
-                }
-            }
-        };
-
-        let mut cx = Context::from_waker(&self.waker);
-        if let Poll::Ready(res) = entry.get_mut().poll(&mut cx) {
-            drop(entry.remove());
-            match res {
-                Ok(buf) => {
-                    log::debug!("Block {block} of {}:{:x} finished loading", self.stream.shared.file.filename().unwrap_or("<unknown>"), self.stream.id);
-                    return self.blocks.insert(block, buf);
-                }
-                Err(e) => {
-                    log::error!("Block {block} of {}:{:x} failed to load: {}", self.stream.shared.file.filename().unwrap_or("<unknown>"), self.stream.id, e);
-                    state.error = Some(e);
-                }
-            }
-        }
-
-        &[]
-    }
-
-    fn state(&self) -> StreamState {
-        self.stream.state()
-    }
-
-    fn begin(&mut self, waker: &Waker) {
-        self.waker.clone_from(waker);
-    }
-
-    fn end(&mut self) {
-        let mut state = self.state.borrow_mut();
-        self.blocks.as_mut().retain(|block, _| state.used.contains(block));
-        state.used.clear();
     }
 }
 

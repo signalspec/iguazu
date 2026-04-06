@@ -1,12 +1,11 @@
-use std::{cell::RefCell, collections::{HashMap, HashSet, hash_map}, fmt::Debug, future::Future, io, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll, Waker}};
+use std::{fmt::Debug, future::Future, io, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll}};
 
-use async_executor::Task;
-use elsa::FrozenMap;
-use futures_lite::{AsyncRead, FutureExt};
+use futures_lite::AsyncRead;
 use once_array::OnceArray;
 use url::Url;
 
-use crate::{ElementSize, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool, stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState}, util::weak_map::WeakMap};
+use crate::{ElementSize, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState}, util::weak_map::WeakMap};
+use crate::storage::{Pool, common::{LoadBlock, LoadBlockRes, CommonStreamAccess}};
 
 #[derive(Clone)]
 pub struct FlatFileOpts {
@@ -86,19 +85,21 @@ impl FlatFileStream {
             .min(self.block_desc.size() as u64) as usize;
         self.file.clone().read_at(file_offset, size)
     }
+}
 
-    fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes<impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send> {
+impl LoadBlock for FlatFileStream {
+    fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes {
         if let Some(entry) = self.cache.lock().unwrap().get(&block) {
             return LoadBlockRes::Cached(entry);
         }
 
-        LoadBlockRes::Loading(async move {
+        LoadBlockRes::Loading(self.pool.executor.clone().spawn(async move {
             let buf = self.load_block_uncached(block).await?;
             let entry = Arc::new(OnceArray::from(buf));
             self.pool.cache.lock().unwrap().insert(entry.clone());
             self.cache.lock().unwrap().insert(block, entry.clone());
             Ok(entry)
-        })
+        }))
     }
 }
 
@@ -116,17 +117,8 @@ impl Stream for FlatFileStream {
         }
     }
 
-    fn access(self: Arc<Self>) -> Box<dyn crate::stream::StreamAccess> {
-        Box::new(FileStreamAccess {
-            stream: self,
-            blocks: FrozenMap::new(),
-            state: RefCell::new(FileStreamAccessState {
-                used: HashSet::new(),
-                loading: HashMap::new(),
-                error: None
-            }),
-            waker: Waker::noop().clone(),
-        })
+    fn access(self: Arc<Self>) -> Box<dyn StreamAccess> {
+        Box::new(CommonStreamAccess::new(self))
     }
 
     fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
@@ -135,90 +127,6 @@ impl Stream for FlatFileStream {
             let reader = self.file.clone().stream(self.offset, size).await?;
             Ok(Box::new(FileStreamIter::new(self.block_desc, reader)) as Box<dyn StreamIter>)
         })
-    }
-}
-
-enum LoadBlockRes<F> {
-    Cached(Arc<OnceArray<u8>>),
-    Loading(F),
-}
-
-struct FileStreamAccess {
-    stream: Arc<FlatFileStream>,
-    blocks: FrozenMap<u64, Arc<OnceArray<u8>>>,
-    state: RefCell<FileStreamAccessState>,
-    waker: Waker,
-}
-
-struct FileStreamAccessState {
-    used: HashSet<u64>,
-    loading: HashMap<u64, Task<Result<Arc<OnceArray<u8>>, io::Error>>>,
-    error: Option<io::Error>,
-}
-
-impl StreamAccess for FileStreamAccess {
-    fn get_block(&self, block: u64) -> &[u8] {
-        let mut state = self.state.borrow_mut();
-        state.used.insert(block);
-
-        if let Some(buf) = self.blocks.get(&block) {
-            // Block is already loaded
-            return buf;
-        }
-
-        let is_error = state.error.is_some();
-        let mut entry = match state.loading.entry(block) {
-            hash_map::Entry::Occupied(entry) => entry,
-            hash_map::Entry::Vacant(entry) => {
-                // Block is not loaded, start loading
-                if is_error {
-                    return &[];
-                }
-
-                match self.stream.clone().load_block(block) {
-                    LoadBlockRes::Cached(buf) => {
-                        log::debug!("Block {block} of {} loaded from cache", self.stream.file.filename().unwrap_or("<unknown>"));
-                        return self.blocks.insert(block, buf);
-                    }
-                    LoadBlockRes::Loading(fut) => {
-                        entry.insert_entry(self.stream.pool.executor.spawn(fut))
-                    }
-                }
-            }
-        };
-
-        let mut cx = Context::from_waker(&self.waker);
-        if let Poll::Ready(res) = entry.get_mut().poll(&mut cx) {
-            drop(entry.remove());
-            match res {
-                Ok(buf) => {
-                    log::debug!("Block {block} of {} finished loading", self.stream.file.filename().unwrap_or("<unknown>"));
-                    return self.blocks.insert(block, buf);
-                }
-                Err(e) => {
-                    log::error!("Block {block} of {} failed to load: {}", self.stream.file.filename().unwrap_or("<unknown>"), e);
-                    state.error = Some(e);
-                }
-            }
-        }
-
-        log::trace!("Block {block} of {} is still loading", self.stream.file.filename().unwrap_or("<unknown>"));
-
-        &[]
-    }
-
-    fn state(&self) -> StreamState {
-        self.stream.state()
-    }
-
-    fn begin(&mut self, waker: &Waker) {
-        self.waker.clone_from(waker);
-    }
-
-    fn end(&mut self) {
-        let mut state = self.state.borrow_mut();
-        self.blocks.as_mut().retain(|block, _| state.used.contains(block));
-        state.used.clear();
     }
 }
 
@@ -293,6 +201,7 @@ impl StreamIter for FileStreamIter {
 
 #[test]
 fn test_iter() {
+    use std::task::Waker;
     use futures_lite::future::block_on;
     let cx = &mut Context::from_waker(&Waker::noop());
 
