@@ -27,7 +27,8 @@ impl FsFile {
     pub async fn open(path: PathBuf) -> Result<FsFile, io::Error> {
         blocking::unblock(move || {
             let path = std::path::absolute(path)?;
-            let file = File::open(&path)?;
+            let file = File::open(&path)
+                .map_err(|e| io::Error::new(e.kind(), format!("failed to open `{}`: {}", path.display(), e)))?;
             Ok(FsFile { path, file })
         }).await
     }
