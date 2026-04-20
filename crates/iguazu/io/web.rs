@@ -279,10 +279,17 @@ impl AsyncBufRead for ReadableStreamReader {
                 .unchecked_into::<web_sys::ReadableStreamReadResult>();
 
             this.future = None;
-            let chunk = read_result.get_value();
-            if !chunk.is_null() {
-                let chunk = chunk.dyn_into::<Uint8Array>().unwrap();
-                this.buf = chunk.to_vec(); // TODO: reuse allocation
+            if !read_result.get_done().unwrap() {
+                let chunk = read_result.get_value().dyn_into::<Uint8Array>().unwrap();
+                let len = chunk.length() as usize;
+                this.buf.clear();
+                this.buf.reserve(len);
+                unsafe {
+                    // Safety: the capacity has been set
+                    chunk.raw_copy_to_ptr(this.buf.as_mut_ptr());
+                    // Safety: len bytes have been initialized
+                    this.buf.set_len(len);
+                }
                 this.buf_offset = 0;
             } else {
                 return Poll::Ready(Ok(&[]));
