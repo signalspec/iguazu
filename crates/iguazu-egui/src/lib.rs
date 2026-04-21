@@ -85,4 +85,14 @@ impl ViewerContext {
     pub fn poll_unpin<T>(&self, f: &mut (impl Future<Output = T> + Unpin)) -> Poll<T> {
         self.poll(Pin::new(f))
     }
+
+    pub fn poll_unpin_take<T>(&self, f: &mut Option<impl Future<Output = T> + Unpin>) -> Option<T> {
+        match self.poll_unpin(f.as_mut()?) {
+            Poll::Ready(res) => {
+                f.take();
+                Some(res)
+            }
+            Poll::Pending => None,
+        }
+    }
 }

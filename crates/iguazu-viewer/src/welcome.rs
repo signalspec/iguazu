@@ -1,4 +1,4 @@
-use std::{sync::Arc, task::Poll};
+use std::sync::Arc;
 
 use async_executor::Task;
 use egui::{Button, Color32, Layout, Rect, RichText, Ui, UiBuilder, Vec2};
@@ -48,17 +48,11 @@ impl Welcome {
                 self.picker_task = Some(vctx.spawn(pick_and_import_file(vctx.pool().clone(), vctx.default_storage().clone())));
             }
 
-            if let Some(t) = &mut self.picker_task && let Poll::Ready(res) = vctx.poll_unpin(t) {
-                self.picker_task = None;
-                if let Some(file) = res {
-                    match file {
-                        Ok(entity) => {
-                            loaded_entity = Some(entity);
-                        }
-                        Err(e) => {
-                            self.error = Some(e);
-                        }
-                    }
+            if let Some(res) = vctx.poll_unpin_take(&mut self.picker_task) {
+                match res {
+                    None => {} // cancelled
+                    Some(Ok(entity)) => loaded_entity = Some(entity),
+                    Some(Err(e)) => self.error = Some(e),
                 }
             }
 
