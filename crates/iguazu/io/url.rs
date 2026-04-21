@@ -9,7 +9,6 @@ pub struct RelativePath(String);
 impl RelativePath {
     pub fn from_base(base: &Url, rel: &Url) -> Option<RelativePath> {
         if base.cannot_be_a_base() || base.scheme() != rel.scheme() || base.host_str() != rel.host_str() || base.port() != rel.port() {
-            dbg!("Cannot make relative path: base={} rel={}", base, rel);
             return None;
         }
 
