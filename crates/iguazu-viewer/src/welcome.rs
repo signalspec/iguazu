@@ -2,17 +2,21 @@ use std::sync::Arc;
 
 use async_executor::Task;
 use egui::{Button, Color32, Layout, Rect, RichText, Ui, UiBuilder, Vec2};
-use iguazu::{import::IMPORTERS, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::{MemoryStream, Pool, Storage}, stream::ArcStream};
+use iguazu::{import::{IMPORTERS, Importer}, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::MemoryStream, stream::ArcStream};
 use iguazu_egui::ViewerContext;
 use rfd::AsyncFileDialog;
 
 pub struct Welcome {
-    picker_task: Option<Task<Option<Result<EntityStream, String>>>>,
+    picker_task: Option<Task<Option<Result<WelcomeResponse, String>>>>,
     error: Option<String>,
 }
 
-pub struct WelcomeResponse {
-    pub loaded_entity: Option<EntityStream>,
+pub enum WelcomeResponse {
+    Import {
+        file: Arc<dyn ReadableFile>,
+        importer: Box<dyn Importer>,
+    },
+    Entity(EntityStream),
 }
 
 impl Welcome {
@@ -23,18 +27,16 @@ impl Welcome {
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn with_file(file: Arc<dyn ReadableFile>, storage: Arc<dyn Storage>, pool: Arc<Pool>) -> Self {
-        let picker_task = Some(pool.executor.spawn(import_file(file, storage, pool.clone())));
+    pub(crate) fn with_error(message: String) -> Welcome {
         Self {
-            picker_task,
-            error: None,
+            picker_task: None,
+            error: Some(message),
         }
     }
 
-    pub fn show(&mut self, vctx: &mut ViewerContext, ui: &mut Ui) -> WelcomeResponse {
+    pub fn show(&mut self, vctx: &mut ViewerContext, ui: &mut Ui) -> Option<WelcomeResponse> {
         centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Center), |ui| {
-            let mut loaded_entity = None;
+            let mut response = None;
 
             let button_font = egui::FontId::proportional(28.0);
             ui.style_mut().spacing.item_spacing.y = 16.0;
@@ -45,19 +47,19 @@ impl Welcome {
 
             if ui.add_sized((ui.available_width(), 0.0), Button::new(RichText::new("Open file…").font(button_font.clone()))).clicked() {
                 self.error = None;
-                self.picker_task = Some(vctx.spawn(pick_and_import_file(vctx.pool().clone(), vctx.default_storage().clone())));
+                self.picker_task = Some(vctx.spawn(pick_file()));
             }
 
             if let Some(res) = vctx.poll_unpin_take(&mut self.picker_task) {
                 match res {
                     None => {} // cancelled
-                    Some(Ok(entity)) => loaded_entity = Some(entity),
+                    Some(Ok(entity)) => response = Some(entity),
                     Some(Err(e)) => self.error = Some(e),
                 }
             }
 
             if ui.add_sized((ui.available_width(), 0.0), Button::new(RichText::new("Load demo data").font(button_font.clone()))).clicked() {
-                loaded_entity = Some(generate_demo_entity());
+                response = Some(WelcomeResponse::Entity(generate_demo_entity()));
             }
 
             if let Some(error) = &self.error {
@@ -65,7 +67,7 @@ impl Welcome {
                 ui.colored_label(Color32::RED, error);
             }
 
-            WelcomeResponse { loaded_entity }
+            response
         })
     }
 }
@@ -83,47 +85,30 @@ fn centered_box<R>(ui: &mut Ui, size: Vec2, layout: Layout, child_ui: impl FnOnc
     ).inner
 }
 
-async fn pick_file() -> Option<Arc<dyn ReadableFile>> {
+async fn pick_file() -> Option<Result<WelcomeResponse, String>> {
     #[cfg(not(target_arch = "wasm32"))]
-    let res = AsyncFileDialog::new().pick_file().await;
+    let res = AsyncFileDialog::new().pick_file().await?;
 
     #[cfg(target_arch = "wasm32")]
-    let res = send_wrapper::SendWrapper::new(AsyncFileDialog::new().pick_file()).await.map(|f| send_wrapper::SendWrapper::new(f));
+    let res = send_wrapper::SendWrapper::new(AsyncFileDialog::new().pick_file()).await?;
 
-    if let Some(r) = res {
-        #[cfg(not(target_arch = "wasm32"))]
-        let file = iguazu::io::FsFile::open(r.inner().to_owned()).await.ok()?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let file = iguazu::io::FsFile::open(res.inner().to_owned()).await.ok()?;
 
-        #[cfg(target_arch = "wasm32")]
-        let file = iguazu::io::WebFile::new(r.inner().clone());
-        Some(Arc::new(file) as Arc<dyn ReadableFile>)
-    } else {
-        None
-    }
-}
+    #[cfg(target_arch = "wasm32")]
+    let file = iguazu::io::WebFile::new(res.inner().clone());
 
-async fn import_file(file: Arc<dyn ReadableFile>, storage: Arc<dyn Storage>, pool: Arc<Pool>) -> Option<Result<EntityStream, String>> {
-    let filename = file.filename().unwrap_or("").to_owned();
-
-    let Some(format) = IMPORTERS.first_for_filename(&filename) else {
-        return Some(Err(format!("No import format matched filename `{}`", filename)))
+    let Some(format) = IMPORTERS.first_for_filename(&file.filename().unwrap_or("")) else {
+        return Some(Err(format!(
+            "No import format matched filename `{}`",
+            file.filename().unwrap_or(""),
+        )));
     };
 
-    let importer = format.importer();
-    let (mut entity, completion) = match importer.import(file, None, pool.clone()).await {
-        Ok(v) => v,
-        Err(e) => { return Some(Err(format!("Failed to import {}: {}", filename, e))); }
-    };
-
-    pool.executor.spawn(completion).detach();
-    entity.build_summaries(&pool.executor, &storage).detach();
-
-    Some(Ok(entity))
-}
-
-async fn pick_and_import_file(pool: Arc<Pool>, storage: Arc<dyn Storage>) -> Option<Result<EntityStream, String>> {
-    let file = pick_file().await?;
-    import_file(file, storage, pool).await
+    Some(Ok(WelcomeResponse::Import {
+        file: Arc::new(file) as Arc<dyn ReadableFile>,
+        importer: format.importer(),
+    }))
 }
 
 fn generate_demo_entity() -> EntityStream {

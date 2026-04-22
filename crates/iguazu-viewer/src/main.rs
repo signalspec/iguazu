@@ -1,10 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use std::sync::Arc;
+use std::task::Poll;
 
+use async_executor::Task;
 use eframe::{egui, CreationContext};
+use egui::RichText;
 use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
 
+use iguazu::import::{ImportError, Importer};
+use iguazu::io::ReadableFile;
+use iguazu::schema::{EntitySchema, EntityStream};
 use iguazu::storage::{Pool, Storage, MemoryStorage};
 use iguazu_egui::ViewerContext;
 
@@ -12,7 +18,7 @@ mod welcome;
 mod viewer;
 
 use crate::viewer::Viewer;
-use crate::welcome::Welcome;
+use crate::welcome::{Welcome, WelcomeResponse};
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), eframe::Error> {
@@ -49,13 +55,13 @@ fn main() -> Result<(), eframe::Error> {
     let pool = Arc::new(iguazu::storage::Pool::new(executor.clone(), 16 * 1024 * 1024));
     let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
 
-    let state = if let Some(import) = cli.import {
-        let (mut entity, completion) = block_on(import.import(IMPORTERS, pool.clone())).expect("Failed to load file");
-        executor.spawn(completion).detach();
-        entity.build_summaries(&executor, &storage).detach();
-        AppState::Viewer(Viewer::new(entity))
+    let to_import = if let Some(import_opts) = cli.import {
+        let file = block_on(import_opts.file()).expect("failed to open file");
+        let importer = import_opts.importer(IMPORTERS).expect("failed to choose importer");
+        let schema = block_on(import_opts.specified_schema()).expect("failed to load schema");
+        Some((file, importer, schema))
     } else {
-        AppState::Welcome(Welcome::new())
+        None
     };
 
     let viewport = egui::ViewportBuilder::default()
@@ -70,7 +76,15 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Iguazu Viewer",
         options,
-        Box::new(|cc| Ok(Box::new(App::new(cc, pool, storage, state)))),
+        Box::new(|cc| {
+            let mut app = Box::new(App::new(cc, pool, storage));
+
+            if let Some((file, importer, schema)) = to_import {
+                app.import(file, importer, schema);
+            }
+
+            Ok(app)
+        })
     )
 }
 
@@ -115,18 +129,21 @@ fn main() {
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("the_canvas_id was not a HtmlCanvasElement");
 
-        let state = if let Some(url) = input_url {
-            let file = Arc::new(iguazu::io::WebFetchFile::new(url)) as Arc<dyn iguazu::io::ReadableFile>;
-            AppState::Welcome(Welcome::with_file(file, storage.clone(), pool.clone()))
-        } else {
-            AppState::Welcome(Welcome::new())
-        };
+        let file = input_url.map(|url| {
+            Arc::new(iguazu::io::WebFetchFile::new(url)) as Arc<dyn iguazu::io::ReadableFile>
+        });
 
         let start_result = eframe::WebRunner::new()
             .start(
                 canvas,
                 web_options,
-                Box::new(move |cc| Ok(Box::new(App::new(cc, pool, storage, state)))),
+                Box::new(move |cc| {
+                    let mut app = Box::new(App::new(cc, pool.clone(), storage.clone()));
+                    if let Some(file) = file {
+                        app.import(file, Box::new(iguazu::import::IzsImporter::new()), None);
+                    }
+                    Ok(app)
+                })
             )
             .await;
 
@@ -149,18 +166,20 @@ fn main() {
 
 enum AppState {
     Welcome(welcome::Welcome),
+    Loading(Task<Result<EntityStream, ImportError>>),
     Viewer(viewer::Viewer),
 }
 
 struct App {
     vctx: ViewerContext,
     state: AppState,
+    filename: Option<String>,
     frame_time_history: History<f32>,
     enable_debug_ui: bool,
 }
 
 impl App {
-    fn new(cc: &CreationContext, pool: Arc<Pool>, storage: Arc<dyn Storage>,state: AppState) -> Self {
+    fn new(cc: &CreationContext, pool: Arc<Pool>, storage: Arc<dyn Storage>) -> Self {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         cc.egui_ctx.tessellation_options_mut(|o| {
             // Rounding causes jitter and gaps in timeline logic traces
@@ -172,11 +191,39 @@ impl App {
         let max_len = (max_age * 300.0).round() as usize;
 
         App {
-            state,
+            state: AppState::Welcome(Welcome::new()),
+            filename: None,
             vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
             enable_debug_ui: std::env::var("IGUAZU_DEBUG_UI").is_ok(),
         }
+    }
+
+    fn set_state(&mut self, state: AppState) {
+        self.state = state;
+        self.vctx.waker().wake_by_ref();
+    }
+
+    fn import(&mut self, file: Arc<dyn ReadableFile>, importer: Box<dyn Importer>, schema: Option<EntitySchema>) {
+        self.filename = file.filename().map(|s| s.to_string());
+        let pool = self.vctx.pool().clone();
+        let storage = self.vctx.default_storage().clone();
+        let task = self.vctx.spawn(async move {
+            let (mut entity, completion) = importer.import(file, schema, pool.clone()).await?;
+            pool.executor.spawn(completion).detach();
+            entity.build_summaries(&pool.executor, &storage).detach();
+            Ok(entity)
+        });
+        self.set_state(AppState::Loading(task));
+    }
+
+    fn set_import_error(&mut self, message: String) {
+        self.filename = None;
+        self.set_state(AppState::Welcome(Welcome::with_error(message)));
+    }
+
+    fn set_entity(&mut self, entity: EntityStream) {
+        self.set_state(AppState::Viewer(Viewer::new(entity)));
     }
 }
 
@@ -191,8 +238,12 @@ impl eframe::App for App {
         #[cfg(not(target_arch = "wasm32"))]
         iguazu_egui::egui_util::titlebar::TitleBar::new().show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.add_space(4.0);
+                ui.add_space(8.0);
                 ui.add(egui::Label::new("Iguazu Viewer").selectable(false));
+                if let Some(filename) = &self.filename {
+                    ui.add_space(4.0);
+                    ui.add(egui::Label::new(RichText::new(filename).weak()).selectable(false));
+                }
             });
         });
 
@@ -200,9 +251,32 @@ impl eframe::App for App {
         egui::CentralPanel::default().frame(central_panel).show_inside(ui, |ui| {
             match &mut self.state {
                 AppState::Welcome(welcome) => {
-                    let res = welcome.show(&mut self.vctx, ui);
-                    if let Some(entity) = res.loaded_entity {
-                        self.state = AppState::Viewer(Viewer::new(entity));
+                    if let Some(response) = welcome.show(&mut self.vctx, ui) {
+                        match response {
+                            WelcomeResponse::Import { file, importer } => {
+                                self.import(file, importer, None);
+                            }
+                            WelcomeResponse::Entity(entity) => {
+                                self.set_entity(entity);
+                            }
+                        }
+                    }
+                }
+                AppState::Loading(task) => {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(100.0);
+                        ui.spinner();
+                        ui.add_space(10.0);
+                        ui.label(RichText::new(
+                            format!("Importing {}...", self.filename.as_deref().unwrap_or(""))
+                        ).size(20.0));
+                    });
+
+                    if let Poll::Ready(result) = self.vctx.poll_unpin(task) {
+                        match result {
+                            Ok(entity) => self.set_entity(entity),
+                            Err(e) => self.set_import_error(format!("Failed to import {}: {}", self.filename.as_deref().unwrap_or(""), e)),
+                        }
                     }
                 }
                 AppState::Viewer(viewer) => {
