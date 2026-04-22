@@ -7,7 +7,7 @@ use url::Url;
 use crate::{ElementSize, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState}, util::weak_map::WeakMap};
 use crate::storage::{Pool, common::{LoadBlock, LoadBlockRes, CommonStreamAccess}};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FlatFileOpts {
     pub offset: u64,
     pub count: Option<u64>,
@@ -66,11 +66,9 @@ impl FlatFileStream {
         self.count
     }
 
-    pub async fn entity(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, schema: EntitySchema, opts: &FlatFileOpts) -> Result<EntityStream, ImportError> {
-        let (field, _stride) = schema.single_stream()
+    pub async fn entity(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_size: ElementSize, schema: EntitySchema, opts: &FlatFileOpts) -> Result<EntityStream, ImportError> {
+        let (_field, _stride) = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
-
-        let element_size = field.kind.element_size();
 
         let stream = Self::new(file, pool, element_size, opts).await.map_err(ImportError::Io)?;
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())

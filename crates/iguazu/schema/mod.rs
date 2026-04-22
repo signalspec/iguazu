@@ -223,9 +223,51 @@ impl FieldKind {
     }
 }
 
+impl Into<Field> for FieldKind {
+    fn into(self) -> Field {
+        Field::new(self)
+    }
+}
+
 impl Field {
     pub fn new(kind: FieldKind) -> Self {
         Field { kind, attributes: Default::default() }
+    }
+
+    pub fn bits(bits: u8) -> Self {
+        Self::new(FieldKind::Bits { pos: 0, bits })
+    }
+
+    pub fn byte() -> Self {
+        Self::bits(8)
+    }
+
+    pub fn logic(bits: u8) -> Field {
+        let children = (0..bits).map(|b| (
+            eco_format!("bit{b}"),
+            Field {
+                attributes: Default::default(),
+                kind: FieldKind::Bits { bits: 1, pos: b },
+            }
+        )).collect();
+
+        Field::new(FieldKind::BitStruct { children })
+    }
+
+    pub fn unsigned(bits: u8) -> Self {
+        Self::new(FieldKind::Int { pos: 0, bits })
+    }
+
+    pub fn signed(bits: u8) -> Self {
+        Self::new(FieldKind::Signed { pos: 0, bits })
+    }
+
+    pub fn float(bits: u8) -> Option<Self> {
+        match bits {
+            32 => Some(Self::new(FieldKind::Float32 { pos: 0 })),
+            64 => Some(Self::new(FieldKind::Float64)),
+            _ => None,
+        }
     }
 
     pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: Attribute<A>) -> Option<A> {
@@ -594,29 +636,31 @@ impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
 }
 
 impl EntitySchema {
+    pub fn bits(bits: u8) -> Self {
+        Self::field(FieldKind::Bits { bits, pos: 0 })
+    }
+
     pub fn bytes() -> Self {
         Self::field(FieldKind::Bits { bits: 8, pos: 0 })
     }
 
-    pub fn logic8() -> Self {
-        let children = (0..8).map(|b| (
-            eco_format!("bit{b}"),
-            Field {
-                attributes: Default::default(),
-                kind: FieldKind::Bits { bits: 1, pos: b },
-            }
-        )).collect();
-        Self::field(FieldKind::BitStruct { children })
-    }
-
-    pub fn field(kind: FieldKind) -> Self {
+    pub fn field(field: impl Into<Field>) -> Self {
         Entity::Data {
             data: Ignored,
-            field: Field {
-                kind,
-                attributes: Default::default(),
-            },
+            field: field.into(),
             summaries: Default::default(),
+        }
+    }
+
+    pub fn complex(field: impl Into<Field>) -> Self {
+        let data = Self::field(field);
+        Entity::Tuple {
+            fields: IndexMap::from_iter([
+                ("re".into(), Default::default()),
+                ("im".into(), Default::default()),
+            ]),
+            child: Box::new(data),
+            attributes: Default::default(),
         }
     }
 

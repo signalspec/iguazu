@@ -98,7 +98,11 @@ pub struct ImportFormat {
     pub extensions: &'static [&'static str],
 
     /// Create an [`Importer`].
-    pub importer: fn () -> Box<dyn Importer>,
+    ///
+    /// It is passed the file name being imported, which can be used to pre-populate options
+    /// based on the file extension, or e.g. sample rate info in the name. It must handle being
+    /// passed an empty string or a file name with an unrecognized extension.
+    pub importer: fn (file_name: &str) -> Box<dyn Importer>,
 }
 
 impl ImportFormat {
@@ -106,8 +110,8 @@ impl ImportFormat {
         self.extensions.iter().any(|ext| name.ends_with(ext))
     }
 
-    pub fn importer(&self) -> Box<dyn Importer> {
-        (self.importer)()
+    pub fn importer(&self, file_name: &str) -> Box<dyn Importer> {
+        (self.importer)(file_name)
     }
 }
 
@@ -126,6 +130,10 @@ impl<'a> ImportFormats<'a> {
     pub fn first_for_filename(&self, fname: &str) -> Option<&'a ImportFormat> {
         self.iter().find(|imp| imp.matches_filename(fname))
     }
+
+    pub fn importer_for_filename(&self, fname: &str) -> Option<Box<dyn Importer>> {
+        self.first_for_filename(fname).map(|imp| imp.importer(fname))
+    }
 }
 
 impl<'a> IntoIterator for &'a ImportFormats<'a> {
@@ -141,7 +149,7 @@ pub const VIRTUAL: ImportFormat = ImportFormat {
     name: "virtual",
     description: "Iguazu Virtual JSON",
     extensions: &[".iguazu.json"],
-    importer: || Box::new(json_virtual::VirtualImporter::new()),
+    importer: |_| Box::new(json_virtual::VirtualImporter::new()),
 };
 
 #[cfg(feature = "izs")]
@@ -149,21 +157,20 @@ pub const IZS: ImportFormat = ImportFormat {
     name: "izs",
     description: "Iguazu Pack",
     extensions: &[".izs"],
-    importer: || Box::new(izs::IzsImporter::new()),
+    importer: |_| Box::new(izs::IzsImporter::new()),
 };
 
-pub const BIN: ImportFormat = ImportFormat {
-    name: "bin",
+pub const RAW: ImportFormat = ImportFormat {
+    name: "raw",
     description: "Raw binary",
-    extensions: &[".bin"],
-    importer: || Box::new(flat_file::FlatFileImporter::binary()),
-};
-
-pub const LOGIC8: ImportFormat = ImportFormat {
-    name: "logic8",
-    description: "Raw binary (8 bit logic trace)",
-    extensions: &[".logic8"],
-    importer: || Box::new(flat_file::FlatFileImporter::logic8())
+    extensions: &[".bin", ".logic8",
+        ".f32", ".cf32", "cfile",
+        ".u8", ".u16", ".u32", ".u64",
+        ".s8", ".s16", ".s32", ".s64",
+        ".cu8", ".cu16", ".cu32", ".cu64",
+        ".cs8", ".cs16", ".cs32", ".cs64"
+    ],
+    importer: |fname| Box::new(flat_file::FlatFileImporter::for_file_name(fname)),
 };
 
 #[cfg(feature = "csv")]
@@ -171,7 +178,7 @@ pub const CSV: ImportFormat = ImportFormat {
     name: "csv",
     description: "Comma-separated values",
     extensions: &[".csv"],
-    importer: || Box::new(csv::CsvImporter::csv()),
+    importer: |_| Box::new(csv::CsvImporter::csv()),
 };
 
 #[cfg(feature = "csv")]
@@ -179,21 +186,21 @@ pub const TSV: ImportFormat = ImportFormat {
     name: "tsv",
     description: "Tab-separated values",
     extensions: &[".tsv"],
-    importer: || Box::new(csv::CsvImporter::tsv())
+    importer: |_| Box::new(csv::CsvImporter::tsv())
 };
 
 #[cfg(feature = "srzip")]
 pub const SRZIP: ImportFormat = ImportFormat {
-    name: "Sigrok",
+    name: "sigrok",
     description: "Sigrok (srzip v2)",
     extensions: &[".sr"],
-    importer: || Box::new(SrZipImporter::new())
+    importer: |_| Box::new(SrZipImporter::new())
 };
 
 pub const IMPORTERS: ImportFormats<'static> = ImportFormats(&[
     VIRTUAL,
     #[cfg(feature = "izs")] IZS,
-    BIN, LOGIC8,
+    RAW,
     #[cfg(feature = "csv")] CSV,
     #[cfg(feature = "csv")] TSV,
     #[cfg(feature = "srzip")] SRZIP,

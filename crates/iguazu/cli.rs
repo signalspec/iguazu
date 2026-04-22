@@ -58,7 +58,7 @@ impl ImportOpts {
     }
 
     pub fn importer(&self, importers: ImportFormats<'_>) -> Result<Box<dyn Importer>, String> {
-        let mut importer = self.format(importers)?.importer();
+        let mut importer = self.format(importers)?.importer(self.filename.to_str().unwrap());
         let mut errors = Vec::new();
 
         for (opt, val) in self.format_options() {

@@ -98,7 +98,7 @@ async fn pick_file() -> Option<Result<WelcomeResponse, String>> {
     #[cfg(target_arch = "wasm32")]
     let file = iguazu::io::WebFile::new(res.inner().clone());
 
-    let Some(format) = IMPORTERS.first_for_filename(&file.filename().unwrap_or("")) else {
+    let Some(importer) = IMPORTERS.importer_for_filename(&file.filename().unwrap_or("")) else {
         return Some(Err(format!(
             "No import format matched filename `{}`",
             file.filename().unwrap_or(""),
@@ -107,7 +107,7 @@ async fn pick_file() -> Option<Result<WelcomeResponse, String>> {
 
     Some(Ok(WelcomeResponse::Import {
         file: Arc::new(file) as Arc<dyn ReadableFile>,
-        importer: format.importer(),
+        importer,
     }))
 }
 

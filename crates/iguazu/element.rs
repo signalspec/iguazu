@@ -38,6 +38,17 @@ impl ElementSize {
     }
 
     #[inline]
+    pub fn from_bits_exact(bits: u8) -> Option<Self> {
+        match bits {
+            8 => Some(ElementSize::U8),
+            16 => Some(ElementSize::U16),
+            32 => Some(ElementSize::U32),
+            64 => Some(ElementSize::U64),
+            _ => None,
+        }
+    }
+
+    #[inline]
     pub fn from_bytes(bits: u8) -> Option<Self> {
         match bits {
             ..=1 => Some(ElementSize::U8),
