@@ -41,6 +41,11 @@ impl ImportOpts {
             .map(|opt| opt.split_once('=').unwrap_or((opt, "")))
     }
 
+    /// Whether a format was explicitly specified on the command line.
+    pub fn format_specified(&self) -> bool {
+        self.format.is_some()
+    }
+
     /// Find the format to use.
     ///
     /// This is either the importer explicitly specified by `--format`,

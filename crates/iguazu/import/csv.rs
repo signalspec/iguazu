@@ -179,11 +179,11 @@ impl Importer for CsvImporter {
             },
             OptionDescription {
                 name: "quote",
-                description: "Quote byte. Set to `none` to disable quoting.",
+                description: "Quote byte. Empty or `none` disable quoting.",
             },
             OptionDescription {
                 name: "escape",
-                description: "Escape byte before quotes. Set to `none` to disable escaping.",
+                description: "Escape byte before quotes. Empty or `none` to disable escaping.",
             },
             OptionDescription {
                 name: "double_quote",
@@ -273,13 +273,13 @@ impl Importer for CsvImporter {
                 b'\t' => "\\t".into(),
                 b'\n' => "\\n".into(),
                 b'\r' => "\\r".into(),
-                b if b.is_ascii_graphic() => (b as char).to_string(),
+                b if b.is_ascii_graphic() => str::from_utf8(&[b]).unwrap().to_owned(),
                 b => format!("\\x{:02x}", b),
             }
         }
 
         match option {
-            "delimiter" => Some(format!("{:?}", self.delimiter as char)),
+            "delimiter" => Some(char_repr(self.delimiter)),
             "terminator" => Some(self.terminator.map(char_repr).unwrap_or("".into())),
             "quote" => Some(self.quote.map(char_repr).unwrap_or("".into())),
             "escape" => Some(self.escape.map(char_repr).unwrap_or("".into())),

@@ -5,7 +5,7 @@ use std::task::Poll;
 
 use async_executor::Task;
 use eframe::{egui, CreationContext};
-use egui::RichText;
+use egui::{RichText, TextStyle};
 use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
 
 use iguazu::import::{ImportError, Importer};
@@ -13,6 +13,7 @@ use iguazu::io::ReadableFile;
 use iguazu::schema::{EntitySchema, EntityStream};
 use iguazu::storage::{Pool, Storage, MemoryStorage};
 use iguazu_egui::ViewerContext;
+use iguazu_egui::import::{ImportResponse, ImportUi};
 
 mod welcome;
 mod viewer;
@@ -59,7 +60,8 @@ fn main() -> Result<(), eframe::Error> {
         let file = block_on(import_opts.file()).expect("failed to open file");
         let importer = import_opts.importer(IMPORTERS).expect("failed to choose importer");
         let schema = block_on(import_opts.specified_schema()).expect("failed to load schema");
-        Some((file, importer, schema))
+        let skip_options_ui = import_opts.format_specified() || schema.is_some();
+        Some((file, importer, skip_options_ui, schema))
     } else {
         None
     };
@@ -79,8 +81,12 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             let mut app = Box::new(App::new(cc, pool, storage));
 
-            if let Some((file, importer, schema)) = to_import {
-                app.import(file, importer, schema);
+            if let Some((file, importer, skip_options_ui, schema)) = to_import {
+                if skip_options_ui {
+                    app.import(file, importer, schema);
+                } else {
+                    app.prompt_import_options(file, importer);
+                }
             }
 
             Ok(app)
@@ -166,6 +172,7 @@ fn main() {
 
 enum AppState {
     Welcome(welcome::Welcome),
+    ImportOptions(Arc<dyn ReadableFile>, Option<ImportUi>),
     Loading(Task<Result<EntityStream, ImportError>>),
     Viewer(viewer::Viewer),
 }
@@ -181,6 +188,10 @@ struct App {
 impl App {
     fn new(cc: &CreationContext, pool: Arc<Pool>, storage: Arc<dyn Storage>) -> Self {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
+        cc.egui_ctx.global_style_mut(|style| {
+            style.text_styles.insert(TextStyle::Body, egui::FontId::proportional(16.0));
+            style.text_styles.insert(TextStyle::Heading, egui::FontId::proportional(24.0));
+        });
         cc.egui_ctx.tessellation_options_mut(|o| {
             // Rounding causes jitter and gaps in timeline logic traces
             o.round_line_segments_to_pixels = false;
@@ -204,6 +215,15 @@ impl App {
         self.vctx.waker().wake_by_ref();
     }
 
+    fn prompt_import_options(&mut self, file: Arc<dyn ReadableFile>, importer: Box<dyn Importer>) {
+        self.filename = file.filename().map(|s| s.to_string());
+        if importer.should_show_options() {
+            self.set_state(AppState::ImportOptions(file, Some(ImportUi::new(importer))));
+        } else {
+            self.import(file, importer, None);
+        }
+    }
+
     fn import(&mut self, file: Arc<dyn ReadableFile>, importer: Box<dyn Importer>, schema: Option<EntitySchema>) {
         self.filename = file.filename().map(|s| s.to_string());
         let pool = self.vctx.pool().clone();
@@ -215,6 +235,11 @@ impl App {
             Ok(entity)
         });
         self.set_state(AppState::Loading(task));
+    }
+
+    fn return_to_welcome(&mut self) {
+        self.filename = None;
+        self.set_state(AppState::Welcome(Welcome::new()));
     }
 
     fn set_import_error(&mut self, message: String) {
@@ -254,10 +279,24 @@ impl eframe::App for App {
                     if let Some(response) = welcome.show(&mut self.vctx, ui) {
                         match response {
                             WelcomeResponse::Import { file, importer } => {
-                                self.import(file, importer, None);
+                                self.prompt_import_options(file, importer);
                             }
                             WelcomeResponse::Entity(entity) => {
                                 self.set_entity(entity);
+                            }
+                        }
+                    }
+                }
+                AppState::ImportOptions(file, import_ui) => {
+                    if let Some(response) = import_ui.as_mut().unwrap().show(ui) {
+                        match response {
+                            ImportResponse::Accepted => {
+                                let importer = import_ui.take().unwrap().into_inner();
+                                let file = file.clone();
+                                self.import(file, importer, None);
+                            }
+                            ImportResponse::Cancelled => {
+                                self.return_to_welcome();
                             }
                         }
                     }

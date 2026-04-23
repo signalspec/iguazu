@@ -4,6 +4,7 @@ pub mod egui_util;
 
 pub mod timeline;
 pub mod table;
+pub mod import;
 
 use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 

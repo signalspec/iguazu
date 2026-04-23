@@ -72,6 +72,11 @@ pub trait Importer: Send {
         None
     }
 
+    /// Should we prompt for options?
+    fn should_show_options(&self) -> bool {
+        !self.options().is_empty()
+    }
+
     /// Load or infer the schema from a file.
     fn load_schema(&self, file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>>;
 
