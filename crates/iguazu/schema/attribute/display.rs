@@ -44,9 +44,11 @@ impl From<Display> for AttributeValue {
 #[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
 #[strum(serialize_all = "snake_case")]
 pub enum AccentColor {
+    /// White / Black, depending on the theme.
+    Neutral,
+    Brown,
     Red,
     Orange,
-    Brown,
     Yellow,
     Green,
     Blue,
@@ -54,6 +56,22 @@ pub enum AccentColor {
 }
 
 string_attribute!(AccentColor);
+
+impl AccentColor {
+    pub fn from_bit_position(pos: u8) -> Self {
+        match pos % 8 {
+            0 => AccentColor::Neutral,
+            1 => AccentColor::Brown,
+            2 => AccentColor::Red,
+            3 => AccentColor::Orange,
+            4 => AccentColor::Yellow,
+            5 => AccentColor::Green,
+            6 => AccentColor::Blue,
+            7 => AccentColor::Purple,
+            _ => unreachable!(),
+        }
+    }
+}
 
 #[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
 #[strum(serialize_all = "snake_case")]

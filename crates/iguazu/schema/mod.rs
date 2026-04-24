@@ -245,10 +245,8 @@ impl Field {
     pub fn logic(bits: u8) -> Field {
         let children = (0..bits).map(|b| (
             eco_format!("bit{b}"),
-            Field {
-                attributes: Default::default(),
-                kind: FieldKind::Bits { bits: 1, pos: b },
-            }
+            Field::new(FieldKind::Bits { bits: 1, pos: b })
+                .with_attribute(attribute::display::ACCENT_COLOR, attribute::display::AccentColor::from_bit_position(b))
         )).collect();
 
         Field::new(FieldKind::BitStruct { children })

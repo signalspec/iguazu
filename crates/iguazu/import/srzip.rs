@@ -3,7 +3,7 @@ use std::{pin::Pin, sync::Arc};
 use ecow::{EcoString, eco_format};
 
 use crate::ElementSize;
-use crate::schema::{Entity, EntityStream, Field, FieldKind, Ignored};
+use crate::schema::{Entity, EntityStream, Field, FieldKind, Ignored, attribute};
 use crate::storage::srzip::SrZipStream;
 use crate::stream::Stream;
 use crate::{io::{ReadableFile, zip::{load_zip_file, ZipEntry}}, schema::EntitySchema, storage::Pool};
@@ -107,15 +107,14 @@ fn make_digital_entity<D, S: Default>(
     make_stream: &mut impl FnMut(ElementSize, &[u8]) -> D
 ) -> Entity<D, S> {
     let children = device.digital_channels.iter().map(|(id, name)| {
-        let field = Field::new(FieldKind::Bits {
-            pos: id.saturating_sub(1),
-            bits: 1,
-        });
+        let pos = id.saturating_sub(1);
+        let field = Field::new(FieldKind::Bits { pos, bits: 1 })
+            .with_attribute(attribute::display::ACCENT_COLOR, attribute::display::AccentColor::from_bit_position(pos));
         (EcoString::from(name), field)
     }).collect();
 
     let field = Field::new(FieldKind::BitStruct { children })
-        .with_attribute_opt(crate::schema::attribute::core::SAMPLE_RATE, device.sample_rate);
+        .with_attribute_opt(attribute::core::SAMPLE_RATE, device.sample_rate);
 
     let element_size = ElementSize::from_bytes(device.unitsize).unwrap_or(ElementSize::U8);
     let data = make_stream(element_size, &device.capturefile);
@@ -128,7 +127,7 @@ fn make_analog_entity<D, S: Default>(
     make_stream: &mut impl FnMut(ElementSize, &[u8]) -> D
 ) -> Entity<D, S> {
     let field = Field::new(FieldKind::Float32 { pos: 0 })
-        .with_attribute_opt(crate::schema::attribute::core::SAMPLE_RATE, device.sample_rate);
+        .with_attribute_opt(attribute::core::SAMPLE_RATE, device.sample_rate);
 
     let data = make_stream(ElementSize::U32, format!("analog-{id}").as_bytes());
     Entity::Data { field, data, summaries: Default::default() }
