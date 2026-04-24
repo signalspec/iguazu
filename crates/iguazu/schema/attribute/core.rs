@@ -16,7 +16,7 @@ pub const NUMBER_RANGE: Attribute<NumberRange> = Attribute::named("number:range"
 pub const NUMBER_SCALE: Attribute<f64> = Attribute::named("number:scale");
 pub const NUMBER_OFFSET: Attribute<f64> = Attribute::named("number:offset");
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NumberRange {
     pub min: f64,
     pub max: f64,

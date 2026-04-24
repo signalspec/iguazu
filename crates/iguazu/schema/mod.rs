@@ -307,13 +307,10 @@ impl<D, S> Entity<D, S> {
         Entity::Group { children: IndexMap::new(), attributes: Default::default() }
     }
 
-    pub fn field_data(kind: FieldKind, data: D) -> Self where S: Default {
+    pub fn field_data(field: impl Into<Field>, data: D) -> Self where S: Default {
         Entity::Data {
             data,
-            field: Field {
-                kind,
-                attributes: Default::default(),
-            },
+            field: field.into(),
             summaries: Default::default(),
         }
     }

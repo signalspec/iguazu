@@ -39,7 +39,11 @@ impl<'a> YAxisRow<'a> {
     pub fn field(vcx: &'a ViewerContext, field: FieldRef<'_>, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> Option<YAxisRow<'a>> {
         let view = RangeView::new(&vcx.view_manager, field)?;
         let color = color.unwrap_or(AccentColor::Green);
-        let y_range = field.field.number_range()?;
+        let y_range = field.field.number_range().or(view.bounds())?;
+
+        if !y_range.min.is_finite() || !y_range.max.is_finite() || y_range.min >= y_range.max {
+            return None;
+        }
 
         Some(YAxisRow {
             sample_rate,

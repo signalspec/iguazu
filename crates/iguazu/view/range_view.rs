@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use crate::{Idx, IdxRange, schema::FieldRef, stream::StreamState, view::{NumberView, ViewManager}};
+use crate::{Idx, IdxRange, schema::{FieldRef, attribute::core::NumberRange}, stream::StreamState, view::{NumberView, ViewManager}};
 
 pub struct RangeView<'a> {
     view: NumberView<'a>,
@@ -51,10 +51,81 @@ impl<'a> RangeView<'a> {
             }
         }
     }
+
+    /// Get the overall minimum and maximum.
+    ///
+    /// It looks at only 4096 points, so may return an under-approximation if overviews are not fully generated.
+    ///
+    /// Returns `None` if no values are loaded.
+    pub fn bounds(&self) -> Option<NumberRange> {
+        let mut min = f64::INFINITY;
+        let mut max = f64::NEG_INFINITY;
+        if let Some(summary) = self.summaries.last() {
+            for i in 0 .. (summary.state().end / 2).max(4096) {
+                if let Some(v) = summary.get(i * 2) && v < min{
+                    min = v;
+                }
+                if let Some(v) = summary.get(i * 2 + 1) && v > max {
+                    max = v;
+                }
+            }
+        } else {
+            self.view.for_each_elem(IdxRange { min: 0, max: 4096 }, |_, elem| {
+                if let Some(v) = elem && v < min {
+                    min = v;
+                }
+                if let Some(v) = elem && v > max {
+                    max = v;
+                }
+            })
+        }
+
+        (min.is_finite() && max.is_finite()).then_some(NumberRange { min, max })
+    }
 }
 
 pub enum RangeElement {
     Loading(IdxRange),
     Single(Idx, f64),
     Range(IdxRange, f64, f64),
+}
+
+#[test]
+fn test_range_view() {
+    env_logger::builder().is_test(true).filter_module("iguazu", log::LevelFilter::Debug).try_init().ok();
+
+    use crate::{ schema::{EntityStream, Field}, summary::LiveSummaryMap, storage::{MemoryStorage, MemoryStreamWriter, Storage}, stream::ArcStream };
+    use std::task::Waker;
+    use std::sync::Arc;
+    use async_executor::Executor;
+    use futures_lite::future::block_on;
+
+    let executor = Arc::new(Executor::new());
+    let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
+
+    let mut vm = super::ViewManager::new();
+    vm.begin(&Waker::noop().clone());
+
+    let mut writer = MemoryStreamWriter::new(crate::ElementSize::U32);
+    for i in 0..10000 {
+        writer.extend_from_slice(&(((i as f32) / 1000.0 * std::f32::consts::PI).sin() * 2.0 + 1.0).to_le_bytes());
+    }
+    writer.commit();
+    let stream: ArcStream = writer.stream().clone();
+    drop(writer);
+
+    let field = Field::float(32).unwrap();
+
+    {
+        let range_view_no_summary = RangeView::new(&vm, FieldRef { data: &stream, field: &field, summaries: &LiveSummaryMap::default()}).unwrap();
+        assert_eq!(range_view_no_summary.bounds(), Some(NumberRange { min: -1.0, max: 3.0 }));
+    }
+
+    let mut entity = EntityStream::field_data(field, stream);
+    block_on(executor.run(entity.build_summaries(&executor, &storage))).unwrap();
+
+    {
+        let range_view = RangeView::new(&vm, entity.as_field().unwrap()).unwrap();
+        assert_eq!(range_view.bounds(), Some(NumberRange { min: -1.0, max: 3.0 }));
+    }
 }
