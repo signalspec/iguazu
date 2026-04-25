@@ -1,8 +1,8 @@
-use std::{fmt::{Debug, Display}, marker::PhantomData, str::FromStr};
+use std::{fmt::{Debug, Display}, marker::PhantomData};
 
 use ecow::{eco_format, EcoString};
 use indexmap::IndexMap;
-use jiff::Timestamp;
+use jiff::Zoned;
 use serde::{Serialize, Deserialize};
 
 pub mod core;
@@ -205,20 +205,18 @@ impl TryFrom<&AttributeValue> for u64 {
     }
 }
 
-impl From<Timestamp> for AttributeValue {
-    fn from(value: Timestamp) -> Self {
+impl From<Zoned> for AttributeValue {
+    fn from(value: Zoned) -> Self {
         AttributeValue::String(eco_format!("{}", value))
     }
 }
 
-impl TryFrom<&AttributeValue> for Timestamp {
+impl TryFrom<&AttributeValue> for Zoned {
     type Error = ();
 
     fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
         match value {
-            AttributeValue::String(s) => {
-                Timestamp::from_str(s).map_err(|_| ())
-            }
+            AttributeValue::String(s) => parse_zoned_with_zone_or_offset(s).map_err(|_| ()),
             _ => Err(()),
         }
     }
@@ -378,3 +376,5 @@ macro_rules! string_attribute {
 }
 
 pub(crate) use string_attribute;
+
+use crate::util::time::parse_zoned_with_zone_or_offset;

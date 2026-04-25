@@ -1,8 +1,7 @@
 use std::iter;
 use std::{pin::Pin, sync::Arc};
-use std::future;
-
 use csv_core::{ReadRecordResult, ReaderBuilder};
+use ecow::{EcoString, EcoVec};
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
 
@@ -10,7 +9,7 @@ use crate::schema::{Entity, EntityStream};
 use crate::storage::Pool;
 use crate::{io::ReadableFile, schema::EntitySchema};
 use super::OptionDescription;
-use super::{ImportError, Importer, column_parser::ColumnParser};
+use super::{ImportError, Importer, column_parser::{ ColumnParser, TypeInfer }};
 
 /// Importer for CSV / TSV and similar formats.
 pub struct CsvImporter {
@@ -21,7 +20,7 @@ pub struct CsvImporter {
     double_quote: bool,
     comment: Option<u8>,
     skip: u64,
-    columns: Option<Vec<String>>,
+    columns: Option<EcoVec<EcoString>>,
 }
 
 impl CsvImporter {
@@ -120,21 +119,20 @@ impl CsvImporter {
         self
     }
 
-    pub fn columns(&self) -> Option<&[String]> {
+    pub fn columns(&self) -> Option<&[EcoString]> {
         self.columns.as_deref()
     }
 
-    pub fn set_columns(&mut self, columns: Option<Vec<String>>) {
+    pub fn set_columns(&mut self, columns: Option<EcoVec<EcoString>>) {
         self.columns = columns;
     }
 
-    pub fn with_columns(mut self, columns: Option<Vec<String>>) -> Self {
+    pub fn with_columns(mut self, columns: Option<EcoVec<EcoString>>) -> Self {
         self.set_columns(columns);
         self
     }
 
-    /// Load input from `AsyncBufRead`.
-    pub async fn load(&self, stream: Pin<Box<dyn AsyncBufRead + Send>>, schema: EntitySchema) -> Result<(EntityStream, impl Future<Output = Result<(), ImportError>> + 'static), ImportError> {
+    async fn begin_parser(&self, stream: Pin<Box<dyn AsyncBufRead + Send>>) -> Result<(EcoVec<EcoString>, CsvParser), ImportError> {
         let mut csv = CsvParser::new(stream, ReaderBuilder::new()
             .delimiter(self.delimiter)
             .terminator(match self.terminator {
@@ -149,20 +147,35 @@ impl CsvImporter {
             .build());
 
         csv.skip_records(self.skip).await?;
-        let headers = match &self.columns {
+        let header = match &self.columns {
             Some(columns) => columns.clone(),
             None => csv.read_row().await?
         };
 
-        log::info!("found headers {:?}", headers);
+        log::info!("found header {:?}", header);
 
-        let (mut parsers, entity) = column_parsers(&schema, &headers)?;
+        Ok((header, csv))
+    }
+
+    /// Load input from `AsyncBufRead`.
+    pub async fn load(&self, stream: Pin<Box<dyn AsyncBufRead + Send>>, schema: EntitySchema) -> Result<(EntityStream, impl Future<Output = Result<(), ImportError>> + 'static), ImportError> {
+        let (header, mut csv) = self.begin_parser(stream).await?;
+
+        let (mut parsers, entity) = column_parsers(&schema, &header)?;
 
         Ok((entity, async move {
             csv.read_rows(ColumnsHandler(&mut parsers)).await?;
             log::info!("import completed, {} lines", csv.reader.line());
             Ok(())
         }))
+    }
+
+    pub async fn infer_types(&self, stream: Pin<Box<dyn AsyncBufRead + Send>>) -> Result<InferredTypes, ImportError> {
+        let (header, mut csv) = self.begin_parser(stream).await?;
+
+        let mut columns = InferredTypes::new(header);
+        csv.read_rows(&mut columns).await?;
+        Ok(columns)
     }
 }
 
@@ -259,7 +272,7 @@ impl Importer for CsvImporter {
                 self.columns = if value.trim().is_empty() {
                     None
                 } else {
-                    Some(value.split(',').map(|s| s.trim().to_string()).collect())
+                    Some(value.split(',').map(|s| EcoString::from(s.trim())).collect())
                 };
             }
             _ => return Err("Unknown option".to_string()),
@@ -291,13 +304,21 @@ impl Importer for CsvImporter {
         }
     }
 
-    fn load_schema(&self, _file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + '_>> {
-        Box::pin(future::ready(Err(ImportError::SchemaMismatch("Schema must currently be specified for CSV".into()))))
+    fn load_schema(&self, file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + '_>> {
+        Box::pin(async move {
+            let file_stream = file.stream(0, None).await?;
+            let columns = self.infer_types(file_stream).await?;
+            Ok(columns.schema())
+        })
     }
 
     fn import(&self, file: Arc<dyn ReadableFile>, schema: Option<EntitySchema>, _pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
         Box::pin(async {
-            let schema = schema.ok_or_else(|| ImportError::SchemaMismatch("Schema must be specified for CSV import".into()))?;
+            let schema = if let Some(schema) = schema {
+                schema
+            } else {
+                self.load_schema(file.clone()).await?
+            };
             let file_stream = file.stream(0, None).await?;
             let (entity, completion) = self.load(file_stream, schema).await?;
             Ok((entity, Box::pin(completion) as Pin<Box<_>>))
@@ -305,7 +326,7 @@ impl Importer for CsvImporter {
     }
 }
 
-fn column_parsers(schema: &EntitySchema, headers: &[String]) -> Result<(Vec<ColumnParser>, EntityStream), ImportError> {
+fn column_parsers(schema: &EntitySchema, headers: &[EcoString]) -> Result<(Vec<ColumnParser>, EntityStream), ImportError> {
     let mut parsers = (0..headers.len()).map(|_| ColumnParser::Skip).collect::<Vec<_>>();
 
     let entity = match schema {
@@ -386,9 +407,9 @@ impl CsvParser {
         self.read_rows(SkipHandler { skip }).await
     }
 
-    async fn read_row(&mut self) -> Result<Vec<String>, ImportError> {
-        let mut result: Option<Vec<String>> = None;
-        struct CsvRowHandler<'a> { result: &'a mut Option<Vec<String>> }
+    async fn read_row(&mut self) -> Result<EcoVec<EcoString>, ImportError> {
+        let mut result: Option<EcoVec<EcoString>> = None;
+        struct CsvRowHandler<'a> { result: &'a mut Option<EcoVec<EcoString>> }
         impl CsvHandler for CsvRowHandler<'_> {
             fn should_continue(&self, _: u64) -> bool {
                 self.result.is_none()
@@ -396,7 +417,7 @@ impl CsvParser {
 
             fn row(&mut self, row: Row<'_>) -> Result<(), ImportError> {
                 let values = row.column_values()
-                    .map(|f| String::from_utf8(f.to_owned())).collect::<Result<Vec<_>, _>>()
+                    .map(|f| str::from_utf8(f).map(EcoString::from)).collect::<Result<EcoVec<_>, _>>()
                     .map_err(|_| ImportError::InvalidFile(format!("Failed to parse header row as UTF-8")))?;
                 *self.result = Some(values);
                 Ok(())
@@ -477,40 +498,68 @@ impl Row<'_> {
     }
 }
 
+pub struct InferredTypes(Vec<Column>);
+
+struct Column {
+    name: EcoString,
+    ty: TypeInfer,
+}
+
+impl InferredTypes {
+    fn new(header: EcoVec<EcoString>) -> Self {
+        InferredTypes(header.into_iter().enumerate().map(|(i, name)| {
+            let prioritize_rel_timestamp = i == 0 || name == "t" || name == "time" || name == "timestamp";
+            Column { name, ty: TypeInfer::new(prioritize_rel_timestamp) }
+        }).collect())
+    }
+
+    fn schema(&self) -> EntitySchema {
+        self.0.iter().fold(
+            EntitySchema::record(),
+            |record, column| record.with_child(column.name.clone(), column.ty.schema())
+        )
+    }
+}
+
+impl CsvHandler for &mut InferredTypes {
+    fn row(&mut self, row: Row<'_>) -> Result<(), ImportError> {
+        if row.col_ends.len() != self.0.len() {
+            return Err(ImportError::InvalidFile(format!("Line {} has {} columns, expected {}", row.line, row.col_ends.len(), self.0.len())));
+        }
+        for (value, col) in row.column_values().zip(self.0.iter_mut()) {
+            col.ty.update(value);
+        }
+        Ok(())
+    }
+}
+
 #[test]
 fn test_csv() {
     use std::str::FromStr;
-    use crate::schema::{Field, FieldKind, Ignored, attribute::core::{TIME_EPOCH, TIME_RATE}};
-    use jiff::Timestamp;
+    use crate::schema::{Field, FieldKind};
+    use jiff::Zoned;
     use futures_lite::{future::block_on, io::Cursor};
 
-    let file = Box::pin(Cursor::new(b"timestamp,value,str\n2025-01-01T00:00:01Z,1.0,abc\n2025-01-01T00:00:01.100Z,2.0,defg\n"));
+    let file = Box::pin(Cursor::new(b"timestamp,value,enum,str\n2025-01-01T00:00:01Z,1.0,b,abc\n2025-01-01T00:00:01.100Z,2.0,a,\"1234567890,1234567890\"\n"));
 
     let importer = CsvImporter::csv();
+    let inferred_types = block_on(importer.infer_types(file.clone())).unwrap();
+    let inferred_schema = inferred_types.schema();
+    let record_fields = match inferred_schema {
+        EntitySchema::Record { children, ..} => children,
+        _ => panic!("expected record"),
+    };
+    assert!(matches!(record_fields["timestamp"], Entity::Data { field: Field { kind: FieldKind::Timestamp, ..}, ..}));
+    assert!(matches!(record_fields["value"], Entity::Data { field: Field { kind: FieldKind::Float32 { .. }, ..}, ..}));
+    assert!(matches!(record_fields["enum"], Entity::Data { field: Field { kind: FieldKind::Enum { ref values, .. }, ..}, ..} if values == &["a", "b"]));
+    assert!(matches!(record_fields["str"], Entity::VariableArray { ..}));
 
     let schema = Entity::Record {
         children: IndexMap::from([
-            ("timestamp".into(), Entity::Data {
-                field: Field::new(FieldKind::Timestamp)
-                    .with_attribute(TIME_RATE, 1000.0)
-                    .with_attribute(TIME_EPOCH, Timestamp::from_str("2025-01-01T00:00:00Z").unwrap()),
-                data: Ignored,
-                summaries: Default::default(),
-            }),
-            ("value".into(), Entity::Data {
-                field: Field::new(FieldKind::Float32 { pos: 0 }),
-                data: Ignored,
-                summaries: Default::default(),
-            }),
-            ("str".into(), Entity::VariableArray {
-                data: Ignored,
-                child: Box::new(Entity::Data {
-                    field: Field::new(FieldKind::Character { pos: 0 }),
-                    data: Ignored,
-                    summaries: Default::default(),
-                }),
-                attributes: Default::default(),
-            }),
+            ("timestamp".into(), EntitySchema::field(Field::timestamp(1000.0, Some(Zoned::from_str("2025-01-01T00:00:00[UTC]").unwrap())))),
+            ("value".into(), EntitySchema::field(Field::float32())),
+            ("enum".into(), EntitySchema::field(Field::r#enum(["a".into(), "b".into()]))),
+            ("str".into(), Entity::string()),
         ]),
         attributes: Default::default(),
     };
@@ -527,7 +576,11 @@ fn test_csv() {
     assert_eq!(num.get(0), Some(1.0));
     assert_eq!(num.get(1), Some(2.0));
 
+    let timestamp = vm.int_view(entity.child("enum").unwrap()).unwrap();
+    assert_eq!(timestamp.get_u64(0), Some(1));
+    assert_eq!(timestamp.get_u64(1), Some(0));
+
     let str = vm.text_view(entity.child("str").unwrap());
     assert_eq!(str.format(0).to_string(), "abc");
-    assert_eq!(str.format(1).to_string(), "defg");
+    assert_eq!(str.format(1).to_string(), "1234567890,1234567890");
 }

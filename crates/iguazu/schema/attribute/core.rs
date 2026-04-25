@@ -1,5 +1,5 @@
 use ecow::EcoString;
-use jiff::Timestamp;
+use jiff::Zoned;
 use strum::{EnumString, IntoStaticStr};
 
 use crate::{schema::{Entity, Field}, time::Time};
@@ -8,7 +8,7 @@ use super::{ Attribute, AttributeMap, string_attribute, AttributeValue};
 pub const SAMPLE_RATE: Attribute<f64> = Attribute::named("sample_rate");
 pub const TIME: Attribute<EcoString> = Attribute::named("time");
 pub const TIME_RATE: Attribute<f64> = Attribute::named("time:rate");
-pub const TIME_EPOCH: Attribute<Timestamp> = Attribute::named("time:epoch");
+pub const TIME_EPOCH: Attribute<Zoned> = Attribute::named("time:epoch");
 pub const TIME_DISPLAY: Attribute<TimeDisplay> = Attribute::named("time:display");
 pub const TEXT: Attribute<EcoString> = Attribute::named("text");
 
@@ -89,7 +89,7 @@ impl Field {
         self.time_rate().map(Time::period_float)
     }
 
-    pub fn time_epoch(&self) -> Option<Timestamp> {
+    pub fn time_epoch(&self) -> Option<Zoned> {
         self.attribute(TIME_EPOCH)
     }
 

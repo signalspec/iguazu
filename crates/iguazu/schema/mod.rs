@@ -5,6 +5,7 @@ use attribute::AttributeValue;
 use ecow::{eco_format, EcoString};
 use futures_lite::future;
 use indexmap::IndexMap;
+use jiff::Zoned;
 use serde::{Deserialize, Serialize};
 use num_traits::Zero;
 
@@ -242,6 +243,16 @@ impl Field {
         Self::bits(8)
     }
 
+    pub fn r#enum(values: impl IntoIterator<Item = EcoString>) -> Self {
+        let values: Vec<_> = values.into_iter().collect();
+        let bits = (usize::BITS - values.len().leading_zeros()) as u8;
+        Self::new(FieldKind::Enum { pos: 0, bits, values })
+    }
+
+    pub fn character() -> Self {
+        Self::new(FieldKind::Character { pos: 0 })
+    }
+
     pub fn logic(bits: u8) -> Field {
         let children = (0..bits).map(|b| (
             eco_format!("bit{b}"),
@@ -260,12 +271,26 @@ impl Field {
         Self::new(FieldKind::Signed { pos: 0, bits })
     }
 
+    pub fn float32() -> Self {
+        Self::new(FieldKind::Float32 { pos: 0 })
+    }
+
+    pub fn float64() -> Self {
+        Self::new(FieldKind::Float64)
+    }
+
     pub fn float(bits: u8) -> Option<Self> {
         match bits {
-            32 => Some(Self::new(FieldKind::Float32 { pos: 0 })),
-            64 => Some(Self::new(FieldKind::Float64)),
+            32 => Some(Self::float32()),
+            64 => Some(Self::float64()),
             _ => None,
         }
+    }
+
+    pub fn timestamp(rate: f64, epoch: Option<Zoned>) -> Self {
+        Self::new(FieldKind::Timestamp)
+            .with_attribute(attribute::core::TIME_RATE, rate)
+            .with_attribute_opt(attribute::core::TIME_EPOCH, epoch)
     }
 
     pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: Attribute<A>) -> Option<A> {
@@ -644,6 +669,14 @@ impl EntitySchema {
             data: Ignored,
             field: field.into(),
             summaries: Default::default(),
+        }
+    }
+
+    pub fn string() -> Self {
+        Entity::VariableArray {
+            data: Ignored,
+            child: Box::new(Entity::field(Field::character())),
+            attributes: Default::default()
         }
     }
 

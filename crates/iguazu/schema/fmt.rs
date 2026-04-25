@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{fmt::{Formatter, Write}, time::Duration};
 use ecow::EcoString;
-use jiff::Timestamp;
+use jiff::Zoned;
 
 use crate::{schema::{attribute::core::TimeDisplay, Field, FieldKind}, time::Time};
 pub struct TextFormat(Vec<Element>);
@@ -15,7 +15,7 @@ enum Element {
     Signed { pos: u8, bits: u8, offset: f64, scale: f64 },
     Float32 { pos: u8 },
     Float64,
-    TimestampAbsolute { epoch: Timestamp, period: Time },
+    TimestampAbsolute { epoch: Zoned, period: Time },
     TimestampRelative { period: Time },
     Enum { pos: u8, bits: u8, values: Vec<EcoString> },
     Tagged { tag_pos: u8, tag_bits: u8, inner: Vec<TextFormat> },
@@ -170,7 +170,7 @@ impl TextFormat {
                 Element::Float64 => {
                     write!(fmt, "{}", f64::from_bits(val))?;
                 }
-                Element::TimestampAbsolute { epoch, period  } => {
+                Element::TimestampAbsolute { ref epoch, period  } => {
                     let d = Duration::try_from((val as i128) * period).ok();
                     if let Some(t) = d.and_then(|d| epoch.checked_add(d).ok()) {
                         write!(fmt, "{}", t)?;
