@@ -177,6 +177,11 @@ impl<'a> LogicRow<'a> {
         let stroke_width = 1.0;
         let stroke = Stroke::new(stroke_width, color);
 
+        let dot_opacity = ((idx_scale.points_per_index() - 16.0 * stroke_width) / 16.0).clamp(0.0, 1.0);
+        let dot_color = color.gamma_multiply(dot_opacity);
+
+        let bg_color = color.gamma_multiply(0.08);
+
         let hover_x = ui.input(|i| i.pointer.interact_pos())
             .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
             .map(|pos| pos.x);
@@ -204,14 +209,22 @@ impl<'a> LogicRow<'a> {
                     }
                 }
                 TraceElement::Value(val) => {
+                    let y = if val != 0 { padded_rect.top() } else { padded_rect.bottom() };
+                    painter.hline(x1..=x2, y, stroke);
+
                     if matches!(prev_val, TraceElement::Value(_)) {
                         painter.vline(x1, padded_rect.y_range(), stroke);
                     }
 
-                    if val != 0 {
-                        painter.hline(x1..=x2, padded_rect.top(), stroke);
-                    } else {
-                        painter.hline(x1..=x2, padded_rect.bottom(), stroke);
+                    if val != 0 && x2 - x1 > stroke_width {
+                        painter.rect_filled(Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range().expand(stroke_width)), 0.0, bg_color);
+                    }
+
+                    if dot_opacity > 0.0 {
+                        for i in idx1..idx2 {
+                            let x = idx_scale.x_from_idx(i);
+                            painter.circle_filled(Pos2 { x, y }, stroke_width * 2.0, dot_color);
+                        }
                     }
                 }
             }
