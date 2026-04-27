@@ -11,21 +11,27 @@ use crate::{io::{ReadableFile, zip::{load_zip_file, ZipEntry}}, schema::EntitySc
 use super::{ImportError, Importer};
 
 /// Importer for Sigrok files
-pub struct SrZipImporter {}
+pub struct SrZipImporter {
+    file: Arc<dyn ReadableFile>,
+}
 
 impl SrZipImporter {
-    pub fn new() -> Self { Self {} }
+    pub fn new(file: Arc<dyn ReadableFile>) -> Self {
+        Self { file }
+    }
 }
 
 impl Importer for SrZipImporter {
-    fn load_schema(&self, file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send>> {
+    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {
+        let file = self.file.clone();
         Box::pin(async move {
             let (_, metadata) = load_metadata(file).await?;
             Ok(make_entity(&metadata, &mut |_, _| Ignored))
         })
     }
 
-    fn import(&self, file: Arc<dyn ReadableFile>, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
+    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
+        let file = self.file.clone();
         Box::pin(async move {
             let (mut zip_entries, metadata) = load_metadata(file).await?;
             let entity = make_entity(&metadata, &mut |element_size, entry_prefix| {
@@ -262,14 +268,14 @@ mod tests {
         use crate::schema::{Entity, FieldKind};
         use crate::schema::attribute::core::SAMPLE_RATE;
 
-        let importer = SrZipImporter::new();
-
         let file: Arc<dyn crate::io::ReadableFile> = Arc::new(
             block_on(FsFile::open("../../test-data/i2c.sr".into())).expect("failed to open test file")
         );
 
+        let importer = SrZipImporter::new(file);
+
         // Test `load_schema`
-        let schema = block_on(importer.load_schema(file.clone())).expect("failed to load schema");
+        let schema = block_on(importer.load_schema()).expect("failed to load schema");
         check_schema(schema);
 
         fn check_schema<D, S>(schema: Entity<D, S>) -> D {
@@ -289,7 +295,7 @@ mod tests {
         // Test `import`
         let executor = Arc::new(async_executor::Executor::new());
         let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
-        let (entity, completion) = block_on(importer.import(file, None, pool)).expect("failed to import");
+        let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
         block_on(completion).expect("import completion failed");
 
         let data = check_schema(entity);

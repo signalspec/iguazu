@@ -9,7 +9,6 @@ use egui::{RichText, TextStyle};
 use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
 
 use iguazu::import::{ImportError, Importer};
-use iguazu::io::ReadableFile;
 use iguazu::schema::{EntitySchema, EntityStream};
 use iguazu::storage::{Pool, Storage, MemoryStorage};
 use iguazu_egui::ViewerContext;
@@ -57,11 +56,10 @@ fn main() -> Result<(), eframe::Error> {
     let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
 
     let to_import = if let Some(import_opts) = cli.import {
-        let file = block_on(import_opts.file()).expect("failed to open file");
-        let importer = import_opts.importer(IMPORTERS).expect("failed to choose importer");
+        let importer = block_on(import_opts.importer(IMPORTERS)).expect("failed to choose importer");
         let schema = block_on(import_opts.specified_schema()).expect("failed to load schema");
         let skip_options_ui = import_opts.format_specified() || schema.is_some();
-        Some((file, importer, skip_options_ui, schema))
+        Some((importer, skip_options_ui, schema))
     } else {
         None
     };
@@ -81,11 +79,11 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             let mut app = Box::new(App::new(cc, pool, storage));
 
-            if let Some((file, importer, skip_options_ui, schema)) = to_import {
+            if let Some((importer, skip_options_ui, schema)) = to_import {
                 if skip_options_ui {
-                    app.import(file, importer, schema);
+                    app.import(importer, schema);
                 } else {
-                    app.prompt_import_options(file, importer);
+                    app.prompt_import_options(importer);
                 }
             }
 
@@ -146,7 +144,7 @@ fn main() {
                 Box::new(move |cc| {
                     let mut app = Box::new(App::new(cc, pool.clone(), storage.clone()));
                     if let Some(file) = file {
-                        app.import(file, Box::new(iguazu::import::IzsImporter::new()), None);
+                        app.import(Box::new(iguazu::import::IzsImporter::new(file)), None);
                     }
                     Ok(app)
                 })
@@ -172,7 +170,7 @@ fn main() {
 
 enum AppState {
     Welcome(welcome::Welcome),
-    ImportOptions(Arc<dyn ReadableFile>, Option<ImportUi>),
+    ImportOptions(Option<ImportUi>),
     Loading(Task<Result<EntityStream, ImportError>>),
     Viewer(viewer::Viewer),
 }
@@ -215,21 +213,19 @@ impl App {
         self.vctx.waker().wake_by_ref();
     }
 
-    fn prompt_import_options(&mut self, file: Arc<dyn ReadableFile>, importer: Box<dyn Importer>) {
-        self.filename = file.filename().map(|s| s.to_string());
+    fn prompt_import_options(&mut self, importer: Box<dyn Importer>) {
         if importer.should_show_options() {
-            self.set_state(AppState::ImportOptions(file, Some(ImportUi::new(importer))));
+            self.set_state(AppState::ImportOptions(Some(ImportUi::new(importer))));
         } else {
-            self.import(file, importer, None);
+            self.import(importer, None);
         }
     }
 
-    fn import(&mut self, file: Arc<dyn ReadableFile>, importer: Box<dyn Importer>, schema: Option<EntitySchema>) {
-        self.filename = file.filename().map(|s| s.to_string());
+    fn import(&mut self, importer: Box<dyn Importer>, schema: Option<EntitySchema>) {
         let pool = self.vctx.pool().clone();
         let storage = self.vctx.default_storage().clone();
         let task = self.vctx.spawn(async move {
-            let (mut entity, completion) = importer.import(file, schema, pool.clone()).await?;
+            let (mut entity, completion) = importer.import(schema, pool.clone()).await?;
             pool.executor.spawn(completion).detach();
             entity.build_summaries(&pool.executor, &storage).detach();
             Ok(entity)
@@ -278,8 +274,8 @@ impl eframe::App for App {
                 AppState::Welcome(welcome) => {
                     if let Some(response) = welcome.show(&mut self.vctx, ui) {
                         match response {
-                            WelcomeResponse::Import { file, importer } => {
-                                self.prompt_import_options(file, importer);
+                            WelcomeResponse::Import { importer } => {
+                                self.prompt_import_options(importer);
                             }
                             WelcomeResponse::Entity(entity) => {
                                 self.set_entity(entity);
@@ -287,13 +283,12 @@ impl eframe::App for App {
                         }
                     }
                 }
-                AppState::ImportOptions(file, import_ui) => {
+                AppState::ImportOptions(import_ui) => {
                     if let Some(response) = import_ui.as_mut().unwrap().show(ui) {
                         match response {
                             ImportResponse::Accepted => {
                                 let importer = import_ui.take().unwrap().into_inner();
-                                let file = file.clone();
-                                self.import(file, importer, None);
+                                self.import(importer, None);
                             }
                             ImportResponse::Cancelled => {
                                 self.return_to_welcome();

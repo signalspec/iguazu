@@ -13,7 +13,6 @@ pub struct Welcome {
 
 pub enum WelcomeResponse {
     Import {
-        file: Arc<dyn ReadableFile>,
         importer: Box<dyn Importer>,
     },
     Entity(EntityStream),
@@ -97,16 +96,15 @@ async fn pick_file() -> Option<Result<WelcomeResponse, String>> {
 
     #[cfg(target_arch = "wasm32")]
     let file = iguazu::io::WebFile::new(res.inner().clone());
+    let filename = file.filename().unwrap_or("").to_owned();
 
-    let Some(importer) = IMPORTERS.importer_for_filename(&file.filename().unwrap_or("")) else {
+    let Some(importer) = IMPORTERS.importer_for_file(Arc::new(file)) else {
         return Some(Err(format!(
-            "No import format matched filename `{}`",
-            file.filename().unwrap_or(""),
+            "No import format matched filename `{filename}`"
         )));
     };
 
     Some(Ok(WelcomeResponse::Import {
-        file: Arc::new(file) as Arc<dyn ReadableFile>,
         importer,
     }))
 }

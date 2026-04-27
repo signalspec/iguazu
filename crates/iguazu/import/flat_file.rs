@@ -9,8 +9,9 @@ use super::{ImportError, Importer};
 
 /// Importer for flat files that are directly read from disk.
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct FlatFileImporter {
+    pub file: Arc<dyn ReadableFile>,
     pub element: ElementSize,
     pub dtype: DataType,
     pub sample_rate: Option<f64>,
@@ -82,8 +83,9 @@ impl ScalarType {
 }
 
 impl FlatFileImporter {
-    pub fn new(element: ElementSize, dtype: DataType) -> Self {
+    pub fn new(file: Arc<dyn ReadableFile>, element: ElementSize, dtype: DataType) -> Self {
         Self {
+            file,
             element,
             dtype,
             sample_rate: None,
@@ -91,8 +93,8 @@ impl FlatFileImporter {
         }
     }
 
-    pub fn for_file_name(name: &str) -> Self {
-        let (element, dtype) = match name.rsplit('.').next().unwrap_or("") {
+    pub fn for_file(file: Arc<dyn ReadableFile>,) -> Self {
+        let (element, dtype) = match file.filename().unwrap_or("").rsplit('.').next().unwrap_or("") {
             "logic8" => (ElementSize::U8, DataType::Logic),
             "f32" => (ElementSize::U32, DataType::Real(ScalarType::Float)),
             "cf32" | "cfile "=> (ElementSize::U32, DataType::Complex(ScalarType::Float)),
@@ -114,7 +116,7 @@ impl FlatFileImporter {
             "cs64" => (ElementSize::U64, DataType::Complex(ScalarType::Signed)),
             _ => (ElementSize::U8, DataType::Binary),
         };
-        Self::new(element, dtype)
+        Self::new(file, element, dtype)
     }
 
     pub fn schema(&self) -> Result<EntitySchema, ImportError> {
@@ -183,14 +185,14 @@ impl Importer for FlatFileImporter {
         })
     }
 
-    fn load_schema(&self, _file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send>> {
+    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send>> {
         Box::pin(future::ready(self.schema()))
     }
 
-    fn import(&self, file: Arc<dyn ReadableFile>, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
+    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
         Box::pin(async move {
             let schema = if let Some(s) = schema { s } else { self.schema()? };
-            let entity = FlatFileStream::entity(file, pool, self.element, schema, &self.opts).await?;
+            let entity = FlatFileStream::entity(self.file.clone(), pool, self.element, schema, &self.opts).await?;
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }

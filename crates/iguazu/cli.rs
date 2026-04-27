@@ -62,8 +62,10 @@ impl ImportOpts {
         }
     }
 
-    pub fn importer(&self, importers: ImportFormats<'_>) -> Result<Box<dyn Importer>, String> {
-        let mut importer = self.format(importers)?.importer(self.filename.to_str().unwrap());
+    pub async fn importer(&self, importers: ImportFormats<'_>) -> Result<Box<dyn Importer>, String> {
+        let format = self.format(importers)?;
+        let file = self.file().await?;
+        let mut importer = format.importer(file);
         let mut errors = Vec::new();
 
         for (opt, val) in self.format_options() {
@@ -119,13 +121,12 @@ impl ImportOpts {
 
     /// Load the schema from the specified file, or infer it from the data if no schema file is specified.
     pub async fn schema_or_inferred(&self, importers: ImportFormats<'_>) -> Result<EntitySchema, String> {
-        let importer = self.importer(importers)?;
-        let file = self.file().await?;
+        let importer = self.importer(importers).await?;
 
         let mut schema = if let Some(schema) = self.specified_schema().await? {
             schema
         } else {
-            importer.load_schema(file).await.map_err(|e| e.to_string())?
+            importer.load_schema().await.map_err(|e| e.to_string())?
         };
 
         if let Some(ref entity_path) = self.entity {
@@ -140,11 +141,10 @@ impl ImportOpts {
     ///
     /// Returns the imported entity, as well as a future that completes when the import is fully done.
     pub async fn import(&self, importers: ImportFormats<'_>, pool: Arc<Pool>) -> Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), String> {
-        let importer = self.importer(importers)?;
-        let file = self.file().await?;
+        let importer = self.importer(importers).await?;
         let schema = self.specified_schema().await?;
 
-        let (mut entity, completion) = importer.import(file, schema, pool).await
+        let (mut entity, completion) = importer.import(schema, pool).await
             .map_err(|e| format!("Failed to import {}: {}", self.filename.display(), e))?;
 
         if let Some(ref entity_path) = self.entity {

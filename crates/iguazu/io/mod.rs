@@ -4,6 +4,8 @@ use std::{io, pin::Pin, sync::Arc};
 use async_trait::async_trait;
 use futures_lite::{AsyncBufRead, AsyncReadExt, AsyncWrite};
 
+mod mem;
+
 #[cfg(all(feature="fs", any(target_family = "unix", target_family = "windows")))]
 mod fs;
 #[cfg(all(feature="fs", any(target_family = "unix", target_family = "windows")))]
@@ -30,7 +32,9 @@ pub trait ReadableFile: Send + Sync + 'static {
     fn url(&self) -> Option<Url>;
 
     /// Open a file adjacent to this one
-    async fn relative(&self, path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error>;
+    async fn relative(&self, _path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error> {
+        return Err(io::Error::new(io::ErrorKind::Unsupported, "Relative paths are not supported for this file type"));
+    }
 
     /// Get the length of the file
     async fn get_len(self: Arc<Self>) -> Result<u64, io::Error>;

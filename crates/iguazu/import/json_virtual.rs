@@ -5,22 +5,26 @@ use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_
 use super::{ImportError, Importer};
 
 /// Importer for a JSON file that references other files on disk.
-pub struct VirtualImporter {}
+pub struct VirtualImporter {
+    file: Arc<dyn ReadableFile>,
+}
 
 impl VirtualImporter {
-    pub fn new() -> Self {
-        Self { }
+    pub fn new(file: Arc<dyn ReadableFile>) -> Self {
+        Self { file }
     }
 }
 
 impl Importer for VirtualImporter {
-    fn load_schema(&self, file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {
+    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {
+        let file = self.file.clone();
         Box::pin(async move {
             load(file).await.map(|schema| schema.schema())
         })
     }
 
-    fn import(&self, file: Arc<dyn ReadableFile>, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
+    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
+        let file = self.file.clone();
         Box::pin(async move {
             let schema = load(file.clone()).await?;
             let entity = schema.try_map_data_async(move |s| pool.executor.spawn(create_stream(file.clone(), pool.clone(), s.clone()))).await?;

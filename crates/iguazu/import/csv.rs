@@ -13,6 +13,7 @@ use super::{ImportError, Importer, column_parser::{ ColumnParser, TypeInfer }};
 
 /// Importer for CSV / TSV and similar formats.
 pub struct CsvImporter {
+    file: Arc<dyn ReadableFile>,
     delimiter: u8,
     terminator: Option<u8>,
     quote: Option<u8>,
@@ -24,8 +25,9 @@ pub struct CsvImporter {
 }
 
 impl CsvImporter {
-    pub fn csv() -> Self {
+    pub fn csv(file: Arc<dyn ReadableFile>) -> Self {
         Self {
+            file,
             delimiter: b',',
             terminator: None,
             quote: Some(b'"'),
@@ -37,8 +39,8 @@ impl CsvImporter {
         }
     }
 
-    pub fn tsv() -> Self {
-        Self::csv().with_delimiter(b'\t').with_quote(None)
+    pub fn tsv(file: Arc<dyn ReadableFile>) -> Self {
+        Self::csv(file).with_delimiter(b'\t').with_quote(None)
     }
 
     pub fn delimiter(&self) -> u8 {
@@ -132,7 +134,8 @@ impl CsvImporter {
         self
     }
 
-    async fn begin_parser(&self, stream: Pin<Box<dyn AsyncBufRead + Send>>) -> Result<(EcoVec<EcoString>, CsvParser), ImportError> {
+    async fn begin_parser(&self) -> Result<(EcoVec<EcoString>, CsvParser), ImportError> {
+        let stream = self.file.clone().stream(0, None).await?;
         let mut csv = CsvParser::new(stream, ReaderBuilder::new()
             .delimiter(self.delimiter)
             .terminator(match self.terminator {
@@ -158,8 +161,8 @@ impl CsvImporter {
     }
 
     /// Load input from `AsyncBufRead`.
-    pub async fn load(&self, stream: Pin<Box<dyn AsyncBufRead + Send>>, schema: EntitySchema) -> Result<(EntityStream, impl Future<Output = Result<(), ImportError>> + 'static), ImportError> {
-        let (header, mut csv) = self.begin_parser(stream).await?;
+    pub async fn load(&self, schema: EntitySchema) -> Result<(EntityStream, impl Future<Output = Result<(), ImportError>> + 'static), ImportError> {
+        let (header, mut csv) = self.begin_parser().await?;
 
         let (mut parsers, entity) = column_parsers(&schema, &header)?;
 
@@ -170,8 +173,8 @@ impl CsvImporter {
         }))
     }
 
-    pub async fn infer_types(&self, stream: Pin<Box<dyn AsyncBufRead + Send>>) -> Result<InferredTypes, ImportError> {
-        let (header, mut csv) = self.begin_parser(stream).await?;
+    pub async fn infer_types(&self) -> Result<InferredTypes, ImportError> {
+        let (header, mut csv) = self.begin_parser().await?;
 
         let mut columns = InferredTypes::new(header);
         csv.read_rows(&mut columns).await?;
@@ -304,23 +307,21 @@ impl Importer for CsvImporter {
         }
     }
 
-    fn load_schema(&self, file: Arc<dyn ReadableFile>) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + '_>> {
+    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + '_>> {
         Box::pin(async move {
-            let file_stream = file.stream(0, None).await?;
-            let columns = self.infer_types(file_stream).await?;
+            let columns = self.infer_types().await?;
             Ok(columns.schema())
         })
     }
 
-    fn import(&self, file: Arc<dyn ReadableFile>, schema: Option<EntitySchema>, _pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
+    fn import(&self, schema: Option<EntitySchema>, _pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
         Box::pin(async {
             let schema = if let Some(schema) = schema {
                 schema
             } else {
-                self.load_schema(file.clone()).await?
+                self.load_schema().await?
             };
-            let file_stream = file.stream(0, None).await?;
-            let (entity, completion) = self.load(file_stream, schema).await?;
+            let (entity, completion) = self.load(schema).await?;
             Ok((entity, Box::pin(completion) as Pin<Box<_>>))
         })
     }
@@ -538,12 +539,12 @@ fn test_csv() {
     use std::str::FromStr;
     use crate::schema::{Field, FieldKind};
     use jiff::Zoned;
-    use futures_lite::{future::block_on, io::Cursor};
+    use futures_lite::{future::block_on};
 
-    let file = Box::pin(Cursor::new(b"timestamp,value,enum,str\n2025-01-01T00:00:01Z,1.0,b,abc\n2025-01-01T00:00:01.100Z,2.0,a,\"1234567890,1234567890\"\n"));
+    let file = Arc::new(Vec::from(b"timestamp,value,enum,str\n2025-01-01T00:00:01Z,1.0,b,abc\n2025-01-01T00:00:01.100Z,2.0,a,\"1234567890,1234567890\"\n"));
 
-    let importer = CsvImporter::csv();
-    let inferred_types = block_on(importer.infer_types(file.clone())).unwrap();
+    let importer = CsvImporter::csv(file);
+    let inferred_types = block_on(importer.infer_types()).unwrap();
     let inferred_schema = inferred_types.schema();
     let record_fields = match inferred_schema {
         EntitySchema::Record { children, ..} => children,
@@ -564,7 +565,7 @@ fn test_csv() {
         attributes: Default::default(),
     };
 
-    let (entity, completion) = block_on(importer.load(file, schema)).unwrap();
+    let (entity, completion) = block_on(importer.load(schema)).unwrap();
     block_on(completion).unwrap();
 
     let vm = crate::view::ViewManager::new();
