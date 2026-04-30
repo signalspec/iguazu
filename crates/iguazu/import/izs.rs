@@ -1,6 +1,6 @@
 use std::{pin::Pin, sync::Arc};
 
-use crate::{import::{ImportError, Importer}, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::{Pool, izs::IzsFile}};
+use crate::{import::{ImportError, Importer}, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::{Pool}, izs::IzsFile};
 
 /// Importer for the native Iguazu `izs` format.
 pub struct IzsImporter {

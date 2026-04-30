@@ -12,7 +12,7 @@ pub mod summary;
 pub mod time;
 mod util;
 mod element;
-mod izs;
+pub mod izs;
 pub use element::{Element, ElementSize};
 
 #[cfg(all(feature="clap", any(target_family = "unix", target_family = "windows")))]

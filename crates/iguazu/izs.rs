@@ -3,15 +3,16 @@ use std::{io, mem, pin::Pin, sync::Arc};
 
 use async_executor::Executor;
 use futures_lite::{AsyncWrite, AsyncWriteExt};
+use log::debug;
 use serde::{Deserialize, Serialize};
 
-use crate::{ElementSize, export::ExportError, schema::{Entity, EntityData, EntityStream}, stream::ArcStream, summary::StoredSummaryMap};
+use crate::{ElementSize, export::ExportError, import::ImportError, io::ReadableFile, schema::{Entity, EntityData, EntitySchema, EntityStream}, storage::{Pool, izs::IzsStream}, stream::{ArcStream, Stream}, summary::StoredSummaryMap};
 use async_lock::Mutex as AsyncMutex;
 
-pub const HEADER_MAGIC: [u8; 8] = [ 0x00, 0x21, 0x4a, 0xd9, 0xff, 0x90, 0xba, 0xed ];
-pub const FOOTER_MAGIC: [u8; 8] = [ 0x01, 0x21, 0x4a, 0xd9, 0x01, 0x90, 0xba, 0xed ];
+pub(crate) const HEADER_MAGIC: [u8; 8] = [ 0x00, 0x21, 0x4a, 0xd9, 0xff, 0x90, 0xba, 0xed ];
+pub(crate) const FOOTER_MAGIC: [u8; 8] = [ 0x01, 0x21, 0x4a, 0xd9, 0x01, 0x90, 0xba, 0xed ];
 
-pub struct Footer {
+pub(crate) struct Footer {
     pub meta_len: u32,
     pub reserved: u32,
 }
@@ -47,12 +48,12 @@ impl Footer {
 
 #[derive(Serialize, Deserialize)]
 pub struct FileMeta {
-    pub entity: Entity<StreamMeta, StoredSummaryMap<StreamMeta>>,
+    pub(crate) entity: Entity<StreamMeta, StoredSummaryMap<StreamMeta>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 #[serde(rename_all = "lowercase")]
-pub enum CompressionMethod {
+pub(crate) enum CompressionMethod {
     None,
     Zstd,
     #[serde(other)]
@@ -61,7 +62,7 @@ pub enum CompressionMethod {
 
 /// Stream info in `data` of the metadata
 #[derive(Serialize, Deserialize, Clone)]
-pub struct StreamMeta {
+pub(crate) struct StreamMeta {
     #[serde(alias = "element_type")] // Pre-0.1
     pub element: ElementSize,
     #[serde(alias = "block_size")] // Pre-0.1
@@ -74,6 +75,74 @@ pub struct StreamMeta {
 
 impl EntityData for StreamMeta {
     type SummaryMap = StoredSummaryMap<StreamMeta>;
+}
+
+pub struct IzsFile {
+    file: Arc<dyn ReadableFile>,
+    tail: Vec<u8>,
+    file_size: u64,
+}
+
+impl IzsFile {
+    pub async fn new(file: Arc<dyn ReadableFile>) -> Result<Self, ImportError> {
+        let (tail, file_size) = file.clone().read_at_end(1024 * 1024).await?;
+        let s = Self { file, tail, file_size };
+        s.footer()?;
+        Ok(s)
+    }
+
+    pub fn filename(&self) -> Option<&str> {
+        self.file.filename()
+    }
+
+    pub(crate) async fn read_at(&self, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
+        let tail_offset = self.file_size.saturating_sub(self.tail.len() as u64);
+        if let Some(pos) = offset.checked_sub(tail_offset) {
+            debug!("Reading {len} bytes at {offset} from tail (pos {pos})");
+            let end = (self.tail.len() as u64).min(pos + len as u64) as usize;
+            return Ok(self.tail[pos as usize..end].to_vec());
+        }
+
+        self.file.clone().read_at(offset, len).await
+    }
+
+    fn footer(&self) -> Result<Footer, ImportError> {
+        let footer_offset = self.tail.len().checked_sub(Footer::LEN)
+            .ok_or_else(|| ImportError::InvalidFile("File too small for footer".to_string()))?;
+        Footer::from_bytes(&self.tail[footer_offset..])
+            .ok_or_else(|| ImportError::InvalidFile("Invalid footer".to_string()))
+    }
+
+    pub async fn load_meta(&self) -> Result<FileMeta, ImportError> {
+        let footer = self.footer()?;
+        let meta_pos = self.file_size.checked_sub(Footer::LEN as u64 + footer.meta_len as u64)
+            .ok_or_else(|| ImportError::InvalidFile("Invalid metadata position".to_string()))?;
+        let meta = self.read_at(meta_pos, footer.meta_len as usize).await?;
+        let meta = zstd::bulk::decompress(&meta, 16 * 1024 * 1024)
+            .map_err(|e| ImportError::InvalidFile(format!("Failed to decompress metadata: {}", e)))?;
+        serde_json::from_slice(&meta).map_err(|e| ImportError::InvalidFile(format!("Invalid metadata: {}", e)))
+    }
+
+    pub async fn load_schema(&self) -> Result<EntitySchema, ImportError> {
+        let meta = self.load_meta().await?;
+        Ok(meta.entity.schema())
+    }
+
+    pub async fn load_entity(self: Arc<Self>, pool: Arc<Pool>) -> Result<EntityStream, ImportError> {
+        let meta = self.load_meta().await?;
+
+        meta.entity.try_map_data_async(move |s| {
+            let shared = self.clone();
+            let pool_inner = pool.clone();
+            let s = s.clone();
+            pool.executor.spawn(async move {
+                let index = shared.read_at(s.root, s.root_len as usize).await?;
+                let block_index = BlockIndex::parse(&index);
+                let stream = IzsStream::new(shared, pool_inner, &s, block_index);
+                Ok(Arc::new(stream) as Arc<dyn Stream>)
+            })
+        }).await
+    }
 }
 
 struct WriteState {
@@ -237,6 +306,6 @@ pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<
     let footer_bytes = footer.to_bytes();
     write.write_block(&footer_bytes).await?;
 
-    write.file.flush().await?;
+    write.file.close().await?;
     Ok(())
 }
