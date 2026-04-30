@@ -61,10 +61,6 @@ fn info_tree_inner<D, S>(w: &mut impl Write, prefix: &str, name: &str, entity: &
             header_line(w, true, name, "Group")?;
             print_children(w, prefix, children.iter(), info_tree_inner)?;
         }
-        Entity::Record { children, .. }=> {
-            header_line(w, true, name, "Record")?;
-            print_children(w, prefix, children.iter(), info_tree_inner)?;
-        }
         Entity::Data { field, .. } => {
             info_tree_field(w, true, prefix, name, field)?;
         }

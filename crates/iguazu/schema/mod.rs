@@ -89,12 +89,6 @@ pub enum Entity<D, S> {
         #[serde(flatten)]
         attributes: AttributeMap,
     },
-    Record {
-        children: IndexMap<EcoString, Entity<D, S>>,
-
-        #[serde(flatten)]
-        attributes: AttributeMap,
-    },
     Union {
         #[serde(skip_serializing_if = "EntityData::skip_serialize", bound(serialize = "D: Serialize + EntityData", deserialize = "D: Deserialize<'de> + EntityData"))]
         data: D,
@@ -324,8 +318,9 @@ impl Field {
 }
 
 impl<D, S> Entity<D, S> {
-    pub fn record() -> Self {
-        Entity::Record { children: IndexMap::new(), attributes: Default::default() }
+    pub fn record(children: impl IntoIterator<Item = (EcoString, Entity<D, S>)>) -> Self {
+        Entity::Group { children: IndexMap::from_iter(children), attributes: Default::default() }
+            .with_attribute(attribute::core::ROLE, attribute::core::Role::Record)
     }
 
     pub fn group() -> Self {
@@ -343,7 +338,6 @@ impl<D, S> Entity<D, S> {
     pub fn attributes(&self) -> &AttributeMap {
         match self {
             Entity::Group { attributes, .. }
-            | Entity::Record { attributes, .. }
             | Entity::Union { attributes, .. }
             | Entity::FixedArray { attributes, .. }
             | Entity::Tuple { attributes, .. }
@@ -355,7 +349,6 @@ impl<D, S> Entity<D, S> {
     pub fn attributes_mut(&mut self) -> &mut AttributeMap {
         match self {
             Entity::Group { attributes, .. }
-            | Entity::Record { attributes, .. }
             | Entity::Union { attributes, .. }
             | Entity::FixedArray { attributes, .. }
             | Entity::Tuple { attributes, .. }
@@ -387,7 +380,7 @@ impl<D, S> Entity<D, S> {
 
     pub fn child(&self, child: &str) -> Option<&Entity<D, S>> {
         match *self {
-            Entity::Group { ref children, .. } | Entity::Record { ref children, .. } => {
+            Entity::Group { ref children, .. } => {
                 children.get(child)
             }
             Entity::FixedArray { ref child, .. }
@@ -401,7 +394,7 @@ impl<D, S> Entity<D, S> {
 
     pub fn child_mut(&mut self, child: &str) -> Option<&mut Entity<D, S>> {
         match *self {
-            Entity::Group { ref mut children, .. } | Entity::Record { ref mut children, .. } => {
+            Entity::Group { ref mut children, .. } => {
                 children.get_mut(child)
             }
             Entity::FixedArray { ref mut child, .. }
@@ -415,7 +408,7 @@ impl<D, S> Entity<D, S> {
 
     pub fn child_owned(self, child: &str) -> Option<Self> {
         match self {
-            Entity::Group { mut children, .. } | Entity::Record { mut children, .. } => {
+            Entity::Group { mut children, .. } => {
                 children.swap_remove(child)
             }
             Entity::FixedArray { child, .. }
@@ -429,8 +422,7 @@ impl<D, S> Entity<D, S> {
 
     pub fn with_child(mut self, name: EcoString, child: Entity<D, S>) -> Self {
         match &mut self {
-            Entity::Group { children, .. }
-            | Entity::Record { children, .. } => {
+            Entity::Group { children, .. } => {
                 children.insert(name, child);
             }
             _ => panic!("Cannot add child to non-group or non-record entity"),
@@ -480,12 +472,6 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                     .map(|(name, child)| child.try_map_data(f).map(|c| (name.clone(), c)))
                     .collect::<Result<IndexMap<_, _>, E>>()?;
                 Ok(Entity::Group { children, attributes: attributes.clone() })
-            }
-            Entity::Record { children, attributes } => {
-                let children = children.iter()
-                    .map(|(name, child)| child.try_map_data(f).map(|c| (name.clone(), c)))
-                    .collect::<Result<IndexMap<_, _>, E>>()?;
-                Ok(Entity::Record { children, attributes: attributes.clone() })
             }
             Entity::Union { data, variants, attributes } => {
                 let data = f(data)?;
@@ -584,10 +570,6 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                         let children = map_children(children, f).await?;
                         Ok(Entity::Group { children, attributes: attributes.clone() })
                     }
-                    Entity::Record { ref children, ref attributes } => {
-                        let children = map_children(children, f).await?;
-                        Ok(Entity::Record { children, attributes: attributes.clone() })
-                    }
                     Entity::Data { ref data, ref field, ref summaries } => {
                         let (data, summaries) = future::try_zip(
                             f(data),
@@ -632,7 +614,7 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
 impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
     pub fn each_data_mut(&mut self, mut f: &mut impl FnMut(&mut D)) {
         match self {
-            Entity::Group { children, .. } | Entity::Record { children, ..} => {
+            Entity::Group { children, .. } => {
                 for child in children.values_mut() {
                     child.each_data_mut(f);
                 }
@@ -694,7 +676,7 @@ impl EntitySchema {
 
     pub fn single_stream(&self) -> Option<(&Field, usize)> {
         match self {
-            Entity::Group { .. } | Entity::Record { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
+            Entity::Group { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
             Entity::FixedArray { elements, child, .. } => {
                 let (field, stride) = child.single_stream()?;
                 Some((field, stride * (*elements as usize)))
@@ -709,7 +691,7 @@ impl EntitySchema {
 
     pub fn wrap_single(&self, data: ArcStream) -> Option<EntityStream> {
         match *self {
-            Entity::Group { .. } | Entity::Record { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
+            Entity::Group { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
             Entity::Data { data: Ignored, ref field, .. } => {
                 Some(Entity::Data { data, field: field.clone(), summaries: Default::default() })
             }

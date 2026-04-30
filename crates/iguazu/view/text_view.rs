@@ -63,7 +63,7 @@ impl<'a> TextView<'a> {
 
         fn this<'a>(vm: &'a ViewManager, elements: &mut Vec<Element<'a>>, entity: &EntityStream) {
             match *entity {
-                Entity::Group { .. } | Entity::Record { .. } => {}
+                Entity::Group { .. } => {}
                 Entity::Data { ref data, ref field, .. } => {
                     elements.push(Element::Field(IntView::new_from_stream(vm, data), TextFormat::new(field)));
                 },
@@ -251,10 +251,10 @@ fn test_textview() {
     assert_eq!(floats_view.format(0).to_string(), "3333.25");
     assert_eq!(floats_view.format(2).to_string(), "0.5");
 
-    let record = EntityStream::record()
-        .with_child("a".into(), bits.clone())
-        .with_child("b".into(), ints.clone())
-        .with_attribute(crate::schema::attribute::core::TEXT, "test({b}, {a})".into());
+    let record = EntityStream::record([
+        ("a".into(), bits.clone()),
+        ("b".into(), ints.clone()),
+    ]).with_attribute(crate::schema::attribute::core::TEXT, "test({b}, {a})".into());
 
     let record_view = vm.text_view(&record);
     assert_eq!(record_view.format(0).to_string(), "test(1, 10)");

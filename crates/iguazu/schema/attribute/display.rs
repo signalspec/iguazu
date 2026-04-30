@@ -2,7 +2,7 @@ use ecow::EcoString;
 use strum::{EnumString, IntoStaticStr};
 
 use super::{Attribute, string_attribute};
-use crate::schema::{AttributeMap, Entity, Field, FieldKind, attribute::AttributeValue};
+use crate::schema::{AttributeMap, Entity, Field, FieldKind, attribute::{AttributeValue, core::{ROLE, Role}}};
 
 pub const DISPLAY: Attribute<Display> = Attribute::named("display:default");
 pub const ACCENT_COLOR: Attribute<AccentColor> = Attribute::named("display:accent_color");
@@ -101,7 +101,7 @@ impl<D, S> Entity<D, S> {
         self.attribute(DISPLAY)
             .or(if self.time().is_some() || self.sample_rate().is_some() {
                 Some(Display::Timeline)
-            } else if matches!(self, Entity::Record { .. }) {
+            } else if matches!(self, Entity::Group { .. }) && self.role() == Some(Role::Record) {
                 Some(Display::Table)
             } else {
                 None
@@ -114,11 +114,15 @@ impl<D, S> Entity<D, S> {
 
     pub fn timeline_row(&self) -> TimelineRow {
         self.attribute(TIMELINE_ROW).unwrap_or_else(|| match self {
-            Entity::Record { .. } if self.time().is_some() => TimelineRow::Events,
-            Entity::Group { .. } | Entity::Record { .. } => TimelineRow::Group,
+            Entity::Group { .. } if self.role() == Some(Role::Record) && self.time().is_some() => TimelineRow::Events,
+            Entity::Group { .. } => TimelineRow::Group,
             Entity::Data { field, .. } => field.timeline_row(),
             _ => TimelineRow::Hidden,
         })
+    }
+
+    pub fn role(&self) -> Option<Role> {
+        self.attribute(ROLE)
     }
 }
 

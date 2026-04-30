@@ -5,6 +5,7 @@ use strum::{EnumString, IntoStaticStr};
 use crate::{schema::{Entity, Field}, time::Time};
 use super::{ Attribute, AttributeMap, string_attribute, AttributeValue};
 
+pub const ROLE: Attribute<Role> = Attribute::named("role");
 pub const SAMPLE_RATE: Attribute<f64> = Attribute::named("sample_rate");
 pub const TIME: Attribute<EcoString> = Attribute::named("time");
 pub const TIME_RATE: Attribute<f64> = Attribute::named("time:rate");
@@ -15,6 +16,19 @@ pub const TEXT: Attribute<EcoString> = Attribute::named("text");
 pub const NUMBER_RANGE: Attribute<NumberRange> = Attribute::named("number:range");
 pub const NUMBER_SCALE: Attribute<f64> = Attribute::named("number:scale");
 pub const NUMBER_OFFSET: Attribute<f64> = Attribute::named("number:offset");
+
+#[derive(Clone, Copy, Debug, IntoStaticStr, EnumString, PartialEq, Eq)]
+#[strum(serialize_all = "snake_case")]
+pub enum Role {
+    /// Group where children represent time-aligned columns
+    Record,
+
+    /// Group where children represent independent series captured
+    /// simultaneously, but not necessarily sampled at the same rate
+    Capture,
+}
+
+string_attribute!(Role);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NumberRange {

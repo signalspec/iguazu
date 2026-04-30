@@ -12,7 +12,7 @@ impl EntityStream {
     pub fn build_summaries(&mut self, executor: &Arc<Executor<'static>>, storage: &Arc<dyn Storage>) -> TaskSet<String> {
         fn inner(this: &mut EntityStream, tasks: &mut TaskSetBuilder<String>, storage: &Arc<dyn Storage>) {
             match *this {
-                Entity::Group { ref mut children, .. } | Entity::Record { ref mut children, .. } => {
+                Entity::Group { ref mut children, .. } => {
                     for child in children.values_mut() {
                         inner(child, tasks, storage);
                     }

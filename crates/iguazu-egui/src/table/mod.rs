@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use ecow::EcoString;
 use egui::Margin;
-use iguazu::{schema::{Entity, EntityStream}, view::{TextView, ViewManager}};
+use iguazu::{schema::{Entity, EntityStream, attribute::core::Role}, view::{TextView, ViewManager}};
 use itertools::Itertools;
 
 use crate::ViewerContext;
@@ -14,7 +14,7 @@ impl TableView {
     pub fn new() -> Self {
         Self {}
     }
-    
+
     pub fn show(
         &mut self,
         vcx: &mut ViewerContext,
@@ -48,7 +48,7 @@ impl<'a> Delegate<'a> {
         columns.push(Column::Index);
 
         let mut n_rows = 0;
-    
+
         fn inner<'a>(
             vm: &'a ViewManager,
             depth: usize,
@@ -58,8 +58,7 @@ impl<'a> Delegate<'a> {
             entity: &EntityStream,
         ) {
             match entity {
-                Entity::Group { .. } => {}
-                Entity::Record { children, .. } => {
+                Entity::Group { children, .. } if entity.role() == Some(Role::Record) => {
                     for (name, child) in children {
                         let start = data.len();
                         inner(vm, depth + 1, data, headers, n_rows, child);
@@ -74,9 +73,9 @@ impl<'a> Delegate<'a> {
                 }
             }
         }
-    
+
         inner(view_manager, 0, &mut columns, &mut headers, &mut n_rows, entity);
-    
+
         Self { columns, headers, n_rows }
     }
 
@@ -86,7 +85,7 @@ impl<'a> Delegate<'a> {
                     .range(10.0..=500.0)
                     .resizable(true)
         }).collect();
-    
+
         let headers: Vec<_> = self.headers.keys()
             .chunk_by(|(depth, _, _)| depth)
             .into_iter()
@@ -143,7 +142,7 @@ impl<'a> egui_table::TableDelegate for Delegate<'a> {
                         ui.label(v);
                     }
                 }
-                
+
             });
     }
 }

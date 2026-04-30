@@ -295,7 +295,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
             match entity.timeline_row() {
                 TimelineRow::Group => {
                     match &entity {
-                        Entity::Group { children, .. } | Entity::Record { children, .. } => {
+                        Entity::Group { children, .. } => {
                             for (name, child) in children {
                                 add_entity(vcx, rows, name.clone(), child)
                             }

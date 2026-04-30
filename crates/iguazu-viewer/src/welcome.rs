@@ -133,8 +133,8 @@ fn generate_demo_entity() -> EntityStream {
         summaries: Default::default(),
     }.with_attribute(SAMPLE_RATE, 25.0);
 
-    Entity::record()
-        .with_child("analog".into(), analog)
-        .with_child("digital".into(), digital)
-        .with_attribute(DISPLAY, Display::Timeline)
+    Entity::record([
+        ("analog".into(), analog),
+        ("digital".into(), digital),
+    ]).with_attribute(DISPLAY, Display::Timeline)
 }

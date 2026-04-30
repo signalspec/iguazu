@@ -331,7 +331,7 @@ fn column_parsers(schema: &EntitySchema, headers: &[EcoString]) -> Result<(Vec<C
     let mut parsers = (0..headers.len()).map(|_| ColumnParser::Skip).collect::<Vec<_>>();
 
     let entity = match schema {
-        Entity::Record { children, attributes } => {
+        Entity::Group { children, attributes } => {
             let children = children.iter().map(|(name, child)| {
                 let column = headers.iter().position(|h| h == name)
                     .ok_or_else(|| ImportError::SchemaMismatch(format!("No column found for field `{}`", name)))?;
@@ -340,7 +340,7 @@ fn column_parsers(schema: &EntitySchema, headers: &[EcoString]) -> Result<(Vec<C
                 Ok((name.clone(), entity))
             }).collect::<Result<IndexMap<_, _>, ImportError>>()?;
 
-            Entity::Record { children, attributes: attributes.clone() }
+            Entity::Group { children, attributes: attributes.clone() }
         }
         _ => return Err(ImportError::SchemaMismatch(format!("CSV import expects top-level entity to be a record, not {:?}", schema))),
     };
@@ -515,9 +515,7 @@ impl InferredTypes {
     }
 
     fn schema(&self) -> EntitySchema {
-        self.0.iter().fold(
-            EntitySchema::record(),
-            |record, column| record.with_child(column.name.clone(), column.ty.schema())
+        EntitySchema::record(self.0.iter().map(|col| (col.name.clone(), col.ty.schema()))
         )
     }
 }
@@ -547,7 +545,7 @@ fn test_csv() {
     let inferred_types = block_on(importer.infer_types()).unwrap();
     let inferred_schema = inferred_types.schema();
     let record_fields = match inferred_schema {
-        EntitySchema::Record { children, ..} => children,
+        EntitySchema::Group { children, ..} => children,
         _ => panic!("expected record"),
     };
     assert!(matches!(record_fields["timestamp"], Entity::Data { field: Field { kind: FieldKind::Timestamp, ..}, ..}));
@@ -555,15 +553,12 @@ fn test_csv() {
     assert!(matches!(record_fields["enum"], Entity::Data { field: Field { kind: FieldKind::Enum { ref values, .. }, ..}, ..} if values == &["a", "b"]));
     assert!(matches!(record_fields["str"], Entity::VariableArray { ..}));
 
-    let schema = Entity::Record {
-        children: IndexMap::from([
-            ("timestamp".into(), EntitySchema::field(Field::timestamp(1000.0, Some(Zoned::from_str("2025-01-01T00:00:00[UTC]").unwrap())))),
-            ("value".into(), EntitySchema::field(Field::float32())),
-            ("enum".into(), EntitySchema::field(Field::r#enum(["a".into(), "b".into()]))),
-            ("str".into(), Entity::string()),
-        ]),
-        attributes: Default::default(),
-    };
+    let schema = Entity::record([
+        ("timestamp".into(), EntitySchema::field(Field::timestamp(1000.0, Some(Zoned::from_str("2025-01-01T00:00:00[UTC]").unwrap())))),
+        ("value".into(), EntitySchema::field(Field::float32())),
+        ("enum".into(), EntitySchema::field(Field::r#enum(["a".into(), "b".into()]))),
+        ("str".into(), Entity::string()),
+    ]);
 
     let (entity, completion) = block_on(importer.load(schema)).unwrap();
     block_on(completion).unwrap();
