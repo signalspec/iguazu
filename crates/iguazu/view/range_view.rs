@@ -29,7 +29,7 @@ impl<'a> RangeView<'a> {
     pub fn for_each_elem(&self, range: IdxRange, min_width: NonZeroU64, mut f: impl FnMut(RangeElement)) {
         let log_min_width = min_width.ilog2();
 
-        if log_min_width <= self.base_level as u32 {
+        if log_min_width <= self.base_level as u32 || self.summaries.is_empty() {
             self.view.for_each_elem(range, |i, elem| {
                 match elem {
                     Some(v) => f(RangeElement::Single(i, v)),
