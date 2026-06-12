@@ -228,6 +228,7 @@ pub struct ReadableStreamReader {
     buf: Vec<u8>,
     buf_offset: usize,
     future: Option<SendWrapper<JsFuture>>,
+    done: bool,
 }
 
 impl ReadableStreamReader {
@@ -240,6 +241,7 @@ impl ReadableStreamReader {
             buf: Vec::new(),
             buf_offset: 0,
             future: None,
+            done: false,
         }
     }
 }
@@ -265,7 +267,7 @@ impl AsyncBufRead for ReadableStreamReader {
     ) -> Poll<io::Result<&[u8]>> {
         let this = self.get_mut();
 
-        if this.buf_offset >= this.buf.len() {
+        if this.buf_offset >= this.buf.len() && !this.done {
             let fut = this
                 .future
                 .get_or_insert_with(|| SendWrapper::new(JsFuture::from(this.reader.read())));
@@ -279,7 +281,10 @@ impl AsyncBufRead for ReadableStreamReader {
                 .unchecked_into::<web_sys::ReadableStreamReadResult>();
 
             this.future = None;
-            if !read_result.get_done().unwrap() {
+
+            if read_result.get_done().unwrap() {
+                this.done = true;
+            } else {
                 let chunk = read_result.get_value().dyn_into::<Uint8Array>().unwrap();
                 let len = chunk.length() as usize;
                 this.buf.clear();
@@ -291,8 +296,6 @@ impl AsyncBufRead for ReadableStreamReader {
                     this.buf.set_len(len);
                 }
                 this.buf_offset = 0;
-            } else {
-                return Poll::Ready(Ok(&[]));
             }
         }
 
