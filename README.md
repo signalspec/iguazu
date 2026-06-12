@@ -6,7 +6,7 @@ Tools for viewing, storing, and sharing mixed-signal time series data
 
 ## Key features
 
-- Import from CSV and raw binary array files. *Future: JSON, WAV, SigMF, VCD, Sigrok srzip, etc.*
+- Import from CSV, Sigrok SRZip, and raw binary array files. *Future: JSON, WAV, SigMF, VCD, etc.*
 
 - A native `.izs` (Iguazu Signal) file format supporting compression, metadata, random access, and incremental loading from static web hosting.
 
