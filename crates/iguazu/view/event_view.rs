@@ -35,10 +35,11 @@ impl<'v> EventView<'v> {
             .unwrap_or(0)
     }
 
-    /// Finds the smallest index within `bounds` whose value is equal to or greater than `search`
+    /// Finds the smallest index within `bounds` whose value is equal to or greater than `search`.
+    /// If `bounds` is empty or all values are less than `search`, returns `bounds.max`.
     fn binary_search(&self, bounds: IdxRange, search: Idx) -> Option<Idx> {
         if bounds.max <= bounds.min {
-            return None;
+            return Some(bounds.max);
         }
 
         let mut base = bounds.min;
@@ -77,6 +78,7 @@ impl<'v> EventView<'v> {
     pub fn range(&self, val_range: IdxRange, min_width: u64) -> EventViewIter<'_, 'v> {
         let idx_range = self.binary_search_bounds(val_range)
             .map(|r| r.divide(2));
+
         EventViewIter {
             view: self,
             min_width,
@@ -184,7 +186,7 @@ fn test_event_view() {
     assert_eq!(ev.binary_search(IdxRange { min: 0, max: 10 }, 1001), Some(1));
     assert_eq!(ev.binary_search(IdxRange { min: 1, max: 10 }, 500), Some(1));
     assert_eq!(ev.binary_search(IdxRange { min: 0, max: 10 }, 9000), Some(10));
-    assert_eq!(ev.binary_search(IdxRange { min: 5, max: 5 }, 500), None);
+    assert_eq!(ev.binary_search(IdxRange { min: 5, max: 5 }, 500), Some(5));
 
     assert_eq!(ev.range(IdxRange { min: 0, max: 100 }, 0).collect::<Vec<_>>(), vec![]);
     assert_eq!(ev.range(IdxRange { min: 3000, max: 5000 }, 0).collect::<Vec<_>>(), vec![
@@ -210,4 +212,11 @@ fn test_event_view() {
         Event::Dense(IdxRange { min: 1000, max: 1200 }),
         Event::Dense(IdxRange { min: 4000, max: 4100 }),
     ]);
+
+
+    assert_eq!(ev.range(IdxRange { min: 0, max: 800 }, 10).collect::<Vec<_>>(), vec![]);
+
+    assert_eq!(ev.range(IdxRange { min: 3000, max: 4000 }, 10).collect::<Vec<_>>(), vec![]);
+
+    assert_eq!(ev.range(IdxRange { min: 5000, max: 6000 }, 10).collect::<Vec<_>>(), vec![]);
 }
