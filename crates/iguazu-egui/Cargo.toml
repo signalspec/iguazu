@@ -20,6 +20,6 @@ clap.workspace = true
 ecow.workspace = true
 async-executor.workspace = true
 serde = "1.0.160"
-egui_table = "0.8.0"
+egui_table = "0.9.0"
 itertools = "0.14.0"
 fragile = "2.0.0"

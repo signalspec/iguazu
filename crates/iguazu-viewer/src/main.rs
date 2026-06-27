@@ -269,7 +269,7 @@ impl eframe::App for App {
         });
 
         let central_panel = Frame::central_panel(ui.style()).inner_margin(0.0);
-        egui::CentralPanel::default().frame(central_panel).show_inside(ui, |ui| {
+        egui::CentralPanel::default().frame(central_panel).show(ui, |ui| {
             match &mut self.state {
                 AppState::Welcome(welcome) => {
                     if let Some(response) = welcome.show(&mut self.vctx, ui) {

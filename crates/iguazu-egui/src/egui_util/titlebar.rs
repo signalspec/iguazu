@@ -56,7 +56,7 @@ impl TitleBar {
                     .inner_margin(Margin::same(0))
                     .outer_margin(Margin::same(0)),
             )
-            .show_inside(parent_ui, |ui| {
+            .show(parent_ui, |ui| {
                 #[cfg(not(target_os ="macos"))]
                 self.interact(ui);
 

@@ -17,7 +17,7 @@ repository = "https://github.com/signalspec/iguazu"
 iguazu = { path = "crates/iguazu", version = "0.0.1" }
 iguazu-egui = { path = "crates/iguazu-egui", version = "0.0.1" }
 async-executor = "1.13.1"
-egui = "0.34.0"
+egui = "0.35.0"
 num-complex = "0.4.3"
 num-rational = "0.4.1"
 num-traits = "0.2.15"
