@@ -28,7 +28,7 @@ async-trait = "0.1.88"
 lexical-core = { version = "1.0.5", optional = true }
 csv-core = { version = "0.1.12", optional = true }
 clap = { workspace = true, optional = true, features = ["derive"] }
-strum = { version = "0.27.1", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 ecow.workspace = true
 arrayvec = "0.7.6"
 atomic-waker = "1.1.2"
@@ -39,7 +39,7 @@ zstd = { version = "0.13.3", optional = true }
 async-compression = { version = "0.4.41", features = ["futures-io", "deflate"], optional = true }
 jiff = "0.2.16"
 futures-util = "0.3.32"
-itertools = "0.14.0"
+itertools = "0.15.0"
 
 [features]
 fs = ["dep:blocking", "dep:piper"]

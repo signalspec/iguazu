@@ -1,7 +1,7 @@
 use std::{fmt::Debug, io, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll}};
 use futures_lite::AsyncRead;
 
-use itertools::Itertools;
+use itertools::{AllEqualValueError, Itertools};
 use once_array::OnceArray;
 
 use crate::{ElementSize, io::zip::{UnzipReader, ZipEntry}, storage::{Pool, common::{CommonStreamAccess, LoadBlock, LoadBlockRes}}, stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState}, util::weak_map::WeakMap};
@@ -182,7 +182,7 @@ fn infer_block_size(mut sizes: impl DoubleEndedIterator<Item = u64>) -> Option<u
     let last = sizes.next_back()?;
     match sizes.all_equal_value() {
         Ok(s) if last <= s => usize::try_from(s).ok(),
-        Err(None) if last <= 16 * 1024 * 1024 => Some(last.try_into().unwrap()),
+        Err(AllEqualValueError(None)) if last <= 16 * 1024 * 1024 => Some(last.try_into().unwrap()),
         _ => None
     }
 }
