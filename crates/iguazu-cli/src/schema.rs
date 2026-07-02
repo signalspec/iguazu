@@ -4,8 +4,8 @@ use clap::Args;
 use iguazu::{cli::ImportOpts, import::IMPORTERS};
 use futures_lite::future::block_on;
 
+/// Dump the schema as JSON
 #[derive(Args)]
-#[command(about = "Describe the entities in the file")]
 pub struct Cli {
     #[clap(flatten)]
     import: ImportOpts,

@@ -4,8 +4,8 @@ use clap::Args;
 use iguazu::{cli::{ExportOpts, ImportOpts}, export::EXPORTERS, import::IMPORTERS, storage::{MemoryStorage, Storage}};
 use futures_lite::future::{self, block_on};
 
+/// Convert between formats
 #[derive(Args)]
-#[command(about = "Convert between formats")]
 pub struct Cli {
     #[clap(flatten)]
     import: ImportOpts,

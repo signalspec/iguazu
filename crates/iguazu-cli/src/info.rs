@@ -5,8 +5,8 @@ use iguazu::{cli::ImportOpts, import::IMPORTERS, schema::{Field, FieldKind, Enti
 use owo_colors::OwoColorize;
 use futures_lite::future::block_on;
 
+/// Describe the entities in the file
 #[derive(Args)]
-#[command(about = "Describe the entities in the file")]
 pub struct Cli {
     #[clap(flatten)]
     import: ImportOpts,
