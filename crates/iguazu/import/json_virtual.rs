@@ -1,6 +1,6 @@
 use std::{pin::Pin, sync::Arc};
 
-use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::StreamRef}, storage::{ FlatFileOpts, FlatFileStream, Pool }, stream::ArcStream, summary::StoredSummaryMap};
+use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::{InlineData, StreamRef}}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream, Pool }, stream::ArcStream, summary::StoredSummaryMap};
 
 use super::{ImportError, Importer};
 
@@ -43,7 +43,17 @@ async fn create_stream(src_file: Arc<dyn ReadableFile>, pool: Arc<Pool>, stream:
         StreamRef::FlatFile { ref file_name, element_size, offset, count } => {
             let file = src_file.relative(file_name).await?;
             let opts = FlatFileOpts { offset, count, ..FlatFileOpts::default() };
-            Ok(Arc::new(FlatFileStream::new(file, pool, element_size, &opts).await?))
+            Ok(Arc::new(FlatFileStream::new(file, pool, element_size, &opts).await?) as ArcStream)
+        }
+        StreamRef::Inline(data) => {
+            Ok(match data {
+                InlineData::F32(data) => MemoryStream::new(&data),
+                InlineData::F64(data) => MemoryStream::new(&data),
+                InlineData::U8(data) => MemoryStream::new(&data),
+                InlineData::U16(data) => MemoryStream::new(&data),
+                InlineData::U32(data) => MemoryStream::new(&data),
+                InlineData::U64(data) => MemoryStream::new(&data),
+            } as ArcStream)
         }
     }
 }
