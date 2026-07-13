@@ -1,0 +1,53 @@
+name: Web
+
+on:
+  - push
+  - pull_request
+
+permissions: {}
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        persist-credentials: false
+    - uses: taiki-e/cache-cargo-install-action@59027ebf20a9617c4e819eb53ccd2673cb162b89 # v3.0.3
+      name: Install mdbook
+      with:
+        tool: mdbook@0.5.4
+    - name: build
+      working-directory: www/
+      run: |
+        mdbook build
+        tar --zstd -cvf web.tar.zstd -C book ./
+    - name: Upload Artifact
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        archive: false
+        path: www/web.tar.zstd
+
+  deploy-web:
+    needs: build-web
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/deploy'
+    environment:
+      name: web
+      url: https://iguazu.signalspec.org
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c #v8.0.1
+        with:
+          name: web.tar.zstd
+          skip-decompress: true
+      - name: Upload
+        env:
+          GREBEDOC_DEPLOY_KEY: ${{ secrets.GREBEDOC_DEPLOY_KEY }}
+        run: |
+          curl https://grebedoc.dev/ -X PUT --fail-with-body \
+            -H "Host: iguazu.signalspec.org" \
+            -H "Authorization: Pages $GREBEDOC_DEPLOY_KEY" \
+            -H "Content-Type: application/x-tar+zstd" \
+            --max-time 15 \
+            --data-binary @web.tar.zstd

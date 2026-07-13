@@ -88,4 +88,5 @@ jobs:
             -H "Host: app.iguazu.signalspec.org" \
             -H "Authorization: Pages $GREBEDOC_DEPLOY_KEY" \
             -H "Content-Type: application/x-tar+zstd" \
+            --max-time 15 \
             --data-binary @wasm-dist.tar.zstd
