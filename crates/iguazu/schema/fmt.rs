@@ -17,11 +17,14 @@ enum Element {
     Float64,
     TimestampAbsolute { epoch: Zoned, period: Time },
     TimestampRelative { period: Time },
-    Enum { pos: u8, bits: u8, values: Vec<EcoString> },
-    Tagged { tag_pos: u8, tag_bits: u8, inner: Vec<TextFormat> },
+    Enum { pos: u8, bits: u8, inner: Vec<TextFormat> },
 }
 
 impl TextFormat {
+    pub fn literal(s: &str) -> TextFormat {
+        TextFormat(vec![Element::Literal(s.into())])
+    }
+
     pub fn new(spec: &Field) -> TextFormat {
         fn inner(components: &mut Vec<Element>, spec: &Field) {
             if let Some(text) = spec.text() {
@@ -106,7 +109,7 @@ impl TextFormat {
                         }
                     }
                 }
-                FieldKind::Float32 { pos }=> {
+                FieldKind::Float32 { pos } => {
                     // TODO: precision
                     components.push(Element::Float32 { pos })
                 }
@@ -114,14 +117,17 @@ impl TextFormat {
                     // TODO: precision
                     components.push(Element::Float64)
                 }
-                FieldKind::Enum { pos, bits, ref values } => {
-                    components.push(Element::Enum{ pos, bits, values: values.clone() });
-                }
-                FieldKind::Tagged { tag_pos, tag_bits, ref values } => {
-                    let inner = values.values()
-                        .map(|f| TextFormat::new(f))
+                FieldKind::Enum { pos, bits, ref values, ref variants } => {
+                    let inner = values.iter()
+                        .map(|v| {
+                            if let Some(variant) = variants.get(v) {
+                                TextFormat::new(variant)
+                            } else {
+                                TextFormat::literal(v)
+                            }
+                        })
                         .collect();
-                    components.push(Element::Tagged { tag_pos, tag_bits, inner })
+                    components.push(Element::Enum { pos, bits, inner });
                 }
                 FieldKind::Character { pos } => {
                     components.push(Element::Character { pos });
@@ -182,16 +188,8 @@ impl TextFormat {
                     let d = val as i128 * period;
                     write!(fmt, "{}", d.format_fixed(period))?;
                 }
-                Element::Enum { pos, bits, ref values } => {
-                    let i = extract(val, pos, bits);
-                    if let Some(v) = values.get(i as usize) {
-                        write!(fmt, "{}", v)?;
-                    } else {
-                        write!(fmt, "‽")?;
-                    }
-                }
-                Element::Tagged { tag_pos: pos, tag_bits, ref inner } => {
-                    let tag = extract(val, pos, tag_bits);
+                Element::Enum { pos, bits, ref inner } => {
+                    let tag = extract(val, pos, bits);
                     if let Some(e) = inner.get(tag as usize) {
                         e.write(fmt, val)?;
                     } else {
@@ -260,17 +258,25 @@ fn test_textformat() {
     );
 
     assert_eq!(
-        TextFormat::new(&Field::new(FieldKind::Enum { pos: 0, bits: 2, values: vec!["a".into(), "b".into(), "c".into()] })).format(1).to_string(),
+        TextFormat::new(&Field::new(FieldKind::Enum {
+            pos: 0,
+            bits: 2,
+            values: vec!["a".into(), "b".into(), "c".into()],
+            variants: Default::default(),
+        })).format(1).to_string(),
         "b"
     );
 
     let f = TextFormat::new(
         &Field::new(
-            FieldKind::Tagged { tag_pos: 0, tag_bits: 1, values: indexmap! {
-                "a".into() => Field::new(FieldKind::Null)
-                    .with_attribute(attribute::core::TEXT, "a".into()),
-                "b".into() => Field::new(FieldKind::Bits { pos: 1, bits: 2 }),
-            }}
+            FieldKind::Enum {
+                pos: 0,
+                bits: 1,
+                values: vec!["a".into(), "b".into()],
+                variants: indexmap! {
+                    "b".into() => Field::new(FieldKind::Bits { pos: 1, bits: 2 }),
+                },
+            }
         ).with_attribute(attribute::core::TEXT, "e:{}".into())
     );
 

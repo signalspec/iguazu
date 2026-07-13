@@ -45,10 +45,9 @@ fn info_tree_field(w: &mut impl Write, top: bool, prefix: &str, name: &str, fiel
         FieldKind::Signed { .. } => header_line(w, top, name, "Signed Int"),
         FieldKind::Float32 { .. } => header_line(w, top, name, "Float32"),
         FieldKind::Float64 => header_line(w, top, name, "Float64"),
-        FieldKind::Enum { .. } => header_line(w, top, name, "Enum"),
-        FieldKind::Tagged { ref values, .. } => {
-            header_line(w, top, name, "Tagged")?;
-            print_children(w, prefix, values.iter().map(|(name, f)| (name.as_str(), f)), |w, prefix, name, field| {
+        FieldKind::Enum { ref variants, .. } => {
+            header_line(w, top, name, "Enum")?;
+            print_children(w, prefix, variants.iter().map(|(name, f)| (name.as_str(), f)), |w, prefix, name, field| {
                 info_tree_field(w, false, prefix, name, field)
             })
         }

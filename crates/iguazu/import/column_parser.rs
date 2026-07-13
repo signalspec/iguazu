@@ -69,7 +69,7 @@ impl ColumnParser {
                         let data = writer.stream().clone() as Arc<dyn Stream>;
                         (data, ColumnParser::Float32(writer))
                     }
-                    FieldKind::Enum { pos: 0, bits, ref values } if bits <= 8 => {
+                    FieldKind::Enum { pos: 0, bits, ref values, ref variants } if bits <= 8 && variants.is_empty() => {
                         let writer = MemoryStreamWriter::new(ElementSize::U8);
                         let data = writer.stream().clone() as Arc<dyn Stream>;
                         (data, ColumnParser::Enum8 { values: values.clone(), writer })

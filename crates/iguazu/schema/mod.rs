@@ -178,12 +178,8 @@ pub enum FieldKind {
         pos: u8,
         bits: u8,
         values: Vec<EcoString>,
-    },
-    Tagged {
-        #[serde(default, skip_serializing_if = "Zero::is_zero")]
-        tag_pos: u8,
-        tag_bits: u8,
-        values: IndexMap<EcoString, Field>,
+        #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+        variants: IndexMap<EcoString, Field>,
     },
     BitStruct {
         children: IndexMap<EcoString, Field>,
@@ -196,15 +192,14 @@ impl FieldKind {
             FieldKind::Null => 0,
             FieldKind::Bits { pos, bits, .. }
             | FieldKind::Int { pos, bits, .. }
-            | FieldKind::Signed { pos, bits, .. }
-            | FieldKind::Enum { pos, bits, .. } => ((1u64 << bits) - 1) << pos,
+            | FieldKind::Signed { pos, bits, .. } => ((1u64 << bits) - 1) << pos,
             FieldKind::Character { pos, .. } => 0xFF << pos,
             FieldKind::Timestamp { .. } => u64::MAX,
             FieldKind::Float32 { pos } => (u32::MAX as u64) << pos,
             FieldKind::Float64 => u64::MAX,
-            FieldKind::Tagged { tag_pos, tag_bits, ref values, .. } => {
-                let tag_mask = ((1u64 << tag_bits) - 1) << tag_pos;
-                let inner_mask = values.values().map(|v| v.kind.mask()).fold(0, |a, b| a | b);
+            FieldKind::Enum { pos, bits, ref variants, .. } => {
+                let tag_mask = ((1u64 << bits) - 1) << pos;
+                let inner_mask = variants.values().map(|v| v.kind.mask()).fold(0, |a, b| a | b);
                 tag_mask | inner_mask
             }
             FieldKind::BitStruct { ref children } => {
@@ -240,7 +235,7 @@ impl Field {
     pub fn r#enum(values: impl IntoIterator<Item = EcoString>) -> Self {
         let values: Vec<_> = values.into_iter().collect();
         let bits = (usize::BITS - values.len().leading_zeros()) as u8;
-        Self::new(FieldKind::Enum { pos: 0, bits, values })
+        Self::new(FieldKind::Enum { pos: 0, bits, values, variants: Default::default() })
     }
 
     pub fn character() -> Self {

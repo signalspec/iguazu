@@ -139,8 +139,7 @@ impl Field {
                 FieldKind::Bits { bits: 1, .. } => TimelineRow::Logic,
                 FieldKind::Bits { .. }
                 | FieldKind::Character { .. }
-                | FieldKind::Enum { .. }
-                | FieldKind::Tagged { .. } => TimelineRow::Trace,
+                | FieldKind::Enum { .. } => TimelineRow::Trace,
                 FieldKind::Timestamp => TimelineRow::Hidden,
                 FieldKind::Int { .. }
                 | FieldKind::Signed { .. }
