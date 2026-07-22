@@ -60,6 +60,15 @@ pub(crate) enum CompressionMethod {
     Unknown,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum IndexCompressionMethod {
+    #[default]
+    None,
+    #[serde(other)]
+    Unknown,
+}
+
 /// Stream info in `data` of the metadata
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct StreamMeta {
@@ -67,10 +76,17 @@ pub(crate) struct StreamMeta {
     pub element: ElementSize,
     #[serde(alias = "block_size")] // Pre-0.1
     pub block: usize,
-    pub root: u64,
-    pub root_len: u32,
-    pub end_idx: u64,
     pub compress: CompressionMethod,
+
+    #[serde(alias = "root")]
+    pub i_offset: u64,
+    #[serde(alias = "root_len")]
+    pub i_size: u32,
+    #[serde(default)]
+    pub i_compress: IndexCompressionMethod,
+
+    #[serde(alias = "end_idx")]
+    pub end: u64,
 }
 
 impl EntityData for StreamMeta {
@@ -136,7 +152,7 @@ impl IzsFile {
             let pool_inner = pool.clone();
             let s = s.clone();
             pool.executor.spawn(async move {
-                let index = shared.read_at(s.root, s.root_len as usize).await?;
+                let index = shared.read_at(s.i_offset, s.i_size as usize).await?;
                 let block_index = BlockIndex::parse(&index);
                 let stream = IzsStream::new(shared, pool_inner, &s, block_index);
                 Ok(Arc::new(stream) as Arc<dyn Stream>)
@@ -220,15 +236,16 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
         }
     }
 
-    let (root, root_len) = write.lock().await.add_block_index(&block_index);
+    let (i_offset, i_size) = write.lock().await.add_block_index(&block_index);
 
     Ok(StreamMeta {
         element,
         block: block_size,
-        root, // Within the block index buffer, its offset is added when it is written out.
-        root_len,
-        end_idx: pos,
         compress: CompressionMethod::Zstd,
+        i_offset, // This is the offset within the block index buffer. Offset of that buffer within the file is added when it is written out.
+        i_size,
+        i_compress: IndexCompressionMethod::None,
+        end: pos,
     })
 }
 
@@ -286,7 +303,8 @@ pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<
     let block_indexes = mem::take(&mut write.block_indexes);
     let block_index_start_pos = write.write_block(&block_indexes).await?;
     meta_entity.each_data_mut(&mut |stream| {
-        stream.root += block_index_start_pos;
+        // Adjust relative offsets within the buffer into absolute offsets within the file.
+        stream.i_offset += block_index_start_pos;
     });
 
     // Write metadata

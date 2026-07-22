@@ -31,11 +31,11 @@ impl IzsStream {
         IzsStream {
             shared,
             pool,
-            id: s.root,
+            id: s.i_offset,
             block_desc: BlockDesc { element_size: s.element, count: s.block },
             compress: s.compress,
             block_index,
-            pos: s.end_idx,
+            pos: s.end,
             cache: Mutex::new(WeakMap::new()),
         }
     }
