@@ -131,6 +131,11 @@ impl IzsFile {
 
     pub async fn load_meta(&self) -> Result<FileMeta, ImportError> {
         let footer = self.footer()?;
+
+        if footer.reserved != 0 {
+            return Err(ImportError::InvalidFile("File uses unknown features".to_string()));
+        }
+
         let meta_pos = self.file_size.checked_sub(Footer::LEN as u64 + footer.meta_len as u64)
             .ok_or_else(|| ImportError::InvalidFile("Invalid metadata position".to_string()))?;
         let meta = self.read_at(meta_pos, footer.meta_len as usize).await?;
