@@ -1,6 +1,6 @@
-use std::num::NonZeroU64;
+use std::{num::NonZeroU64};
 
-use crate::{Idx, IdxRange, schema::{FieldRef, attribute::core::NumberRange}, stream::StreamState, view::{NumberView, ViewManager}};
+use crate::{Idx, IdxRange, schema::FieldRef, stream::StreamState, view::{NumberView, ViewManager}};
 
 pub struct RangeView<'a> {
     view: NumberView<'a>,
@@ -57,7 +57,7 @@ impl<'a> RangeView<'a> {
     /// It looks at only 4096 points, so may return an under-approximation if overviews are not fully generated.
     ///
     /// Returns `None` if no values are loaded.
-    pub fn bounds(&self) -> Option<NumberRange> {
+    pub fn bounds(&self) -> Option<(f64, f64)> {
         let mut min = f64::INFINITY;
         let mut max = f64::NEG_INFINITY;
         if let Some(summary) = self.summaries.last() {
@@ -80,7 +80,7 @@ impl<'a> RangeView<'a> {
             })
         }
 
-        (min.is_finite() && max.is_finite()).then_some(NumberRange { min, max })
+        (min.is_finite() && max.is_finite()).then_some((min, max))
     }
 }
 
@@ -118,7 +118,7 @@ fn test_range_view() {
 
     {
         let range_view_no_summary = RangeView::new(&vm, FieldRef { data: &stream, field: &field, summaries: &LiveSummaryMap::default()}).unwrap();
-        assert_eq!(range_view_no_summary.bounds(), Some(NumberRange { min: -1.0, max: 3.0 }));
+        assert_eq!(range_view_no_summary.bounds(), Some((-1.0, 3.0)));
     }
 
     let mut entity = EntityStream::field_data(field, stream);
@@ -126,6 +126,6 @@ fn test_range_view() {
 
     {
         let range_view = RangeView::new(&vm, entity.as_field().unwrap()).unwrap();
-        assert_eq!(range_view.bounds(), Some(NumberRange { min: -1.0, max: 3.0 }));
+        assert_eq!(range_view.bounds(), Some((-1.0, 3.0)));
     }
 }

@@ -1,6 +1,6 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
-use iguazu::{IdxRange, schema::{FieldRef, attribute::{core::NumberRange, display::AccentColor}}, time::{Time, TimeRange}, view::{RangeElement, RangeView}};
+use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor}, time::{Time, TimeRange}, view::{RangeElement, RangeView}};
 
 use crate::{color::named_color, ViewerContext};
 
@@ -12,9 +12,9 @@ struct YScale {
 }
 
 impl YScale {
-    fn new(v_range: NumberRange, y_range: Rangef) -> Self {
-        let scale = -1.0 * y_range.span() as f64 / (v_range.max - v_range.min);
-        let offset = y_range.max - (v_range.min * scale) as f32;
+    fn new(v_range: (f64, f64), y_range: Rangef) -> Self {
+        let scale = -1.0 * y_range.span() as f64 / (v_range.1 - v_range.0);
+        let offset = y_range.max - (v_range.0 * scale) as f32;
 
         YScale {
             scale,
@@ -29,7 +29,7 @@ impl YScale {
 
 pub(crate) struct YAxisRow<'a> {
     sample_rate: f64,
-    y_range: NumberRange,
+    y_range: (f64, f64),
     view: RangeView<'a>,
     color: AccentColor,
     label: EcoString,
@@ -41,7 +41,7 @@ impl<'a> YAxisRow<'a> {
         let color = color.unwrap_or(AccentColor::Green);
         let y_range = field.field.number_range().or(view.bounds())?;
 
-        if !y_range.min.is_finite() || !y_range.max.is_finite() || y_range.min >= y_range.max {
+        if !y_range.0.is_finite() || !y_range.1.is_finite() || y_range.0 >= y_range.1 {
             return None;
         }
 
@@ -154,8 +154,8 @@ impl<'a> YAxisRow<'a> {
         }
 }
 
-fn generate_ticks(v_range: NumberRange, desired_tick_count: f64) -> impl Iterator<Item = f64> {
-    let v_span = (v_range.max - v_range.min).abs();
+fn generate_ticks(v_range: (f64, f64), desired_tick_count: f64) -> impl Iterator<Item = f64> {
+    let v_span = (v_range.1 - v_range.0).abs();
     let mut step = 10.0f64.powf((v_span / desired_tick_count).log10().floor());
 
     let err = desired_tick_count / v_span * step;
@@ -167,8 +167,8 @@ fn generate_ticks(v_range: NumberRange, desired_tick_count: f64) -> impl Iterato
         step *= 2.0;
     }
 
-    let tick_min_i = (v_range.min / step).ceil() as i64;
-    let tick_max_i = (v_range.max / step).floor() as i64;
+    let tick_min_i = (v_range.0 / step).ceil() as i64;
+    let tick_max_i = (v_range.1 / step).floor() as i64;
 
     (tick_min_i..=tick_max_i).map(move |i| i as f64 * step)
 }
@@ -176,22 +176,22 @@ fn generate_ticks(v_range: NumberRange, desired_tick_count: f64) -> impl Iterato
 #[test]
 fn test_generate_ticks() {
     assert_eq!(
-        generate_ticks(NumberRange { min: 0.0, max: 100.0 }, 10.0).collect::<Vec<_>>(),
+        generate_ticks((0.0, 100.0), 10.0).collect::<Vec<_>>(),
         vec![0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0]
     );
 
     assert_eq!(
-        generate_ticks(NumberRange { min: -1.0, max: 1.0 }, 4.0).collect::<Vec<_>>(),
+        generate_ticks((-1.0, 1.0), 4.0).collect::<Vec<_>>(),
         vec![-1.0, -0.5, 0.0, 0.5, 1.0]
     );
 
     assert_eq!(
-        generate_ticks(NumberRange { min: -10.0, max: 10.0 }, 8.0).collect::<Vec<_>>(),
+        generate_ticks((-10.0, 10.0), 8.0).collect::<Vec<_>>(),
         vec![-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
     );
 }
 
-fn draw_y_ticks(ui: &mut egui::Ui, v_range: NumberRange, y_scale: &YScale, rect: Rect) {
+fn draw_y_ticks(ui: &mut egui::Ui, v_range: (f64, f64), y_scale: &YScale, rect: Rect) {
     let desired_tick_spacing = 60.0;
     let desired_tick_count = (rect.height() / desired_tick_spacing) as f64;
 

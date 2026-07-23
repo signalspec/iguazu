@@ -115,12 +115,12 @@ fn make_digital_entity<D, S: Default>(
     let children = device.digital_channels.iter().map(|(id, name)| {
         let pos = id.saturating_sub(1);
         let field = Field::new(FieldKind::Bits { pos, bits: 1 })
-            .with_attribute(attribute::display::ACCENT_COLOR, attribute::display::AccentColor::from_bit_position(pos));
+            .with_attribute(attribute::display::COLOR, attribute::display::AccentColor::from_bit_position(pos));
         (EcoString::from(name), field)
     }).collect();
 
     let field = Field::new(FieldKind::BitStruct { children })
-        .with_attribute_opt(attribute::core::SAMPLE_RATE, device.sample_rate);
+        .with_attribute_opt(attribute::core::TIME_RATE, device.sample_rate);
 
     let element_size = ElementSize::from_bytes(device.unitsize).unwrap_or(ElementSize::U8);
     let data = make_stream(element_size, &device.capturefile);
@@ -133,7 +133,7 @@ fn make_analog_entity<D, S: Default>(
     make_stream: &mut impl FnMut(ElementSize, &[u8]) -> D
 ) -> Entity<D, S> {
     let field = Field::new(FieldKind::Float32 { pos: 0 })
-        .with_attribute_opt(attribute::core::SAMPLE_RATE, device.sample_rate);
+        .with_attribute_opt(attribute::core::TIME_RATE, device.sample_rate);
 
     let data = make_stream(ElementSize::U32, format!("analog-{id}").as_bytes());
     Entity::Data { field, data, summaries: Default::default() }
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn test_srzip_example() {
         use crate::schema::{Entity, FieldKind};
-        use crate::schema::attribute::core::SAMPLE_RATE;
+        use crate::schema::attribute::core::TIME_RATE;
 
         let file: Arc<dyn crate::io::ReadableFile> = Arc::new(
             block_on(FsFile::open("../../test-data/i2c.sr".into())).expect("failed to open test file")
@@ -288,7 +288,7 @@ mod tests {
             assert_eq!(children.len(), 2);
             assert!(matches!(children.get("sda").unwrap().kind, FieldKind::Bits { pos: 0, bits: 1 }));
             assert!(matches!(children.get("scl").unwrap().kind, FieldKind::Bits { pos: 1, bits: 1 }));
-            assert_eq!(schema_field.attribute(SAMPLE_RATE), Some(8_000_000.0));
+            assert_eq!(schema_field.attribute(TIME_RATE), Some(8_000_000.0));
             data
         }
 

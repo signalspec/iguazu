@@ -4,36 +4,36 @@ use strum::{EnumString, IntoStaticStr};
 use super::{Attribute, string_attribute};
 use crate::schema::{AttributeMap, Entity, Field, FieldKind, attribute::{AttributeValue, core::{ROLE, Role}}};
 
-pub const DISPLAY: Attribute<Display> = Attribute::named("display:default");
-pub const ACCENT_COLOR: Attribute<AccentColor> = Attribute::named("display:accent_color");
-pub const TIMELINE_ROW: Attribute<TimelineRow> = Attribute::named("display:timeline_row");
+pub const LAYOUT: Attribute<Layout> = Attribute::named("display:layout");
+pub const COLOR: Attribute<AccentColor> = Attribute::named("display:color");
+pub const TIMELINE_ROW: Attribute<TimelineRow> = Attribute::named("display:timeline:row");
 
 #[derive(Copy, Clone, PartialEq, Debug, IntoStaticStr, EnumString)]
 #[strum(serialize_all = "snake_case")]
-pub enum Display {
+pub enum Layout {
     Timeline,
     Table,
 }
 
-impl<'a> TryFrom<&'a AttributeValue> for Display {
+impl<'a> TryFrom<&'a AttributeValue> for Layout {
     type Error = ();
 
     fn try_from(value: &'a AttributeValue) -> Result<Self, Self::Error> {
         let m: AttributeMap = value.try_into().map_err(|_| ())?;
         match m.get("view").ok_or(())? {
-            "timeline" => Ok(Display::Timeline),
-            "table" => Ok(Display::Table),
+            "timeline" => Ok(Layout::Timeline),
+            "table" => Ok(Layout::Table),
             _ => Err(()),
         }
     }
 }
 
-impl From<Display> for AttributeValue {
-    fn from(value: Display) -> Self {
+impl From<Layout> for AttributeValue {
+    fn from(value: Layout) -> Self {
         let mut m = AttributeMap::from_iter([]);
         let view_str = match value {
-            Display::Timeline => "timeline",
-            Display::Table => "table",
+            Layout::Timeline => "timeline",
+            Layout::Table => "table",
         };
         m.insert("view", EcoString::from(view_str));
         AttributeValue::from(m)
@@ -79,7 +79,7 @@ pub enum TimelineRow {
     Hidden,
 
     /// Children are displayed as separate timeline rows.
-    Group,
+    Stack,
 
     /// Analog Y axis. If applied to an entity with children,
     /// the children are plotted on the same Y axis.
@@ -97,25 +97,25 @@ pub enum TimelineRow {
 string_attribute!(TimelineRow);
 
 impl<D, S> Entity<D, S> {
-    pub fn display_default(&self) -> Option<Display> {
-        self.attribute(DISPLAY)
-            .or(if self.time().is_some() || self.sample_rate().is_some() {
-                Some(Display::Timeline)
+    pub fn display_default(&self) -> Option<Layout> {
+        self.attribute(LAYOUT)
+            .or(if self.time().is_some() || self.time_rate().is_some() {
+                Some(Layout::Timeline)
             } else if matches!(self, Entity::Group { .. }) && self.role() == Some(Role::Record) {
-                Some(Display::Table)
+                Some(Layout::Table)
             } else {
                 None
             })
     }
 
     pub fn accent_color(&self) -> Option<AccentColor> {
-        self.attribute(ACCENT_COLOR)
+        self.attribute(COLOR)
     }
 
     pub fn timeline_row(&self) -> TimelineRow {
         self.attribute(TIMELINE_ROW).unwrap_or_else(|| match self {
             Entity::Group { .. } if self.role() == Some(Role::Record) && self.time().is_some() => TimelineRow::Events,
-            Entity::Group { .. } => TimelineRow::Group,
+            Entity::Group { .. } => TimelineRow::Stack,
             Entity::Data { field, .. } => field.timeline_row(),
             _ => TimelineRow::Hidden,
         })
@@ -128,14 +128,14 @@ impl<D, S> Entity<D, S> {
 
 impl Field {
     pub fn accent_color(&self) -> Option<AccentColor> {
-        self.attribute(ACCENT_COLOR)
+        self.attribute(COLOR)
     }
 
     pub fn timeline_row(&self) -> TimelineRow {
         self.attribute(TIMELINE_ROW)
             .unwrap_or_else(|| match &self.kind {
                 FieldKind::Null => TimelineRow::Hidden,
-                FieldKind::BitStruct { .. } => TimelineRow::Group,
+                FieldKind::BitStruct { .. } => TimelineRow::Stack,
                 FieldKind::Bits { bits: 1, .. } => TimelineRow::Logic,
                 FieldKind::Bits { .. }
                 | FieldKind::Character { .. }

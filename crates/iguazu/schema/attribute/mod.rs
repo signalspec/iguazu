@@ -71,19 +71,7 @@ impl<'de> Deserialize<'de> for AttributeMap {
                 {
                     let mut attributes = IndexMap::new();
                     while let Some((key, value)) = map.next_entry::<EcoString, AttributeValue>()? {
-                        if matches!(key.as_ref(),
-                            | "type"
-                            | "bits"
-                            | "pos"
-                            | "values"
-                            | "tag_bits"
-                            | "children"
-                            | "variants"
-                            | "elements"
-                            | "child"
-                            | "data"
-                            | "summaries")
-                        {
+                        if !key.contains(':') {
                             // Ignore keys from `Field` or `Entity` to avoid duplicate keys
                             // https://github.com/serde-rs/serde/issues/2200
                             continue;

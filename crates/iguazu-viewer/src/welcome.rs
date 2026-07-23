@@ -110,31 +110,32 @@ async fn pick_file() -> Option<Result<WelcomeResponse, String>> {
 }
 
 fn generate_demo_entity() -> EntityStream {
-    use iguazu::schema::attribute::{core::{SAMPLE_RATE, NUMBER_RANGE, NumberRange}, display::{ DISPLAY, ACCENT_COLOR, AccentColor, Display }};
+    use iguazu::schema::attribute::{core::{TIME_RATE, NUMBER_MIN, NUMBER_MAX}, display::{ LAYOUT, COLOR, AccentColor, Layout }};
 
     let analog = Entity::Data {
         field: Field::new(FieldKind::Float32 { pos: 0 }),
         data: MemoryStream::new(&(0..1000).map(|i| (i as f32 * 0.01).sin()).collect::<Vec<f32>>()) as ArcStream,
         summaries: Default::default(),
-    }.with_attribute(SAMPLE_RATE, 100.0)
-    .with_attribute(NUMBER_RANGE, NumberRange { min: -1.0, max: 1.0 })
-    .with_attribute(ACCENT_COLOR, AccentColor::Blue);
+    }.with_attribute(TIME_RATE, 100.0)
+    .with_attribute(NUMBER_MIN, -1.0)
+    .with_attribute(NUMBER_MAX, 1.0)
+    .with_attribute(COLOR, AccentColor::Blue);
 
     let digital = Entity::Data{
         field: Field::new(FieldKind::BitStruct {
             children: FromIterator::from_iter([
-                ("bit0".into(), Field::new(FieldKind::Bits { pos: 0, bits: 1 }).with_attribute(ACCENT_COLOR, AccentColor::Red)),
-                ("bit1".into(), Field::new(FieldKind::Bits { pos: 1, bits: 1 }).with_attribute(ACCENT_COLOR, AccentColor::Orange)),
-                ("bit2".into(), Field::new(FieldKind::Bits { pos: 2, bits: 1 }).with_attribute(ACCENT_COLOR, AccentColor::Yellow)),
-                ("bit3".into(), Field::new(FieldKind::Bits { pos: 3, bits: 1 }).with_attribute(ACCENT_COLOR, AccentColor::Green)),
+                ("bit0".into(), Field::new(FieldKind::Bits { pos: 0, bits: 1 }).with_attribute(COLOR, AccentColor::Red)),
+                ("bit1".into(), Field::new(FieldKind::Bits { pos: 1, bits: 1 }).with_attribute(COLOR, AccentColor::Orange)),
+                ("bit2".into(), Field::new(FieldKind::Bits { pos: 2, bits: 1 }).with_attribute(COLOR, AccentColor::Yellow)),
+                ("bit3".into(), Field::new(FieldKind::Bits { pos: 3, bits: 1 }).with_attribute(COLOR, AccentColor::Green)),
             ])
         }),
         data: MemoryStream::new(&(0..255u8).collect::<Vec<u8>>()) as ArcStream,
         summaries: Default::default(),
-    }.with_attribute(SAMPLE_RATE, 25.0);
+    }.with_attribute(TIME_RATE, 25.0);
 
     Entity::record([
         ("analog".into(), analog),
         ("digital".into(), digital),
-    ]).with_attribute(DISPLAY, Display::Timeline)
+    ]).with_attribute(LAYOUT, Layout::Timeline)
 }

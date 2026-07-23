@@ -266,7 +266,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
     ) {
         let color = field.accent_color().or(color);
         match field.timeline_row() {
-            TimelineRow::Group => {
+            TimelineRow::Stack => {
                 if let Some(fields) = field.bit_struct_fields() {
                     for (name, field) in fields {
                         add_field(vcx, rows, field, sample_rate, color, name.clone());
@@ -289,11 +289,11 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
     fn add_entity<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, name: EcoString, entity: &'a EntityStream) {
         if let Some(field) = entity.as_field() {
             let color = entity.accent_color();
-            let Some(sample_rate) = entity.sample_rate() else { return };
+            let Some(sample_rate) = entity.time_rate() else { return };
             add_field(vcx, rows, field, sample_rate, color, name);
         } else {
             match entity.timeline_row() {
-                TimelineRow::Group => {
+                TimelineRow::Stack => {
                     match &entity {
                         Entity::Group { children, .. } => {
                             for (name, child) in children {

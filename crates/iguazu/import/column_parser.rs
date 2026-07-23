@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use ecow::EcoString;
 use jiff::{Timestamp, civil::DateTime, fmt::temporal::Pieces, tz::TimeZone};
 
-use crate::{ElementSize, import::ImportError, schema::{Entity, EntitySchema, EntityStream, Field, FieldKind, Ignored, attribute::{self, core::NumberRange}}, storage::MemoryStreamWriter, stream::Stream};
+use crate::{ElementSize, import::ImportError, schema::{Entity, EntitySchema, EntityStream, Field, FieldKind, Ignored, attribute}, storage::MemoryStreamWriter, stream::Stream};
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TimeUnit {
@@ -207,7 +207,7 @@ impl ColumnParser {
 pub enum InferredType {
     AbsoluteTimestamp(TimeZone),
     RelativeTimestamp,
-    Float(NumberRange),
+    Float(f64, f64),
     Enum(BTreeSet<EcoString>),
     String,
 }
@@ -219,9 +219,10 @@ impl InferredType {
                 Field::timestamp(1e9, Some(Timestamp::UNIX_EPOCH.to_zoned(time_zone.clone())))
             ),
             InferredType::RelativeTimestamp => EntitySchema::field(Field::timestamp(1e9, None)),
-            InferredType::Float(number_range) => EntitySchema::field(
+            InferredType::Float(min, max) => EntitySchema::field(
                 Field::float32()
-                    .with_attribute(attribute::core::NUMBER_RANGE, number_range.clone())
+                    .with_attribute(attribute::core::NUMBER_MIN, *min)
+                    .with_attribute(attribute::core::NUMBER_MAX, *max)
             ),
             InferredType::Enum(value_set) => EntitySchema::field(Field::r#enum(value_set.iter().cloned())),
             InferredType::String => EntitySchema::string(),
@@ -294,10 +295,9 @@ impl TypeInfer {
         self.float.is_some() && self.monotonic_float
     }
 
-    pub fn as_float(&self) -> Option<NumberRange> {
+    pub fn as_float(&self) -> Option<(f64, f64)> {
         self.float
             .filter(|(min, max)| min.is_finite() && max.is_finite())
-            .map(|(min, max)| NumberRange { min, max })
     }
 
     pub fn as_enum(&self) -> Option<&BTreeSet<EcoString>> {
@@ -308,7 +308,7 @@ impl TypeInfer {
         [
             self.as_absolute_timestamp().map(InferredType::AbsoluteTimestamp),
             (self.prioritize_relative_timestamp && self.is_relative_timestamp()).then_some(InferredType::RelativeTimestamp),
-            self.as_float().map(InferredType::Float),
+            self.as_float().map(|(min, max)| InferredType::Float(min, max)),
             (!self.prioritize_relative_timestamp && self.is_relative_timestamp()).then_some(InferredType::RelativeTimestamp),
             self.as_enum().map(|set| InferredType::Enum(set.clone())),
             Some(InferredType::String)
@@ -343,14 +343,14 @@ fn test_infer_type() {
     infer.update(b"3.5");
     assert_eq!(Vec::from_iter(infer.possible_types()), &[
         InferredType::RelativeTimestamp,
-        InferredType::Float(NumberRange { min: 1.5, max: 3.5 }),
+        InferredType::Float(1.5, 3.5),
         InferredType::Enum(BTreeSet::from_iter(["1.5".into(), "2.5".into(), "3.5".into()])),
         InferredType::String,
     ]);
 
     infer.update(b"2.5");
     assert_eq!(Vec::from_iter(infer.possible_types()), &[
-        InferredType::Float(NumberRange { min: 1.5, max: 3.5 }),
+        InferredType::Float(1.5, 3.5),
         InferredType::Enum(BTreeSet::from_iter(["1.5".into(), "2.5".into(), "3.5".into()])),
         InferredType::String,
     ]);
@@ -366,7 +366,7 @@ fn test_infer_type() {
     infer.update(b"1.5");
     infer.update(b"2.5");
     assert_eq!(Vec::from_iter(infer.possible_types()), &[
-        InferredType::Float(NumberRange { min: 1.5, max: 2.5 }),
+        InferredType::Float(1.5, 2.5),
         InferredType::RelativeTimestamp,
         InferredType::Enum(BTreeSet::from_iter(["1.5".into(), "2.5".into()])),
         InferredType::String,

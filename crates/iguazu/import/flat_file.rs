@@ -123,7 +123,7 @@ impl FlatFileImporter {
         let mut schema = self.dtype.schema(self.element).ok_or_else(|| ImportError::SchemaMismatch("Unsupported combination of element and dtype".into()))?;
 
         if let Some(sample_rate) = self.sample_rate {
-            schema = schema.with_attribute(attribute::core::SAMPLE_RATE, sample_rate);
+            schema = schema.with_attribute(attribute::core::TIME_RATE, sample_rate);
         }
 
         Ok(schema)

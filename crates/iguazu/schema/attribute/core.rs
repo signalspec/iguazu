@@ -3,17 +3,18 @@ use jiff::Zoned;
 use strum::{EnumString, IntoStaticStr};
 
 use crate::{schema::{Entity, Field}, time::Time};
-use super::{ Attribute, AttributeMap, string_attribute, AttributeValue};
+use super::{ Attribute, string_attribute };
 
-pub const ROLE: Attribute<Role> = Attribute::named("role");
-pub const SAMPLE_RATE: Attribute<f64> = Attribute::named("sample_rate");
-pub const TIME: Attribute<EcoString> = Attribute::named("time");
+pub const ROLE: Attribute<Role> = Attribute::named("core:role");
+pub const TEXT: Attribute<EcoString> = Attribute::named("core:text");
+
+pub const TIME_FIELD: Attribute<EcoString> = Attribute::named("time:field");
 pub const TIME_RATE: Attribute<f64> = Attribute::named("time:rate");
 pub const TIME_EPOCH: Attribute<Zoned> = Attribute::named("time:epoch");
 pub const TIME_DISPLAY: Attribute<TimeDisplay> = Attribute::named("time:display");
-pub const TEXT: Attribute<EcoString> = Attribute::named("text");
 
-pub const NUMBER_RANGE: Attribute<NumberRange> = Attribute::named("number:range");
+pub const NUMBER_MIN: Attribute<f64> = Attribute::named("number:min");
+pub const NUMBER_MAX: Attribute<f64> = Attribute::named("number:max");
 pub const NUMBER_SCALE: Attribute<f64> = Attribute::named("number:scale");
 pub const NUMBER_OFFSET: Attribute<f64> = Attribute::named("number:offset");
 
@@ -29,33 +30,6 @@ pub enum Role {
 }
 
 string_attribute!(Role);
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NumberRange {
-    pub min: f64,
-    pub max: f64,
-}
-
-impl TryFrom<&AttributeValue> for NumberRange {
-    type Error = ();
-
-    fn try_from(value: &AttributeValue) -> Result<Self, Self::Error> {
-        let o: AttributeMap = value.try_into().map_err(|_| ())?;
-        Ok(NumberRange {
-            min: o.get("min").ok_or(())?,
-            max: o.get("max").ok_or(())?,
-        })
-    }
-}
-
-impl From<NumberRange> for AttributeValue {
-    fn from(range: NumberRange) -> AttributeValue {
-        AttributeMap::from_iter([
-            ("min".into(), range.min.into()),
-            ("max".into(), range.max.into()),
-        ]).into()
-    }
-}
 
 #[derive(Clone, Copy, Debug, IntoStaticStr, EnumString)]
 #[strum(serialize_all = "snake_case")]
@@ -73,16 +47,16 @@ pub enum TimeDisplay {
 string_attribute!(TimeDisplay);
 
 impl<D, S> Entity<D, S> {
-    pub fn sample_rate(&self) -> Option<f64> {
-        self.attribute(SAMPLE_RATE)
+    pub fn time_rate(&self) -> Option<f64> {
+        self.attribute(TIME_RATE)
     }
 
-    pub fn sample_rate_as_period(&self) -> Option<Time> {
-        self.sample_rate().map(Time::period_float)
+    pub fn time_rate_as_period(&self) -> Option<Time> {
+        self.time_rate().map(Time::period_float)
     }
 
     pub fn time(&self) -> Option<EcoString> {
-        self.attribute(TIME)
+        self.attribute(TIME_FIELD)
     }
 
     pub fn text(&self) -> Option<EcoString> {
@@ -91,10 +65,6 @@ impl<D, S> Entity<D, S> {
 }
 
 impl Field {
-    pub fn number_range(&self) -> Option<NumberRange> {
-        self.attribute(NUMBER_RANGE)
-    }
-
     pub fn time_rate(&self) -> Option<f64> {
         self.attribute(TIME_RATE)
     }
@@ -125,6 +95,18 @@ impl Field {
 
     pub fn number_offset(&self) -> f64 {
         self.attribute(NUMBER_OFFSET).unwrap_or(0.0)
+    }
+
+    pub fn number_min(&self) -> Option<f64> {
+        self.attribute(NUMBER_MIN)
+    }
+
+    pub fn number_max(&self) -> Option<f64> {
+        self.attribute(NUMBER_MAX)
+    }
+
+    pub fn number_range(&self) -> Option<(f64, f64)> {
+        Some((self.attribute(NUMBER_MIN)?, self.attribute(NUMBER_MAX)?))
     }
 
     pub fn text(&self) -> Option<EcoString> {
