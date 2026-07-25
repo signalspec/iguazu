@@ -80,7 +80,7 @@ impl<'a> TraceView<'a> {
 
             for (level, s_view) in summary.limit_to_level(max_level).iter_levels().rev() {
                 let width = 1u64 << level;
-                let end = (pos & !(width - 1)).saturating_add(width);
+                let end = (pos & !(width - 1)).saturating_add(width).min(scan_end);
 
                 if end > s_view.state().end / 2 * width {
                     // This summary isn't built yet
@@ -241,7 +241,7 @@ fn test_traceview_zoom() {
     let mut vm = super::ViewManager::new();
     vm.begin(&Waker::noop().clone());
 
-    let mut input = vec![0u8; 120_001];
+    let mut input = vec![0u8; 1_200_000];
     input[45678] = 1;
     input[76543..77777].fill(2);
     let stream = MemoryStream::new(&input[..]);
@@ -268,17 +268,23 @@ fn test_traceview_zoom() {
 
     use TraceElement::*;
 
-    assert_eq!(scan(0b10, 1, IdxRange { min: 0, max: 200_000 }), vec![
+    assert_eq!(scan(0b10, 1, IdxRange { min: 0, max: 2_000_000 }), vec![
         (76543, TraceElement::Value(0)),
         (77777, TraceElement::Value(2)),
-        (120_001, TraceElement::Value(0)),
+        (1_200_000, TraceElement::Value(0)),
     ]);
 
-    assert_eq!(scan(0b10, 64, IdxRange { min: 0, max: 200_000 }), vec![
+    assert_eq!(scan(0b10, 64, IdxRange { min: 0, max: 2_000_000 }), vec![
         (76543 & !63, Value(0)),
         ((76543 & !63) + 64, Dense),
         (77777 & !63, Value(2)),
         ((77777 & !63) + 64, Dense),
-        (120_001, Value(0)),
+        (1_200_000, Value(0)),
+    ]);
+
+    assert_eq!(scan(0b11, 1, IdxRange { min: 70_000, max: 80_000 }), vec![
+        (76543, TraceElement::Value(0)),
+        (77777, TraceElement::Value(2)),
+        (80_000, TraceElement::Value(0)),
     ]);
 }
