@@ -26,7 +26,7 @@ impl Importer for SrZipImporter {
         let file = self.file.clone();
         Box::pin(async move {
             let (_, metadata) = load_metadata(file).await?;
-            Ok(make_entity(&metadata, &mut |_, _| Ignored))
+            Ok(make_entity(&metadata, &mut |_, _| Ok(Ignored))?)
         })
     }
 
@@ -36,8 +36,8 @@ impl Importer for SrZipImporter {
             let (mut zip_entries, metadata) = load_metadata(file).await?;
             let entity = make_entity(&metadata, &mut |element_size, entry_prefix| {
                 let entries = find_chunks(&mut zip_entries, entry_prefix);
-                Arc::new(SrZipStream::new(pool.clone(), entries, element_size)) as Arc<dyn Stream>
-            });
+                Ok(Arc::new(SrZipStream::new(pool.clone(), entries, element_size)?) as Arc<dyn Stream>)
+            })?;
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }
@@ -73,45 +73,45 @@ async fn load_metadata(file: Arc<dyn ReadableFile>) -> Result<(BTreeMap<Box<[u8]
 
 fn make_entity<D, S: Default>(
     devices: &[Metadata],
-    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> D
-) -> Entity<D, S> {
+    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> Result<D, ImportError>
+) -> Result<Entity<D, S>, ImportError> {
     if devices.len() == 1 {
         make_device_entity(&devices[0], make_stream)
     } else {
-        devices.iter().fold(Entity::group(), |group, device| {
-            let entity = make_device_entity(device, make_stream);
-            group.with_child(eco_format!("device{}", device.device_id), entity)
+        devices.iter().try_fold(Entity::group(), |group, device| {
+            let entity = make_device_entity(device, make_stream)?;
+            Ok(group.with_child(eco_format!("device{}", device.device_id), entity))
         })
     }
 }
 
 fn make_device_entity<D, S: Default>(
     device: &Metadata,
-    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> D
-) -> Entity<D, S> {
+    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> Result<D, ImportError>
+) -> Result<Entity<D, S>, ImportError> {
     if device.analog_channels.is_empty() {
         make_digital_entity(device, make_stream)
     } else {
         let mut group = Entity::group();
 
         if !device.digital_channels.is_empty() {
-            let digital = make_digital_entity(device, make_stream);
+            let digital = make_digital_entity(device, make_stream)?;
             group = group.with_child("digital".into(), digital);
         }
 
         for (&id, name) in &device.analog_channels {
-            let channel = make_analog_entity(device, id, make_stream);
+            let channel = make_analog_entity(device, id, make_stream)?;
             group = group.with_child(name.into(), channel);
         }
 
-        group
+        Ok(group)
     }
 }
 
 fn make_digital_entity<D, S: Default>(
     device: &Metadata,
-    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> D
-) -> Entity<D, S> {
+    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> Result<D, ImportError>
+) -> Result<Entity<D, S>, ImportError> {
     let children = device.digital_channels.iter().map(|(id, name)| {
         let pos = id.saturating_sub(1);
         let field = Field::new(FieldKind::Bits { pos, bits: 1 })
@@ -123,20 +123,20 @@ fn make_digital_entity<D, S: Default>(
         .with_attribute_opt(attribute::core::TIME_RATE, device.sample_rate);
 
     let element_size = ElementSize::from_bytes(device.unitsize).unwrap_or(ElementSize::U8);
-    let data = make_stream(element_size, &device.capturefile);
-    Entity::Data { field, data, summaries: Default::default() }
+    let data = make_stream(element_size, &device.capturefile)?;
+    Ok(Entity::Data { field, data, summaries: Default::default() })
 }
 
 fn make_analog_entity<D, S: Default>(
     device: &Metadata,
     id: u8,
-    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> D
-) -> Entity<D, S> {
+    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> Result<D, ImportError>
+) -> Result<Entity<D, S>, ImportError> {
     let field = Field::new(FieldKind::Float32 { pos: 0 })
         .with_attribute_opt(attribute::core::TIME_RATE, device.sample_rate);
 
-    let data = make_stream(ElementSize::U32, format!("analog-{id}").as_bytes());
-    Entity::Data { field, data, summaries: Default::default() }
+    let data = make_stream(ElementSize::U32, format!("analog-{id}").as_bytes())?;
+    Ok(Entity::Data { field, data, summaries: Default::default() })
 }
 
 struct Metadata {
@@ -340,7 +340,7 @@ mod tests {
         assert_eq!(state.end, 2_000_000);
         assert!(!state.streaming);
         assert_eq!(data.desc().element_size, crate::ElementSize::U16);
-        assert_eq!(data.desc().count, 2_000_000);
+        assert_eq!(data.desc().count, 2*1024*1024);
 
         let mut iter = block_on(data.clone().iter()).unwrap();
         let iter_data = block_on(iter.read_to_vec(2_000_000)).unwrap();

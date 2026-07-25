@@ -4,20 +4,23 @@ use futures_lite::AsyncRead;
 use itertools::{AllEqualValueError, Itertools};
 use once_array::OnceArray;
 
-use crate::{ElementSize, io::zip::{UnzipReader, ZipEntry}, storage::{Pool, common::{CommonStreamAccess, LoadBlock, LoadBlockRes}}, stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState}, util::weak_map::WeakMap};
+use crate::{ElementSize, import::ImportError, io::zip::{UnzipReader, ZipEntry}, storage::{Pool, common::{CommonStreamAccess, LoadBlock, LoadBlockRes}}, stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState}, util::weak_map::WeakMap};
 
 pub struct SrZipStream {
     blocks: Vec<ZipEntry>,
-    block_size: Option<usize>,
+    block_size: usize,
     element_size: ElementSize,
     cache: Mutex<WeakMap<u64, OnceArray<u8>>>,
     pool: Arc<Pool>,
 }
 
 impl SrZipStream {
-    pub(crate) fn new(pool: Arc<Pool>, blocks: Vec<ZipEntry>, element_size: ElementSize) -> Self {
-        let block_size = infer_block_size(blocks.iter().map(|s| s.uncompressed_size() / element_size.bytes() as u64));
-        Self { blocks, block_size, element_size, cache: Mutex::new(WeakMap::new()), pool }
+    pub(crate) fn new(pool: Arc<Pool>, blocks: Vec<ZipEntry>, element_size: ElementSize) -> Result<Self, ImportError> {
+        let Some(block_size) = infer_block_size(blocks.iter().map(|s| s.uncompressed_size() / element_size.bytes() as u64)) else {
+            // TODO: could make the iterator work on such files to allow converting them, just can't support random access
+            return Err(ImportError::InvalidFile("unsupported block size".to_string()));
+        };
+        Ok(Self { blocks, block_size, element_size, cache: Mutex::new(WeakMap::new()), pool })
     }
 }
 
@@ -29,7 +32,7 @@ impl Debug for SrZipStream {
 
 impl Stream for SrZipStream {
     fn desc(&self) -> BlockDesc {
-        BlockDesc { element_size: self.element_size, count: self.block_size.unwrap_or(0) }
+        BlockDesc { element_size: self.element_size, count: self.block_size }
     }
 
     fn state(&self) -> StreamState {
@@ -98,7 +101,7 @@ enum SrZipIterState {
 
 impl SrZipIter {
     fn new(stream: Arc<SrZipStream>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
-        let block_size = stream.block_size.unwrap_or(1024 * 1024);
+        let block_size = stream.block_size;
         let element_size = stream.element_size;
         Box::pin(async move {
             Ok(Box::new(SrZipIter {
@@ -184,8 +187,10 @@ impl StreamIter for SrZipIter {
 fn infer_block_size(mut sizes: impl DoubleEndedIterator<Item = u64>) -> Option<usize> {
     let last = sizes.next_back()?;
     match sizes.all_equal_value() {
-        Ok(s) if last <= s => usize::try_from(s).ok(),
-        Err(AllEqualValueError(None)) if last <= 16 * 1024 * 1024 => Some(last.try_into().unwrap()),
+        Ok(s) if s.is_power_of_two() && last <= s => usize::try_from(s).ok(),
+        Err(AllEqualValueError(None)) if last <= 16 * 1024 * 1024 => {
+            Some(usize::try_from(last).unwrap().next_power_of_two())
+        },
         _ => None
     }
 }
@@ -193,10 +198,12 @@ fn infer_block_size(mut sizes: impl DoubleEndedIterator<Item = u64>) -> Option<u
 #[test]
 fn test_infer_block_size() {
     assert_eq!(infer_block_size([].into_iter()), None);
-    assert_eq!(infer_block_size([1000, 2000].into_iter()), None);
-    assert_eq!(infer_block_size([1000, 900, 500].into_iter()), None);
-    assert_eq!(infer_block_size([1000, 1000].into_iter()), Some(1000));
-    assert_eq!(infer_block_size([2000, 2000, 300].into_iter()), Some(2000));
+    assert_eq!(infer_block_size([1024, 2048].into_iter()), None);
+    assert_eq!(infer_block_size([2048, 1024, 500].into_iter()), None);
+    assert_eq!(infer_block_size([1024, 1024].into_iter()), Some(1024));
+    assert_eq!(infer_block_size([2048, 2048, 300].into_iter()), Some(2048));
     assert_eq!(infer_block_size([4 * 1024 * 1024].into_iter()), Some(4096 * 1024));
+    assert_eq!(infer_block_size([4_000_000].into_iter()), Some(4096 * 1024));
+    assert_eq!(infer_block_size([4_000_000, 4_000_000].into_iter()), None);
     assert_eq!(infer_block_size([20 * 1024 * 1024].into_iter()), None);
 }
