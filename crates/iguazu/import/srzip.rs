@@ -262,12 +262,11 @@ mod tests {
     use crate::io::FsFile;
     use crate::import::Importer;
     use crate::storage::Pool;
+    use crate::schema::{Entity, FieldKind};
+    use crate::schema::attribute::core::TIME_RATE;
 
     #[test]
     fn test_srzip_example() {
-        use crate::schema::{Entity, FieldKind};
-        use crate::schema::attribute::core::TIME_RATE;
-
         let file: Arc<dyn crate::io::ReadableFile> = Arc::new(
             block_on(FsFile::open("../../test-data/i2c.sr".into())).expect("failed to open test file")
         );
@@ -316,5 +315,39 @@ mod tests {
         assert_eq!(iter_data[925445], 0xFE);
         assert_eq!(iter_data[4834824], 0xFF);
         assert_eq!(iter_data[4834825], 0xFE);
+    }
+
+    #[test]
+    fn test_srzip_16() {
+        let file: Arc<dyn crate::io::ReadableFile> = Arc::new(
+            block_on(FsFile::open("../../test-data/logic16.sr".into())).expect("failed to open test file")
+        );
+
+        let importer = SrZipImporter::new(file);
+
+        let executor = Arc::new(async_executor::Executor::new());
+        let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
+        let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
+        block_on(completion).expect("import completion failed");
+
+        let Entity::Data { ref field, data, .. } = entity else {
+            panic!("expected `Data` entity in schema");
+        };
+
+        assert_eq!(field.attribute(TIME_RATE), Some(1_000_000.0));
+
+        let state = data.state();
+        assert_eq!(state.end, 2_000_000);
+        assert!(!state.streaming);
+        assert_eq!(data.desc().element_size, crate::ElementSize::U16);
+        assert_eq!(data.desc().count, 2_000_000);
+
+        let mut iter = block_on(data.clone().iter()).unwrap();
+        let iter_data = block_on(iter.read_to_vec(2_000_000)).unwrap();
+        let iter_data_as_u16: &[u16] = bytemuck::cast_slice(&iter_data);
+
+        assert_eq!(iter_data_as_u16[1999999], 0xAA55);
+        assert_eq!(iter_data_as_u16[1999998], 0x55AA);
+        assert_eq!(iter_data_as_u16[1000], 0x1234);
     }
 }

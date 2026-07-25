@@ -76,11 +76,13 @@ impl LoadBlock for SrZipStream {
 struct SrZipIter {
     stream: Arc<SrZipStream>,
 
-    /// Block number
+    /// Next block number to read (this advances when reads finish, even if not consumed yet)
     block: usize,
 
     state: SrZipIterState,
     buffer: Vec<u8>,
+
+    /// Next write position in buffer in bytes (buffer[..in_pos] is valid)
     in_pos: usize,
 
     /// Position within block in elements
@@ -97,12 +99,13 @@ enum SrZipIterState {
 impl SrZipIter {
     fn new(stream: Arc<SrZipStream>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
         let block_size = stream.block_size.unwrap_or(1024 * 1024);
+        let element_size = stream.element_size;
         Box::pin(async move {
             Ok(Box::new(SrZipIter {
                 stream,
                 block: 0,
                 state: SrZipIterState::Empty,
-                buffer: vec![0; block_size],
+                buffer: vec![0; block_size * element_size.bytes()],
                 in_pos: 0,
                 pos: 0,
             }) as Box<dyn StreamIter>)
@@ -168,10 +171,10 @@ impl StreamIter for SrZipIter {
     }
 
     fn consume(&mut self, count: usize) {
-        debug_assert!(self.pos + count <= self.buffer.len());
+        debug_assert!(self.pos * self.stream.element_size.bytes() + count <= self.buffer.len());
         self.pos += count;
 
-        if self.pos >= self.buffer.len() {
+        if self.pos * self.stream.element_size.bytes() >= self.buffer.len() {
             self.pos = 0;
             self.in_pos = 0;
         }
