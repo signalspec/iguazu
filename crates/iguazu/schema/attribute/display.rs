@@ -99,7 +99,7 @@ string_attribute!(TimelineRow);
 impl<D, S> Entity<D, S> {
     pub fn display_default(&self) -> Option<Layout> {
         self.attribute(LAYOUT)
-            .or(if self.time().is_some() || self.time_rate().is_some() {
+            .or(if self.time().is_some() || self.time_rate().is_some() || self.role() == Some(Role::Capture) {
                 Some(Layout::Timeline)
             } else if matches!(self, Entity::Group { .. }) && self.role() == Some(Role::Record) {
                 Some(Layout::Table)

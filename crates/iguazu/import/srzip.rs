@@ -92,7 +92,8 @@ fn make_device_entity<D, S: Default>(
     if device.analog_channels.is_empty() {
         make_digital_entity(device, make_stream)
     } else {
-        let mut group = Entity::group();
+        let mut group = Entity::group()
+            .with_attribute(attribute::core::ROLE, attribute::core::Role::Capture);
 
         if !device.digital_channels.is_empty() {
             let digital = make_digital_entity(device, make_stream)?;
@@ -135,7 +136,7 @@ fn make_analog_entity<D, S: Default>(
     let field = Field::new(FieldKind::Float32 { pos: 0 })
         .with_attribute_opt(attribute::core::TIME_RATE, device.sample_rate);
 
-    let data = make_stream(ElementSize::U32, format!("analog-{id}").as_bytes())?;
+    let data = make_stream(ElementSize::U32, format!("analog-1-{id}").as_bytes())?;
     Ok(Entity::Data { field, data, summaries: Default::default() })
 }
 
@@ -349,5 +350,31 @@ mod tests {
         assert_eq!(iter_data_as_u16[1999999], 0xAA55);
         assert_eq!(iter_data_as_u16[1999998], 0x55AA);
         assert_eq!(iter_data_as_u16[1000], 0x1234);
+    }
+
+    #[test]
+    fn test_srzip_analog() {
+        let file: Arc<dyn crate::io::ReadableFile> = Arc::new(
+            block_on(FsFile::open("../../test-data/analog.sr".into())).expect("failed to open test file")
+        );
+
+        let importer = SrZipImporter::new(file);
+        let _schema = block_on(importer.load_schema()).expect("failed to load schema");
+
+        let executor = Arc::new(async_executor::Executor::new());
+        let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
+        let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
+        block_on(completion).expect("import completion failed");
+
+        let ch1 = entity.child("CH1").unwrap();
+        assert_eq!(ch1.attribute(TIME_RATE), Some(48000.0));
+        assert!(matches!(ch1.as_field().unwrap().field.kind, FieldKind::Float32 { ..}));
+
+        let data = ch1.data().unwrap();
+        let state = data.state();
+        assert_eq!(state.end, 1_000_000);
+        let desc = data.desc();
+        assert_eq!(desc.element_size, crate::ElementSize::U32);
+        assert_eq!(desc.count, 1024*1024);
     }
 }
