@@ -1,12 +1,12 @@
 use std::{cell::RefCell, marker::PhantomData};
 
-use crate::{schema::EntityStream, stream::{ArcStream, StreamAccess, BlockDesc, StreamState}, Element, ElementSize, Idx, IdxRange};
+use crate::{schema::EntityStream, stream::{ArcStream, BlockDesc, StreamState}, Element, ElementSize, Idx, IdxRange};
 
-use super::ViewManager;
+use super::{BlockView, ViewManager};
 
 #[derive(Clone)]
 pub struct IntView<'a> {
-    view: &'a dyn StreamAccess,
+    view: &'a BlockView,
     desc: BlockDesc,
     state: StreamState,
     cache: RefCell<(u64, &'a [u8])>,

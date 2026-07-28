@@ -1,11 +1,13 @@
-use std::{fmt::Debug, future::Future, io, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll}};
+use std::{fmt::Debug, future::Future, io, pin::Pin, sync::Arc, task::{Context, Poll}};
 
 use futures_lite::AsyncRead;
 use once_array::OnceArray;
 use url::Url;
 
-use crate::{ElementSize, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState}, util::weak_map::WeakMap};
-use crate::storage::{Pool, common::{LoadBlock, LoadBlockRes, CommonStreamAccess}};
+use crate::{ElementSize, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState}};
+use crate::storage::{ Pool, block::BlockCache };
+
+use super::BlockState;
 
 #[derive(Clone, Debug)]
 pub struct FlatFileOpts {
@@ -30,7 +32,7 @@ pub struct FlatFileStream {
     offset: u64,
     count: Option<u64>,
     block_desc: BlockDesc,
-    cache: Mutex<WeakMap<u64, OnceArray<u8>>>,
+    cache: BlockCache,
     pool: Arc<Pool>,
 }
 
@@ -46,7 +48,7 @@ impl FlatFileStream {
     pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_size: ElementSize, opts: &FlatFileOpts) -> Result<Self, io::Error> {
         let file_len = file.clone().get_len().await?;
         let block_desc = BlockDesc { element_size, count: opts.block_size };
-        let cache = Mutex::new(WeakMap::new());
+        let cache = BlockCache::new();
         Ok(FlatFileStream { file, file_len, offset: opts.offset, count: opts.count, block_desc, cache, pool })
     }
 
@@ -74,30 +76,18 @@ impl FlatFileStream {
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 
-    fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Vec<u8>, io::Error>> + Send + 'static {
+    fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static {
         log::debug!("Loading block {block} of {}", self.file.filename().unwrap_or("<unknown>"));
         let offset = block.saturating_mul(self.block_desc.size() as u64);
         let file_offset = self.offset.saturating_add(offset);
         let size = self.count.map(|c| (c * (self.block_desc.element_size.bytes() as u64)).saturating_sub(offset))
             .unwrap_or(u64::MAX)
             .min(self.block_desc.size() as u64) as usize;
-        self.file.clone().read_at(file_offset, size)
-    }
-}
-
-impl LoadBlock for FlatFileStream {
-    fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes {
-        if let Some(entry) = self.cache.lock().unwrap().get(&block) {
-            return LoadBlockRes::Cached(entry);
+        let file = self.file.clone();
+        async move {
+            let data = file.read_at(file_offset, size).await?;
+            Ok(Arc::new(OnceArray::from(data)))
         }
-
-        LoadBlockRes::Loading(self.pool.executor.clone().spawn(async move {
-            let buf = self.load_block_uncached(block).await?;
-            let entry = Arc::new(OnceArray::from(buf));
-            self.pool.cache.lock().unwrap().insert(entry.clone());
-            self.cache.lock().unwrap().insert(block, entry.clone());
-            Ok(entry)
-        }))
     }
 }
 
@@ -115,8 +105,15 @@ impl Stream for FlatFileStream {
         }
     }
 
-    fn access(self: Arc<Self>) -> Box<dyn StreamAccess> {
-        Box::new(CommonStreamAccess::new(self))
+    fn get_block(&self, block_num: u64, waker: &std::task::Waker) -> BlockState {
+        if let Some(block) = self.cache.get(block_num, waker) {
+            block
+        } else {
+            let task = self.pool.clone().spawn_block_fetch(self.load_block_uncached(block_num));
+            task.subscribe(waker);
+            self.cache.insert_task(block_num, task);
+            BlockState::Pending
+        }
     }
 
     fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {

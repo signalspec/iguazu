@@ -3,7 +3,10 @@ use std::{ sync::Arc, task::Waker};
 
 use elsa::sync::FrozenMap;
 
-use crate::{schema::{Entity, EntityStream}, stream::{ArcStream, StreamAccess}};
+use crate::{schema::{Entity, EntityStream}, stream::ArcStream};
+
+mod block_view;
+pub use block_view::BlockView;
 
 mod int_view;
 pub use int_view:: { IntView, LoadedChunkIter };
@@ -28,7 +31,7 @@ pub use range_view::{ RangeView };
 
 pub struct ViewManager {
     waker: Waker,
-    streams: FrozenMap<usize, Box<dyn StreamAccess>>,
+    streams: FrozenMap<usize, Box<BlockView>>,
 }
 
 impl ViewManager {
@@ -59,13 +62,12 @@ fn key(s: &ArcStream) -> usize {
 }
 
 impl ViewManager {
-    pub fn stream<'a>(&'a self, stream: &ArcStream) -> &'a dyn StreamAccess {
+    pub fn stream<'a>(&'a self, stream: &ArcStream) -> &'a BlockView {
         if let Some(s) = self.streams.get(&key(stream)) {
             s
         } else {
-            let mut s = stream.clone().access();
-            s.begin(&self.waker);
-            self.streams.insert(key(stream), s)
+            let v = BlockView::new(stream.clone());
+            self.streams.insert(key(stream), Box::new(v))
         }
     }
 

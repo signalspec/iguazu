@@ -1,16 +1,22 @@
-use std::{fmt::Debug, io, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll}};
+use std::{fmt::Debug, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker}};
 use futures_lite::AsyncRead;
 
 use itertools::{AllEqualValueError, Itertools};
 use once_array::OnceArray;
 
-use crate::{ElementSize, import::ImportError, io::zip::{UnzipReader, ZipEntry}, storage::{Pool, common::{CommonStreamAccess, LoadBlock, LoadBlockRes}}, stream::{BlockDesc, IterState, Stream, StreamAccess, StreamIter, StreamState}, util::weak_map::WeakMap};
+use crate::{
+    ElementSize,
+    import::ImportError,
+    io::zip::{UnzipReader, ZipEntry},
+    storage::{BlockState, Pool, block::BlockCache},
+    stream::{BlockDesc, IterState, Stream, StreamIter, StreamState},
+};
 
 pub struct SrZipStream {
     blocks: Vec<ZipEntry>,
     block_size: usize,
     element_size: ElementSize,
-    cache: Mutex<WeakMap<u64, OnceArray<u8>>>,
+    cache: BlockCache,
     pool: Arc<Pool>,
 }
 
@@ -20,7 +26,7 @@ impl SrZipStream {
             // TODO: could make the iterator work on such files to allow converting them, just can't support random access
             return Err(ImportError::InvalidFile("unsupported block size".to_string()));
         };
-        Ok(Self { blocks, block_size, element_size, cache: Mutex::new(WeakMap::new()), pool })
+        Ok(Self { blocks, block_size, element_size, cache: BlockCache::new(), pool })
     }
 }
 
@@ -40,37 +46,32 @@ impl Stream for SrZipStream {
         StreamState { end, streaming: false }
     }
 
-    fn access(self: Arc<Self>) -> Box<dyn StreamAccess> {
-        Box::new(CommonStreamAccess::new(self))
+    fn get_block(&self, block_i: u64, waker: &Waker) -> BlockState {
+        if let Some(block) = self.cache.get(block_i, waker) {
+            log::debug!("Block {block_i} found in cache");
+            return block;
+        }
+
+        let Some(entry) = self.blocks.get(block_i as usize) else {
+            return BlockState::End
+        };
+
+        let file_name = entry.file().filename().unwrap_or("<unknown>");
+        let block_bytes = self.desc().size();
+        log::debug!("Loading block {block_i} from {} : {}", file_name, entry.name());
+        let entry = entry.clone();
+        let task = self.pool.clone().spawn_block_fetch(async move {
+            let data = entry.read_all(block_bytes).await?;
+            Ok(Arc::new(OnceArray::from(data.clone())))
+        });
+
+        task.subscribe(waker);
+        self.cache.insert_task(block_i, task);
+        BlockState::Pending
     }
 
     fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
         Box::pin(SrZipIter::new(self))
-    }
-}
-
-impl LoadBlock for SrZipStream {
-    fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes {
-        let Some(entry) = self.blocks.get(block as usize) else {
-            return LoadBlockRes::NotFound;
-        };
-
-        let file_name = entry.file().filename().unwrap_or("<unknown>");
-        if let Some(buf) = self.cache.lock().unwrap().get(&block) {
-            log::debug!("Block {block} from {} : {} found in cache", file_name, entry.name());
-            return LoadBlockRes::Cached(buf);
-        }
-
-        let block_bytes = self.desc().size();
-        log::debug!("Loading block {block} from {} : {}", file_name, entry.name());
-        LoadBlockRes::Loading(self.pool.executor.clone().spawn(async move {
-            let entry = &self.blocks[block as usize];
-            let data = entry.read_all(block_bytes).await?;
-            let buf = Arc::new(OnceArray::from(data.clone()));
-            self.pool.cache.lock().unwrap().insert(buf.clone());
-            self.cache.lock().unwrap().insert(block, buf.clone());
-            Ok(buf)
-        }))
     }
 }
 

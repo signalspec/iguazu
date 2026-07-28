@@ -1,111 +1,56 @@
-use std::{cell::RefCell, io, sync::Arc, task::{Context, Poll, Waker}};
+use std::{sync::Arc, task::Context };
 
-use async_executor::Task;
-use elsa::FrozenMap;
-use futures_lite::FutureExt;
-use hashbrown::{HashMap, HashSet, hash_map};
-use once_array::OnceArray;
+use crate::{ stream::{BlockDesc, IterState, Stream, StreamIter},  storage::block::BlockState };
 
-use crate::stream::{Stream, StreamAccess, StreamState};
-
-pub trait LoadBlock: Stream {
-    fn load_block(self: Arc<Self>, block: u64) -> LoadBlockRes;
+pub(crate) struct CommonStreamIter {
+    stream: Arc<dyn Stream>,
+    block_desc: BlockDesc,
+    state: BlockState,
+    block: u64,
+    pos_in_block: usize,
 }
 
-pub enum LoadBlockRes {
-    Loading(Task<Result<Arc<OnceArray<u8>>, io::Error>>),
-    Cached(Arc<OnceArray<u8>>),
-    NotFound,
-}
-
-pub struct CommonStreamAccess<S> {
-    stream: Arc<S>,
-    blocks: FrozenMap<u64, Arc<OnceArray<u8>>>,
-    state: RefCell<CommonStreamAccessState>,
-    waker: Waker,
-}
-
-struct CommonStreamAccessState {
-    used: HashSet<u64>,
-    loading: HashMap<u64, Task<Result<Arc<OnceArray<u8>>, io::Error>>>,
-    error: Option<io::Error>,
-}
-
-impl<S> CommonStreamAccess<S> {
-    pub fn new(stream: Arc<S>) -> Self {
+impl CommonStreamIter {
+    pub fn new(stream: Arc<dyn Stream>) -> Self {
         Self {
+            block_desc: stream.desc(),
             stream,
-            blocks: FrozenMap::new(),
-            state: RefCell::new(CommonStreamAccessState {
-                used: HashSet::new(),
-                loading: HashMap::new(),
-                error: None,
-            }),
-            waker: std::task::Waker::noop().clone(),
+            state: BlockState::Pending,
+            block: 0,
+            pos_in_block: 0,
         }
     }
 }
 
-impl<S: LoadBlock + Send + Sync + 'static> StreamAccess for CommonStreamAccess<S> {
-    fn get_block(&self, block: u64) -> &[u8] {
-        let mut state = self.state.borrow_mut();
-        state.used.insert(block);
+impl StreamIter for CommonStreamIter {
+    fn desc(&self) -> BlockDesc {
+        self.stream.desc()
+    }
 
-        if let Some(buf) = self.blocks.get(&block) {
-            // Block is already loaded
-            return buf;
+    fn poll_next(&mut self, cx: &mut Context) -> IterState<'_> {
+        if self.state.needs_refresh() {
+            self.state = self.stream.get_block(self.block, cx.waker());
         }
 
-        let is_error = state.error.is_some();
-        let mut entry = match state.loading.entry(block) {
-            hash_map::Entry::Occupied(entry) => entry,
-            hash_map::Entry::Vacant(entry) => {
-                if is_error {
-                    return &[];
-                }
-
-                // Block is not loaded, start loading
-                match self.stream.clone().load_block(block) {
-                    LoadBlockRes::NotFound => {
-                        return &[];
-                    }
-                    LoadBlockRes::Cached(buf) => {
-                        return self.blocks.insert(block, buf)
-                    }
-                    LoadBlockRes::Loading(task) => {
-                        entry.insert_entry(task)
-                    }
-                }
-            }
-        };
-
-        let mut cx = Context::from_waker(&self.waker);
-        if let Poll::Ready(res) = entry.get_mut().poll(&mut cx) {
-            drop(entry.remove());
-            match res {
-                Ok(buf) => {
-                    return self.blocks.insert(block, buf);
-                }
-                Err(e) => {
-                    state.error = Some(e);
-                }
+        match &self.state {
+            BlockState::Pending => IterState::Partial(&[]),
+            BlockState::End => IterState::Complete(&[]),
+            BlockState::Partial(buf) => IterState::Partial(&buf[self.pos_in_block * self.block_desc.element_size.bytes()..]),
+            BlockState::Complete(buf) => IterState::Complete(&buf[self.pos_in_block * self.block_desc.element_size.bytes()..]),
+            BlockState::Error => {
+                IterState::Error("")
             }
         }
-
-        &[]
     }
 
-    fn state(&self) -> StreamState {
-        self.stream.state()
-    }
+    fn consume(&mut self, count: usize) {
+        debug_assert!(self.pos_in_block + count <= self.block_desc.count);
+        self.pos_in_block += count;
 
-    fn begin(&mut self, waker: &Waker) {
-        self.waker.clone_from(waker);
-    }
-
-    fn end(&mut self) {
-        let mut state = self.state.borrow_mut();
-        self.blocks.as_mut().retain(|block, _| state.used.contains(block));
-        state.used.clear();
+        if self.pos_in_block >= self.block_desc.count {
+            self.block += 1;
+            self.pos_in_block = 0;
+            self.state = BlockState::Pending;
+        }
     }
 }

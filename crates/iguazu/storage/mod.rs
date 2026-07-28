@@ -1,18 +1,20 @@
 //! Data storage and access backends.
-mod cache;
-mod common;
+pub(crate) mod common;
+pub mod block;
+
+use block::{BlockState, BlockTask, CachePool};
+
+use std::{future::Future, io, sync::{Arc, Mutex, Weak}};
+use async_executor::Executor;
+use once_array::OnceArray;
 
 mod in_memory;
-
-use std::sync::{Arc, Mutex};
-
-use async_executor::Executor;
 pub use in_memory::{ MemoryStorage, MemoryStream, MemoryStreamWriter };
 
 mod flat_file;
 pub use flat_file::{ FlatFileStream, FlatFileOpts };
 
-use crate::{stream::StreamWriter, ElementSize};
+use crate::{ElementSize, stream::StreamWriter};
 
 #[cfg(feature = "izs")]
 pub mod izs;
@@ -26,13 +28,13 @@ pub trait Storage: Send + Sync {
 }
 
 pub struct Pool {
-    cache: Mutex<cache::CachePool>,
+    cache: Mutex<CachePool>,
     pub executor: Arc<Executor<'static>>,
 }
 
 impl Pool {
     pub fn new(executor: Arc<Executor<'static>>, cache_limit: usize) -> Self {
-        Pool { cache: Mutex::new(cache::CachePool::new(cache_limit)), executor }
+        Pool { cache: Mutex::new(CachePool::new(cache_limit)), executor }
     }
 
     pub fn stats(&self) -> PoolStats {
@@ -41,6 +43,21 @@ impl Pool {
             cache_limit: cache.limit(),
             cache_usage: cache.total(),
         }
+    }
+
+    pub fn spawn_block_fetch(self: Arc<Self>, fut: impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static) -> Arc<BlockTask> {
+        Arc::new_cyclic(move |t: &Weak<BlockTask>| {
+            let t = t.clone();
+            BlockTask::new(self.executor.clone().spawn(async move {
+                let block = fut.await;
+                if let Some(t) = t.upgrade() {
+                    if let Ok(block) = &block {
+                        self.cache.lock().unwrap().insert(block.clone());
+                    }
+                    t.complete(block);
+                }
+            }))
+        })
     }
 }
 

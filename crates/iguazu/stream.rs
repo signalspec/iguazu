@@ -2,29 +2,19 @@
 use std::{any::Any, fmt::Debug, future::poll_fn, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker, ready}};
 use once_array::OnceArrayWriter;
 
-use crate::{Idx, ElementSize};
+use crate::{ElementSize, Idx, storage::block::BlockState};
 
 pub trait Stream: Send + Sync + Debug + Any {
     fn desc(&self) -> BlockDesc;
 
     fn state(&self) -> StreamState;
 
-    fn access(self: Arc<Self>) -> Box<dyn StreamAccess>;
+    fn get_block(&self, block: u64, waker: &Waker) -> BlockState;
 
-    fn iter(self: Arc<Self>) ->  Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send>>;
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send>>;
 }
 
 pub type ArcStream = Arc<dyn Stream>;
-
-pub trait StreamAccess: Send  {
-    fn get_block(&self, block: u64) -> &[u8];
-
-    fn state(&self) -> StreamState;
-
-    fn begin(&mut self, waker: &Waker);
-
-    fn end(&mut self);
-}
 
 #[derive(Debug, PartialEq)]
 pub enum IterState<'a> {
