@@ -34,6 +34,10 @@ impl<'a> IntView<'a> {
         self.state
     }
 
+    pub fn len(&self) -> Idx {
+        self.state().end
+    }
+
     pub fn bounds(&self) -> IdxRange {
         IdxRange { min: 0, max: self.state().end }
     }
@@ -61,6 +65,11 @@ impl<'a> IntView<'a> {
             ElementSize::U32 => u32::from_le_bytes(block.get(byte_pos..byte_pos + 4)?.try_into().unwrap()) as u64,
             ElementSize::U64 => u64::from_le_bytes(block.get(byte_pos..byte_pos + 8)?.try_into().unwrap()),
         })
+    }
+
+    pub fn next_block_index(&self, i: Idx) -> Idx {
+        let block = i / self.desc.count as Idx;
+        (block + 1) * self.desc.count as Idx
     }
 
     pub fn loaded_chunks<'v, T: Element>(&'v self, range: IdxRange) -> LoadedChunkIter<'v, 'a, T> {

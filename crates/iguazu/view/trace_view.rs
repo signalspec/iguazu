@@ -15,10 +15,7 @@ impl<'a> TraceView<'a> {
     pub fn new(vm: &'a ViewManager, stream: ArcStream, summary: BorrowedSummary<'_, ArcStream>) -> Self {
         TraceView {
             base: IntView::new_from_stream(vm, &stream),
-            summary: StoredSummary {
-                base_level: summary.base_level,
-                levels: summary.levels.iter().map(|s| IntView::new_from_stream(vm, s)).collect(),
-            }
+            summary: summary.map(|s| IntView::new_from_stream(vm, s)),
         }
     }
 

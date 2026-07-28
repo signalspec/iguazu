@@ -1,6 +1,8 @@
+use std::range::Range;
+
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Align2, Color32, Rect, Stroke, Vec2};
-use iguazu::{schema::{attribute::display::AccentColor, EntityStream}, view::{EventView, TextView}, IdxRange, time::{Time, TimeRange}};
+use iguazu::{schema::{attribute::display::AccentColor, EntityStream}, view::{EventView, TextView}, time::{Time, TimeRange}};
 
 use crate::{color::named_color, ViewerContext};
 
@@ -30,7 +32,7 @@ impl<'a> EventsRow<'a> {
     pub fn time_range(&self) -> TimeRange {
         TimeRange {
             min: Time::ZERO,
-            max: (self.event_view.latest_idx() as i128) * Time::period_float(self.event_view.time_rate()),
+            max: (self.event_view.latest_timestamp().unwrap_or(0) as i128) * Time::period_float(self.event_view.time_rate()),
         }
     }
 
@@ -55,9 +57,9 @@ impl<'a> EventsRow<'a> {
         let font_id = egui::TextStyle::Body.resolve(ui.style());
         let font_color = ui.style().visuals.text_color();
 
-        let evt_rect = |t_range: IdxRange| -> Rect {
-            let x1 = idx_scale.x_from_idx(t_range.min);
-            let x2 = idx_scale.x_from_idx(t_range.max);
+        let evt_rect = |t_range: Range<u64>| -> Rect {
+            let x1 = idx_scale.x_from_idx(t_range.start);
+            let x2 = idx_scale.x_from_idx(t_range.end);
             Rect::from_x_y_ranges(x1..=x2, padded_rect.y_range())
         };
 
@@ -67,7 +69,7 @@ impl<'a> EventsRow<'a> {
             .filter(|pos| rect.contains(*pos) && ui.ctx().dragged_id().is_none())
             .map(|pos| pos.x);
 
-        for evt in self.event_view.range(idx_scale.visible, idx_scale.min_visible_width(painter.ctx().pixels_per_point()).get()) {
+        for evt in self.event_view.range(idx_scale.visible.into(), idx_scale.min_visible_width(painter.ctx().pixels_per_point()).get()) {
             match evt {
                 iguazu::view::Event::Event(t_range, idx) => {
                     let r = evt_rect(t_range);
@@ -91,9 +93,9 @@ impl<'a> EventsRow<'a> {
 
                     if let Some(hover_x) = hover_x {
                         if (hover_x - r.min.x).abs() < interact_radius {
-                            snap_to_idx = Some(t_range.min);
+                            snap_to_idx = Some(t_range.start);
                         } else if (hover_x - r.max.x).abs() < interact_radius {
-                            snap_to_idx = Some(t_range.max);
+                            snap_to_idx = Some(t_range.end);
                         }
                     }
                 }

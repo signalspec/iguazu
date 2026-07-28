@@ -14,6 +14,8 @@ mod util;
 mod element;
 pub mod izs;
 pub mod config;
+use std::range::Range;
+
 pub use element::{Element, ElementSize};
 
 #[cfg(all(feature="clap", any(target_family = "unix", target_family = "windows")))]
@@ -45,7 +47,13 @@ impl IdxRange {
         IdxRange { min: self.min / by, max: self.max.div_ceil(by) }
     }
 
-    fn multiply(&self, by: u64) -> IdxRange {
+    pub fn multiply(&self, by: u64) -> IdxRange {
         IdxRange { min: self.min * by, max: self.max * by }
+    }
+}
+
+impl Into<Range<Idx>> for IdxRange {
+    fn into(self) -> Range<Idx> {
+        Range { start: self.min, end: self.max }
     }
 }

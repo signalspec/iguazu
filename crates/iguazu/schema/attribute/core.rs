@@ -55,7 +55,7 @@ impl<D, S> Entity<D, S> {
         self.time_rate().map(Time::period_float)
     }
 
-    pub fn time(&self) -> Option<EcoString> {
+    pub fn time_field(&self) -> Option<EcoString> {
         self.attribute(TIME_FIELD)
     }
 

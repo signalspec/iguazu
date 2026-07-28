@@ -11,6 +11,9 @@ pub use int_view:: { IntView, LoadedChunkIter };
 mod number_view;
 pub use number_view::NumberView;
 
+mod timestamp_view;
+pub use timestamp_view::TimestampView;
+
 mod enum_view;
 pub use enum_view::EnumView;
 
@@ -87,6 +90,10 @@ impl ViewManager {
 
     pub fn text_view<'a>(&'a self, entity: &EntityStream) -> TextView<'a> {
         TextView::new(self, entity)
+    }
+
+    pub fn timestamp_view(&self, ts: &EntityStream) -> Option<TimestampView<'_>> {
+        TimestampView::new(self, ts)
     }
 
     pub fn event_view<'a>(&'a self, entity: &EntityStream) -> Option<EventView<'a>> {

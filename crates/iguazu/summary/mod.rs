@@ -77,10 +77,6 @@ impl<D> Default for StoredSummaryMap<D> {
     }
 }
 
-pub type LiveSummary = Summary<Arc<OnceArray<ArcStream>>>;
-pub type StoredSummary<D> = Summary<Box<[D]>>;
-pub type BorrowedSummary<'a, D> = Summary<&'a [D]>;
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Summary<L> {
     pub base_level: u8,
@@ -90,27 +86,6 @@ pub struct Summary<L> {
 impl<L> Debug for Summary<L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Summary").finish()
-    }
-}
-
-impl LiveSummary {
-    pub fn new(base_level: u8, levels: impl IntoIterator<Item = ArcStream>) -> Self {
-        Summary { base_level, levels: Arc::new(levels.into_iter().collect::<Vec<_>>().into()) }
-    }
-
-    pub fn with_capacity(base_level: u8, capacity: usize) -> (Self, OnceArrayWriter<ArcStream>) {
-        let writer = OnceArrayWriter::with_capacity(capacity);
-        (Summary { base_level, levels: writer.reader().clone() }, writer)
-    }
-
-    pub fn borrow(&self) -> BorrowedSummary<'_, ArcStream> {
-        Summary { base_level: self.base_level, levels: &self.levels }
-    }
-}
-
-impl<D> StoredSummary<D> {
-    pub fn borrow(&self) -> BorrowedSummary<'_, D> {
-        Summary { base_level: self.base_level, levels: &self.levels }
     }
 }
 
@@ -154,7 +129,62 @@ impl<'a, D> Summary<&'a [D]> {
     pub fn iter_levels(&self) -> impl DoubleEndedIterator<Item = (u8, &D)> {
         self.levels.iter().enumerate().map(move |(i, level)| (self.base_level + i as u8, level))
     }
+
+    pub fn last(&self) -> Option<(u8, &D)> {
+        self.levels.last().map(|level| (self.base_level + (self.levels.len() - 1) as u8, level))
+    }
+
+    pub fn map<O>(&self, f: impl Fn(&D) -> O) -> Summary<Box<[O]>> {
+        Summary {
+            base_level: self.base_level,
+            levels: self.levels.iter().map(f).collect(),
+        }
+    }
 }
+
+impl<D> Summary<Box<[D]>> {
+    pub fn borrowed(&self) -> Summary<&[D]> {
+        Summary { base_level: self.base_level, levels: &*self.levels }
+    }
+
+    pub fn max_level(&self) -> u8 {
+        self.borrowed().max_level()
+    }
+
+    pub fn level(&self, level: u8) -> Option<&D> {
+        self.levels.get(level.checked_sub(self.base_level)? as usize)
+    }
+
+    pub fn iter_levels(&self) -> impl DoubleEndedIterator<Item = (u8, &D)> {
+        self.levels.iter().enumerate().map(move |(i, level)| (self.base_level + i as u8, level))
+    }
+}
+
+pub type LiveSummary = Summary<Arc<OnceArray<ArcStream>>>;
+pub type StoredSummary<D> = Summary<Box<[D]>>;
+pub type BorrowedSummary<'a, D> = Summary<&'a [D]>;
+
+impl LiveSummary {
+    pub fn new(base_level: u8, levels: impl IntoIterator<Item = ArcStream>) -> Self {
+        Summary { base_level, levels: Arc::new(levels.into_iter().collect::<Vec<_>>().into()) }
+    }
+
+    pub fn with_capacity(base_level: u8, capacity: usize) -> (Self, OnceArrayWriter<ArcStream>) {
+        let writer = OnceArrayWriter::with_capacity(capacity);
+        (Summary { base_level, levels: writer.reader().clone() }, writer)
+    }
+
+    pub fn borrow(&self) -> BorrowedSummary<'_, ArcStream> {
+        Summary { base_level: self.base_level, levels: &self.levels }
+    }
+}
+
+impl<D> StoredSummary<D> {
+    pub fn borrow(&self) -> BorrowedSummary<'_, D> {
+        Summary { base_level: self.base_level, levels: &self.levels }
+    }
+}
+
 
 #[test]
 fn test_summary_ops() {

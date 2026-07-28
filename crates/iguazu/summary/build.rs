@@ -285,11 +285,11 @@ fn range_summary(s: SummaryGen, field: &Field) {
 
 fn skip_summary(s: SummaryGen, _field: &Field) {
     fn skip_initial<T: Copy + BitOr<Output = T> + BitAnd<Output = T>>(arr: [T; 8]) -> [T; 1] {
-        [arr[7]]
+        [arr[0]]
     }
 
     fn skip_reduce<T: Copy + BitOr<Output = T> + BitAnd<Output = T>>(arr: [T; 2]) -> [T; 1] {
-        [arr[1]]
+        [arr[0]]
     }
 
     match s.stream.desc().element_size {
