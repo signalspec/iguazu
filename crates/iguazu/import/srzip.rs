@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::{pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc, io::Write};
 use ecow::{EcoString, eco_format};
 
 use crate::ElementSize;
@@ -239,19 +239,12 @@ fn find_chunks(zip_entries: &mut BTreeMap<Box<[u8]>, ZipEntry>, prefix: &[u8]) -
     if let Some(single) = zip_entries.remove(prefix) {
         vec![single]
     } else {
-        let mut chunks: Vec<ZipEntry> = zip_entries
-            .extract_if(.., |name, _| name.strip_prefix(prefix)
-                .and_then(|r| r.strip_prefix(b"-"))
-                .is_some_and(|r| r.len() < 10 && r.iter().all(|b| b.is_ascii_digit())))
-            .map(|(_, entry)| entry)
-            .collect();
-
-        // Sort by chunk number as int, because BTreeMap keys are lexicographically ordered
-        chunks.sort_by_key(|entry| {
-            lexical_core::parse::<u32>(&entry.name()[prefix.len() + 1..]).unwrap()
-        });
-
-        chunks
+        let mut name = Vec::from(prefix);
+        (1..).map_while(|seq| {
+            name.truncate(prefix.len());
+            write!(&mut name, "-{}", seq).unwrap();
+            zip_entries.remove(&name[..])
+        }).collect()
     }
 }
 
