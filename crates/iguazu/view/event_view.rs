@@ -91,6 +91,9 @@ impl Iterator for EventViewIter<'_, '_> {
                     // We're skipping towards the first event in range.
                     self.next_idx = next_idx;
 
+                    // If we loop until we reach `t` we'd have to load all summaries and base,
+                    // so stop `min_width` before `t` as an approximation of the density and
+                    // summary level we'll be using.
                     if self.time_start.saturating_sub(t) < self.min_width {
                         time = t;
                         first = false;

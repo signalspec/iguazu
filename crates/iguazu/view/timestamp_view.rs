@@ -1,6 +1,6 @@
-use std::ops::ControlFlow;
+use std::{ops::ControlFlow, range::Range};
 
-use crate::{Idx, schema::{Entity, EntityStream, Field, FieldKind}, stream::ArcStream, summary::{LiveSummaryMap, StoredSummary}};
+use crate::{Idx, IdxRange, schema::{Entity, EntityStream, Field, FieldKind}, stream::ArcStream, summary::{LiveSummaryMap, StoredSummary}};
 
 use super::{IntView, ViewManager};
 
@@ -126,6 +126,18 @@ impl<'v> TimestampView<'v> {
             SkipResult::Sparse(val)
         }
     }
+
+    pub fn iter<'a>(&'a self, time_range: Range<u64>, min_width: u64) -> TimestampViewIter<'a, 'v> {
+        let Range { start: time_start, end: time_end } = time_range;
+
+        TimestampViewIter {
+            view: self,
+            next_idx: 0,
+            time_start,
+            time_end,
+            min_width,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +150,80 @@ pub enum SkipResult {
     Sparse(u64),
 
     End,
+}
+
+pub struct TimestampViewIter<'a, 'v> {
+    view: &'a TimestampView<'v>,
+    next_idx: Idx,
+    time_start: u64,
+    time_end: u64,
+    min_width: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Span {
+    Loading,
+    Dense(u8, IdxRange, Range<u64>),
+    Sparse(IdxRange, Range<u64>),
+}
+
+impl Iterator for TimestampViewIter<'_, '_> {
+    type Item = Span;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut first = false;
+        if self.next_idx == 0 {
+            if let Some(first_time) = self.view.first_timestamp() && self.time_start <= first_time {
+                self.time_start = first_time;
+            } else {
+                first = true;
+            }
+        };
+
+
+        while self.time_start < self.time_end {
+            let time = self.time_start;
+            let idx = self.next_idx;
+            match self.view.skip(idx, time + if first { 0 } else { self.min_width }) {
+                SkipResult::Dense(_level, next_idx, t) if first => {
+                    // We're skipping towards the first event in range.
+                    self.next_idx = next_idx;
+
+                    // If we loop until we reach `t` we'd have to load all summaries and base,
+                    // so stop `min_width` before `t` as an approximation of the density and
+                    // summary level we'll be using.
+                    if time.saturating_sub(t) < self.min_width {
+                        self.time_start = t;
+                        first = false;
+                    }
+                }
+                SkipResult::Dense(level, next_idx, t) => {
+                    self.time_start = t;
+                    self.next_idx = next_idx;
+                    return Some(Span::Dense(level, IdxRange { min: idx, max: next_idx }, Range { start: time, end: t }))
+                }
+                SkipResult::Sparse(t) => {
+                    self.time_start = t;
+                    self.next_idx = idx + 1;
+                    // `time` should be the same except when the span starts before
+                    // `time_start`, where we need to get the real start time
+                    let start = self.view.get_base(idx).unwrap_or(time);
+                    return Some(Span::Sparse(IdxRange { min: idx, max: idx + 1 }, Range { start, end: t }))
+                }
+                SkipResult::Loading(_level) => {
+                    // TODO: find next loaded value to skip to
+                    self.time_start = self.time_end;
+                    return Some(Span::Loading)
+                }
+                SkipResult::End => {
+                    self.time_start = self.time_end;
+                    return None
+                }
+            }
+        }
+
+        None
+    }
 }
 
 #[test]
@@ -229,12 +315,63 @@ fn test_timestamp_view() {
         assert_eq!(view.skip(10_999, 3_999_900 + step), SkipResult::End);
     }
 
+    fn check_iter(view: &TimestampView<'_>) {
+        use Span::*;
+
+        assert_eq!(view.iter(Range { start: 0, end: 3_500_000 }, 260_000).collect::<Vec<_>>(), vec![
+            Dense(8, IdxRange { min: 0, max: 256 }, (1000000..1256000).into()),
+            Dense(8, IdxRange { min: 256, max: 512 }, (1256000..1512000).into()),
+            Dense(8, IdxRange { min: 512, max: 768 }, (1512000..1768000).into()),
+            Dense(7, IdxRange { min: 768, max: 896 }, (1768000..1896000).into()),
+            Dense(6, IdxRange { min: 896, max: 960 }, (1896000..1960000).into()),
+            Dense(5, IdxRange { min: 960, max: 992 }, (1960000..1992000).into()),
+            Dense(2, IdxRange { min: 992, max: 996 }, (1992000..1996000).into()),
+            Dense(1, IdxRange { min: 996, max: 998 }, (1996000..1998000).into()),
+            Dense(0, IdxRange { min: 998, max: 999 }, (1998000..1999000).into()),
+            Sparse(IdxRange { min: 999, max: 1000 }, (1999000..3000000).into()),
+            Dense(3, IdxRange { min: 1000, max: 1008 }, (3000000..3000800).into()),
+            Dense(4, IdxRange { min: 1008, max: 1024 }, (3000800..3002400).into()),
+            Dense(10, IdxRange { min: 1024, max: 2048 }, (3002400..3104800).into()),
+            Dense(11, IdxRange { min: 2048, max: 4096 }, (3104800..3309600).into()),
+            Dense(11, IdxRange { min: 4096, max: 6144 }, (3309600..3514400).into()),
+        ]);
+
+        assert_eq!(view.iter(Range { start: 2_200_000, end: 2_800_000 }, 1000).collect::<Vec<_>>(), vec![
+            Sparse(IdxRange { min: 999, max: 1000 }, (1999000..3000000).into())
+        ]);
+
+        assert_eq!(view.iter(Range { start: 999_900, end: 1_003_500 }, 80).collect::<Vec<_>>(), vec![
+            Sparse(IdxRange { min: 0, max: 1 }, (1000000..1001000).into()),
+            Sparse(IdxRange { min: 1, max: 2 }, (1001000..1002000).into()),
+            Sparse(IdxRange { min: 2, max: 3 }, (1002000..1003000).into()),
+            Sparse(IdxRange { min: 3, max: 4 }, (1003000..1004000).into()),
+        ]);
+
+        assert_eq!(view.iter(Range { start: 2_999_800, end: 3_000_400 }, 80).collect::<Vec<_>>(), vec![
+            Sparse(IdxRange { min: 999, max: 1000 }, (1999000..3000000).into()),
+            Sparse(IdxRange { min: 1000, max: 1001 }, (3000000..3000100).into()),
+            Sparse(IdxRange { min: 1001, max: 1002 }, (3000100..3000200).into()),
+            Sparse(IdxRange { min: 1002, max: 1003 }, (3000200..3000300).into()),
+            Sparse(IdxRange { min: 1003, max: 1004 }, (3000300..3000400).into()),
+        ]);
+
+        assert_eq!(view.iter(Range { start: 3_999_750, end: 5_000_000 }, 80).collect::<Vec<_>>(), vec![
+            Sparse(IdxRange { min: 10997, max: 10998 }, (3999700..3999800).into()),
+            Sparse(IdxRange { min: 10998, max: 10999 }, (3999800..3999900).into())
+        ]);
+
+        assert_eq!(view.iter(Range { start: 0, end: 500_000 }, 1000).collect::<Vec<_>>(), vec![]);
+        assert_eq!(view.iter(Range { start: 5_000_000, end: 6_000_000 }, 1000).collect::<Vec<_>>(), vec![]);
+    }
+
     // Tests without summaries
     let view = vm.timestamp_view(&entity).unwrap();
     check_step(&view);
+    check_iter(&view);
 
     // Build summaries and test again
     block_on(executor.run(entity.build_summaries(&executor, &storage))).unwrap();
     let view = vm.timestamp_view(&entity).unwrap();
     check_step(&view);
+    check_iter(&view);
 }
