@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, mem::size_of, pin::Pin, sync::Arc};
 use async_compression::futures::bufread::DeflateDecoder;
+use ecow::EcoString;
 use futures_lite::{AsyncBufRead, AsyncRead, AsyncReadExt as _};
 
 use crate::io::ReadableFile;
@@ -56,9 +57,10 @@ impl LocalFileHeader {
     fn extra_field_length(&self) -> u16 { u16::from_le_bytes(self.0[28..30].try_into().unwrap()) }
 }
 
+#[derive(Clone)]
 pub struct ZipEntry {
     file: Arc<dyn ReadableFile>,
-    name: Box<[u8]>,
+    name: EcoString,
     extra_len: usize,
     compression: u16,
     compressed_size: u64,
@@ -86,7 +88,7 @@ impl AsyncRead for UnzipReader {
 
 impl ZipEntry {
     pub fn file(&self) -> &Arc<dyn ReadableFile> { &self.file }
-    pub fn name(&self) -> &[u8] { &self.name }
+    pub fn name(&self) -> &EcoString { &self.name }
     pub fn uncompressed_size(&self) -> u64 { self.uncompressed_size }
 
     pub fn reader(&self) -> impl Future<Output = Result<UnzipReader, std::io::Error>> + Send + 'static {
@@ -162,7 +164,7 @@ pub enum ZipError {
     LimitExceeded(&'static str),
 }
 
-pub async fn load_zip_file(file: Arc<dyn ReadableFile>) -> Result<BTreeMap<Box<[u8]>, ZipEntry>, ZipError> {
+pub async fn load_zip_file(file: Arc<dyn ReadableFile>) -> Result<BTreeMap<EcoString, ZipEntry>, ZipError> {
     // File comments not supported, just assume EOCD is at the end.
     let (eocd, _) = file.clone().read_at_end(size_of::<EndOfCentralDirectoryRecord>()).await?;
     let eocd = EndOfCentralDirectoryRecord(eocd.try_into().map_err(|_| ZipError::MalformedFile("file too short"))?);
@@ -214,11 +216,13 @@ pub async fn load_zip_file(file: Arc<dyn ReadableFile>) -> Result<BTreeMap<Box<[
             return Err(ZipError::MalformedFile("central directory file header truncated"));
         }
 
-        let name = &cdir[header_len..][..name_len];
+        let Ok(name) = str::from_utf8(&cdir[header_len..][..name_len]).map(EcoString::from) else {
+            return Err(ZipError::MalformedFile("invalid UTF-8 in central directory file name"));
+        };
 
-        entries.insert(name.into(), ZipEntry {
+        entries.insert(name.clone(), ZipEntry {
             file: file.clone(),
-            name: name.into(),
+            name,
             extra_len,
             compression: header.compression(),
             compressed_size: header.compressed_size() as u64,

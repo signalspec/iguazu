@@ -56,15 +56,13 @@ impl LoadBlock for SrZipStream {
         };
 
         let file_name = entry.file().filename().unwrap_or("<unknown>");
-        let entry_name = str::from_utf8(entry.name()).unwrap_or("<unknown>");
-
         if let Some(buf) = self.cache.lock().unwrap().get(&block) {
-            log::debug!("Block {block} from {} : {} found in cache", file_name, entry_name);
+            log::debug!("Block {block} from {} : {} found in cache", file_name, entry.name());
             return LoadBlockRes::Cached(buf);
         }
 
         let block_bytes = self.desc().size();
-        log::debug!("Loading block {block} from {} : {}", file_name, entry_name);
+        log::debug!("Loading block {block} from {} : {}", file_name, entry.name());
         LoadBlockRes::Loading(self.pool.executor.clone().spawn(async move {
             let entry = &self.blocks[block as usize];
             let data = entry.read_all(block_bytes).await?;
@@ -128,8 +126,7 @@ impl StreamIter for SrZipIter {
                 SrZipIterState::Empty => {
                     if let Some(entry) = self.stream.blocks.get(self.block) {
                         let file_name = entry.file().filename().unwrap_or("<unknown>");
-                        let entry_name = str::from_utf8(entry.name()).unwrap_or("<unknown>");
-                        log::debug!("Loading block {} from {} : {}", self.block, file_name, entry_name);
+                        log::debug!("Loading block {} from {} : {}", self.block, file_name, entry.name());
                         self.state = SrZipIterState::Loading(Box::pin(entry.reader()));
                     } else {
                          return IterState::Complete(&self.buffer[read_offset..self.in_pos]);

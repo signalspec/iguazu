@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::{pin::Pin, sync::Arc, io::Write};
+use std::{pin::Pin, sync::Arc};
 use ecow::{EcoString, eco_format};
 
 use crate::ElementSize;
@@ -46,18 +46,18 @@ impl Importer for SrZipImporter {
     }
 }
 
-async fn load_metadata(file: Arc<dyn ReadableFile>) -> Result<(BTreeMap<Box<[u8]>, ZipEntry>, Vec<Metadata>), ImportError> {
+async fn load_metadata(file: Arc<dyn ReadableFile>) -> Result<(BTreeMap<EcoString, ZipEntry>, Vec<Metadata>), ImportError> {
     let entries = load_zip_file(file.clone()).await
         .map_err(|e| ImportError::InvalidFile(e.to_string()))?;
 
     if log::log_enabled!(log::Level::Debug) {
         log::debug!("{} contents:", file.filename().unwrap_or("<unknown>"));
         for (name, entry) in &entries {
-            log::debug!("  {:?} ({} bytes)", String::from_utf8_lossy(name), entry.uncompressed_size());
+            log::debug!("  {name:?} ({} bytes)", entry.uncompressed_size());
         }
     }
 
-    let version = entries.get(&b"version"[..])
+    let version = entries.get("version")
         .ok_or_else(|| ImportError::InvalidFile("missing `version` file in srzip".into()))?
         .read_all(256).await?;
 
@@ -65,7 +65,7 @@ async fn load_metadata(file: Arc<dyn ReadableFile>) -> Result<(BTreeMap<Box<[u8]
         return Err(ImportError::InvalidFile(format!("unsupported srzip version `{}`", String::from_utf8_lossy(&version))));
     }
 
-    let metadata = entries.get(&b"metadata"[..])
+    let metadata = entries.get("metadata")
         .ok_or_else(|| ImportError::InvalidFile("missing `metadata` file in srzip".into()))?
         .read_all(64 * 1024).await?;
 
@@ -76,7 +76,7 @@ async fn load_metadata(file: Arc<dyn ReadableFile>) -> Result<(BTreeMap<Box<[u8]
 
 fn make_entity<D, S: Default>(
     devices: &[Metadata],
-    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> Result<D, ImportError>
+    make_stream: &mut impl FnMut(ElementSize, &str) -> Result<D, ImportError>
 ) -> Result<Entity<D, S>, ImportError> {
     if devices.len() == 1 {
         make_device_entity(&devices[0], make_stream)
@@ -90,7 +90,7 @@ fn make_entity<D, S: Default>(
 
 fn make_device_entity<D, S: Default>(
     device: &Metadata,
-    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> Result<D, ImportError>
+    make_stream: &mut impl FnMut(ElementSize, &str) -> Result<D, ImportError>
 ) -> Result<Entity<D, S>, ImportError> {
     if device.analog_channels.is_empty() {
         make_digital_entity(device, make_stream)
@@ -114,7 +114,7 @@ fn make_device_entity<D, S: Default>(
 
 fn make_digital_entity<D, S: Default>(
     device: &Metadata,
-    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> Result<D, ImportError>
+    make_stream: &mut impl FnMut(ElementSize, &str) -> Result<D, ImportError>
 ) -> Result<Entity<D, S>, ImportError> {
     let children = device.digital_channels.iter().map(|(id, name)| {
         let pos = id.saturating_sub(1);
@@ -134,19 +134,19 @@ fn make_digital_entity<D, S: Default>(
 fn make_analog_entity<D, S: Default>(
     device: &Metadata,
     id: u8,
-    make_stream: &mut impl FnMut(ElementSize, &[u8]) -> Result<D, ImportError>
+    make_stream: &mut impl FnMut(ElementSize, &str) -> Result<D, ImportError>
 ) -> Result<Entity<D, S>, ImportError> {
     let field = Field::new(FieldKind::Float32 { pos: 0 })
         .with_attribute_opt(attribute::core::TIME_RATE, device.sample_rate);
 
-    let data = make_stream(ElementSize::U32, format!("analog-1-{id}").as_bytes())?;
+    let data = make_stream(ElementSize::U32, &eco_format!("analog-1-{id}"))?;
     Ok(Entity::Data { field, data, summaries: Default::default() })
 }
 
 struct Metadata {
     device_id: u8,
     sample_rate: Option<f64>,
-    capturefile: Box<[u8]>,
+    capturefile: EcoString,
     digital_channels: BTreeMap<u8, String>,
     analog_channels: BTreeMap<u8, String>,
     unitsize: u8,
@@ -166,7 +166,7 @@ fn parse_metadata(data: &[u8]) -> Result<Vec<Metadata>, ImportError> {
                 device = Some(Metadata {
                     device_id,
                     sample_rate: None,
-                    capturefile: Box::new([]),
+                    capturefile: EcoString::default(),
                     digital_channels: BTreeMap::new(),
                     analog_channels: BTreeMap::new(),
                     unitsize: 0,
@@ -185,7 +185,9 @@ fn parse_metadata(data: &[u8]) -> Result<Vec<Metadata>, ImportError> {
                     device.unitsize = parse(value)
                         .map_err(|_| ImportError::InvalidFile(format!("invalid `unitsize` value `{}`", String::from_utf8_lossy(value))))?;
                 } else if key == b"capturefile" {
-                    device.capturefile = value.into();
+                    device.capturefile = str::from_utf8(value)
+                        .map_err(|_| ImportError::InvalidFile(format!("invalid `capturefile` value {value:?}")))?
+                        .into();
                 } else if let Some(rest) = key.strip_prefix(b"probe") && let Ok(channel) = parse(rest) {
                     device.digital_channels.insert(channel, String::from_utf8_lossy(value).into_owned());
                 } else if let Some(rest) = key.strip_prefix(b"analog") && let Ok(channel) = parse(rest) {
@@ -238,15 +240,13 @@ fn test_parse_metadata() {
     assert_eq!(device.analog_channels, BTreeMap::from_iter([(9, "A0".into())]));
 }
 
-fn find_chunks(zip_entries: &mut BTreeMap<Box<[u8]>, ZipEntry>, prefix: &[u8]) -> Vec<ZipEntry> {
+fn find_chunks(zip_entries: &mut BTreeMap<EcoString, ZipEntry>, prefix: &str) -> Vec<ZipEntry> {
     if let Some(single) = zip_entries.remove(prefix) {
         vec![single]
     } else {
-        let mut name = Vec::from(prefix);
         (1..).map_while(|seq| {
-            name.truncate(prefix.len());
-            write!(&mut name, "-{}", seq).unwrap();
-            zip_entries.remove(&name[..])
+            let name = eco_format!("{prefix}-{seq}");
+            zip_entries.remove(&name)
         }).collect()
     }
 }
