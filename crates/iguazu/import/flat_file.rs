@@ -1,7 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 use std::future;
 use crate::ElementSize;
-use crate::import::OptionDescription;
+use crate::config::{Configurable, OptionDescription};
 use crate::schema::{EntityStream, Field};
 use crate::{io::ReadableFile, schema::{EntitySchema, attribute}, storage::{Pool, FlatFileOpts, FlatFileStream}};
 
@@ -130,8 +130,8 @@ impl FlatFileImporter {
     }
 }
 
-impl Importer for FlatFileImporter {
-    fn options(&self) -> &'static [ super::OptionDescription ] {
+impl Configurable for FlatFileImporter {
+    fn options(&self) -> &'static [ OptionDescription ] {
         &[
             OptionDescription {
                 name: "bits",
@@ -184,7 +184,9 @@ impl Importer for FlatFileImporter {
             _ => return None,
         })
     }
+}
 
+impl Importer for FlatFileImporter {
     fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send>> {
         Box::pin(future::ready(self.schema()))
     }

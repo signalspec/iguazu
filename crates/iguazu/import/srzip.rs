@@ -8,6 +8,7 @@ use crate::storage::srzip::SrZipStream;
 use crate::stream::Stream;
 use crate::{io::{ReadableFile, zip::{load_zip_file, ZipEntry}}, schema::EntitySchema, storage::Pool};
 
+use crate::config::Configurable;
 use super::{ImportError, Importer};
 
 /// Importer for Sigrok files
@@ -20,6 +21,8 @@ impl SrZipImporter {
         Self { file }
     }
 }
+
+impl Configurable for SrZipImporter {}
 
 impl Importer for SrZipImporter {
     fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {

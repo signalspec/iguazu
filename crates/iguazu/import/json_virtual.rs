@@ -2,6 +2,7 @@ use std::{pin::Pin, sync::Arc};
 
 use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::{InlineData, StreamRef}}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream, Pool }, stream::ArcStream, summary::StoredSummaryMap};
 
+use crate::config::Configurable;
 use super::{ImportError, Importer};
 
 /// Importer for a JSON file that references other files on disk.
@@ -14,6 +15,8 @@ impl VirtualImporter {
         Self { file }
     }
 }
+
+impl Configurable for VirtualImporter {}
 
 impl Importer for VirtualImporter {
     fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {

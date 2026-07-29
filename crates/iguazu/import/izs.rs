@@ -1,6 +1,6 @@
 use std::{pin::Pin, sync::Arc};
 
-use crate::{import::{ImportError, Importer}, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::{Pool}, izs::IzsFile};
+use crate::{config::Configurable, import::{ImportError, Importer}, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::{Pool}, izs::IzsFile};
 
 /// Importer for the native Iguazu `izs` format.
 pub struct IzsImporter {
@@ -12,6 +12,8 @@ impl IzsImporter {
         Self { file }
     }
 }
+
+impl Configurable for IzsImporter {}
 
 impl Importer for IzsImporter {
     fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {

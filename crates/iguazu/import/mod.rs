@@ -3,7 +3,7 @@ use std::{pin::Pin, sync::Arc};
 
 use thiserror::Error;
 
-use crate::{io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool};
+use crate::{config::Configurable, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool};
 
 mod column_parser;
 
@@ -40,38 +40,10 @@ pub enum ImportError {
     InvalidFile(String),
 }
 
-/// An option for an [`Importer`].
-pub struct OptionDescription {
-    /// The name of the option passed to `set` and `get`.
-    pub name: &'static str,
-
-    /// A human-readable description of the option.
-    pub description: &'static str,
-}
-
 /// An object that holds the import options and can perform the import.
 ///
 /// This is essentially a builder type for the import format, designed to be used behind `Box<dyn Importer>`.
-pub trait Importer: Send {
-    /// List available options.
-    fn options(&self) -> &'static [ OptionDescription ] {
-        &[]
-    }
-
-    /// Set an option.
-    ///
-    /// The option keys and allowed values depend on the importer type.
-    fn set(&mut self, option: &str, value: &str) -> Result<(), String> {
-        let _ = (option, value);
-        Err(format!("Unknown option"))
-    }
-
-    /// Get the current value of an option.
-    fn get(&self, option: &str) -> Option<String> {
-        let _ = option;
-        None
-    }
-
+pub trait Importer: Configurable + Send {
     /// Should we prompt for options?
     fn should_show_options(&self) -> bool {
         !self.options().is_empty()

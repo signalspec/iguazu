@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use crate::schema::{Entity, EntityStream};
 use crate::storage::Pool;
 use crate::{io::ReadableFile, schema::EntitySchema};
-use super::OptionDescription;
+use crate::config::{Configurable, OptionDescription};
 use super::{ImportError, Importer, column_parser::{ ColumnParser, TypeInfer }};
 
 /// Importer for CSV / TSV and similar formats.
@@ -182,7 +182,7 @@ impl CsvImporter {
     }
 }
 
-impl Importer for CsvImporter {
+impl Configurable for CsvImporter {
     fn options(&self) -> &'static [ OptionDescription ] {
         &[
             OptionDescription {
@@ -221,52 +221,26 @@ impl Importer for CsvImporter {
     }
 
     fn set(&mut self, option: &str, value: &str) -> Result<(), String> {
-        fn parse_byte(value: &str) -> Result<u8, String> {
-            match value {
-                "\\t" => Ok(b'\t'),
-                "\\n" => Ok(b'\n'),
-                "\\r" => Ok(b'\r'),
-                s if s.starts_with("\\x") && s.len() == 4 => {
-                    u8::from_str_radix(&s[2..], 16).map_err(|_| format!("Invalid hex byte value"))
-                },
-                s if s.len() == 1 => Ok(s.as_bytes()[0]),
-                _ => Err("Invalid single-byte value".into()),
-            }
-        }
-
-        fn parse_optional_byte(value: &str) -> Result<Option<u8>, String> {
-            match value {
-                "" | "no" | "off" | "none" => Ok(None),
-                _ => parse_byte(value).map(Some),
-            }
-        }
-
-        fn parse_bool(value: &str) -> Result<bool, String> {
-            match value {
-                "true" | "yes" | "y" | "on" | "1" => Ok(true),
-                "false" | "no" | "n" | "off" | "0" => Ok(false),
-                _ => Err("Invalid boolean value".into()),
-            }
-        }
+        use crate::config::{parse_bool, parse_char_byte, parse_optional};
 
         match option {
             "delimiter" => {
-                self.delimiter = parse_byte(value)?;
+                self.delimiter = parse_char_byte(value)?;
             }
             "terminator" => {
-                self.terminator = parse_optional_byte(value)?;
+                self.terminator = parse_optional(parse_char_byte, value)?;
             }
             "quote" => {
-                self.quote = parse_optional_byte(value)?;
+                self.quote = parse_optional(parse_char_byte, value)?;
             }
             "escape" => {
-                self.escape = parse_optional_byte(value)?;
+                self.escape = parse_optional(parse_char_byte, value)?;
             }
             "double_quote" => {
                 self.double_quote = parse_bool(value)?;
             }
             "comment" => {
-                self.comment = parse_optional_byte(value)?;
+                self.comment = parse_optional(parse_char_byte, value)?;
             }
             "skip" => {
                 self.skip = value.parse().map_err(|_| "Invalid integer value")?;
@@ -306,7 +280,9 @@ impl Importer for CsvImporter {
             _ => None,
         }
     }
+}
 
+impl Importer for CsvImporter {
     fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + '_>> {
         Box::pin(async move {
             let columns = self.infer_types().await?;
