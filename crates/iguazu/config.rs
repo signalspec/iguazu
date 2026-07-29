@@ -69,3 +69,63 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
         _ => Err("Invalid boolean value".into()),
     }
 }
+
+pub fn parse_rate(value: &str) -> Result<f64, String> {
+    let (num, scale) = if let Some(num) = value.strip_suffix("GHz") {
+        (num, 1e9)
+    } else if let Some(num) = value.strip_suffix("G") {
+        (num, 1e9)
+    } else if let Some(num) = value.strip_suffix("MHz") {
+        (num, 1e6)
+    } else if let Some(num) = value.strip_suffix("M") {
+        (num, 1e6)
+    } else if let Some(num) = value.strip_suffix("kHz") {
+        (num, 1e3)
+    } else if let Some(num) = value.strip_suffix("k") {
+        (num, 1e3)
+    } else if let Some(num) = value.strip_suffix("Hz") {
+        (num, 1.0)
+    } else {
+        (value, 1.0)
+    };
+
+    let num = num.trim().parse::<f64>().map_err(|_| "Invalid frequency value".to_owned())?;
+    Ok(num * scale)
+}
+
+pub fn format_rate(value: f64) -> String {
+    if value >= 1e9 {
+        format!("{}GHz", value / 1e9)
+    } else if value >= 1e6 {
+        format!("{}MHz", value / 1e6)
+    } else if value >= 1e3 {
+        format!("{}kHz", value / 1e3)
+    } else {
+        format!("{}Hz", value)
+    }
+}
+
+pub fn parse_time(value: &str) -> Result<f64, String> {
+    let (num, scale) = if let Some(num) = value.strip_suffix("min") {
+        (num, 60.0)
+    } else if let Some(num) = value.strip_suffix("ms") {
+        (num, 1e-3)
+    } else if let Some(num) = value.strip_suffix("s") {
+        (num, 1.0)
+    } else {
+        (value, 1.0)
+    };
+
+    let num = num.trim().parse::<f64>().map_err(|_| "Invalid time value".to_owned())?;
+    Ok(num * scale)
+}
+
+pub fn format_time(value: f64) -> String {
+    if value >= 60.0 && value % 60.0 == 0.0 {
+        format!("{}min", value / 60.0)
+    } else if value >= 1.0 || value == 0.0 {
+        format!("{}s", value)
+    } else {
+        format!("{}ms", value * 1e3)
+    }
+}

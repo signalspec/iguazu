@@ -14,12 +14,19 @@ path = "src/main.rs"
 
 [dependencies]
 iguazu = { workspace = true, features = ["clap"] }
+iguazu-capture = { workspace = true, optional = true }
 clap = { version = "4.4.4", features = ["derive"] }
 owo-colors = "4"
+futures-util.workspace = true
 futures-lite.workspace = true
 async-executor.workspace = true
 serde_json.workspace = true
 env_logger.workspace = true
+itertools.workspace = true
+
+[features]
+capture = ["dep:iguazu-capture"]
+default = ["capture"]
 
 [dev-dependencies]
 clap-markdown = "0.1.5"

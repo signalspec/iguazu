@@ -10,6 +10,7 @@ This document contains the help content for the `iguazu` command-line program.
 * [`iguazu info`↴](#iguazu-info)
 * [`iguazu schema`↴](#iguazu-schema)
 * [`iguazu convert`↴](#iguazu-convert)
+* [`iguazu capture`↴](#iguazu-capture)
 
 ## `iguazu`
 
@@ -20,6 +21,7 @@ This document contains the help content for the `iguazu` command-line program.
 * `info` — Describe the entities in the file
 * `schema` — Dump the schema as JSON
 * `convert` — Convert between formats
+* `capture` — Capture data from devices
 
 
 
@@ -76,6 +78,27 @@ Convert between formats
 * `-s`, `--schema <SCHEMA>` — Schema override from file
 * `-e`, `--entity <ENTITY>` — Select an entity by path within the file
 * `--build-summary` — Build default summary of all entities
+* `-F`, `--out-format <OUT_FORMAT>`
+
+
+
+## `iguazu capture`
+
+Capture data from devices
+
+**Usage:** `iguazu iguazu capture DRIVER:ID [OPTIONS] -o <FILE>`
+
+###### **Arguments:**
+
+* `<ID>` — Selected device ("driver:identifier")
+* `<OUT_FILENAME>`
+
+###### **Options:**
+
+* `-l`, `--list-devices` — List available devices on this system
+* `-L`, `--list-drivers` — List supported devices
+* `--list-options` — List options on the specified device
+* `-c <KEY=VALUE>` — Device configuration option (see --list-options)
 * `-F`, `--out-format <OUT_FORMAT>`
 
 

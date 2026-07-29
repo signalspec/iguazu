@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use clap::Args;
 use iguazu::{cli::{ExportOpts, ImportOpts}, export::EXPORTERS, import::IMPORTERS, storage::{MemoryStorage, Storage}};
-use futures_lite::future::{self, block_on};
+use futures_lite::future::block_on;
+use futures_util::future;
 
 /// Convert between formats
 #[derive(Args)]
@@ -34,11 +35,9 @@ pub fn main(args: &Cli) -> Result<(), String> {
 
         let export_task = args.export.export(EXPORTERS, executor.clone(), entity);
 
-        future::try_zip(
-            future::try_zip(
-                async { import_task.await.map_err(|s| s.to_string()) },
-                summary_task,
-            ),
+        future::try_join3(
+            async { import_task.await.map_err(|s| s.to_string()) },
+            summary_task,
             async { export_task.await.map_err(|s| s.to_string()) },
         ).await?;
 

@@ -97,7 +97,7 @@ pub struct ImportFormats<'a>(&'a [ImportFormat]);
 
 impl<'a> ImportFormats<'a> {
     pub fn iter(&self) -> std::slice::Iter<'a, ImportFormat> {
-        self.0.as_ref().iter()
+        self.0.iter()
     }
 
     pub fn by_name(&self, name: &str) -> Option<&'a ImportFormat> {

@@ -1,0 +1,23 @@
+[package]
+name = "iguazu-capture"
+authors.workspace = true
+description = "Data acquisition device support for Iguazu"
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+iguazu.workspace = true
+itertools.workspace = true
+ecow.workspace = true
+async-executor.workspace = true
+log.workspace = true
+
+nusb = "0.2.7"
+fx2la = "0.1.0"
+
+[lib]
+path = "lib.rs"

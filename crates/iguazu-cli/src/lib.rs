@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 pub mod info;
 pub mod convert;
 pub mod schema;
+#[cfg(feature = "capture")]
+pub mod capture;
 
 #[derive(Parser)]
 #[command(name = "iguazu", author, version, about, long_about = None)]
@@ -16,6 +18,8 @@ pub enum Commands {
     Info(info::Cli),
     Schema(schema::Cli),
     Convert(convert::Cli),
+    #[cfg(feature = "capture")]
+    Capture(capture::Cli),
 }
 
 impl Cli {
@@ -24,6 +28,8 @@ impl Cli {
             Commands::Info(args) => info::main(args),
             Commands::Convert(args) => convert::main(args),
             Commands::Schema(args) => schema::main(args),
+            #[cfg(feature = "capture")]
+            Commands::Capture(args) => capture::main(args),
         }
     }
 }

@@ -118,3 +118,15 @@ pub trait StreamWriter: Send {
     /// Notify readers that data has been written.
     fn commit(&mut self);
 }
+
+impl dyn StreamWriter {
+    pub fn extend_from_slice<'a>(&'a mut self, mut data: &'a [u8]) -> impl Future<Output = Result<(), String>> + 'a {
+        poll_fn(move |cx| {
+            while !data.is_empty() {
+                let buf = ready!(self.poll_buf(cx))?;
+                data = buf.extend_from_slice(data);
+            }
+            Poll::Ready(Ok(()))
+        })
+    }
+}

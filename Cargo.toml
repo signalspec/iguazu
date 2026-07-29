@@ -16,6 +16,7 @@ repository = "https://github.com/signalspec/iguazu"
 [workspace.dependencies]
 iguazu = { path = "crates/iguazu", version = "0.0.1" }
 iguazu-egui = { path = "crates/iguazu-egui", version = "0.0.1" }
+iguazu-capture = { path = "crates/iguazu-capture", version = "0.0.1" }
 async-executor = "1.13.1"
 bytemuck = "1.21.0"
 clap = { version = "4.5.39", features = ["derive"] }
@@ -24,8 +25,10 @@ eframe =  { version = "0.36.0", default-features = false }
 egui = "0.36.0"
 env_logger = "0.11.9"
 futures-lite = "2.6.0"
+futures-util = "0.3.32"
 hashbrown = "0.17"
 indexmap = "2"
+itertools = "0.15.0"
 log = "0.4.22"
 num-complex = "0.4.3"
 num-rational = "0.4.1"

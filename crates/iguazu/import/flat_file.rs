@@ -3,7 +3,7 @@ use std::future;
 use async_executor::Task;
 
 use crate::ElementSize;
-use crate::config::{Configurable, OptionDescription};
+use crate::config::{Configurable, OptionDescription, format_rate, parse_optional, parse_rate};
 use crate::schema::{EntityStream, Field};
 use crate::{io::ReadableFile, schema::{EntitySchema, attribute}, storage::{Pool, FlatFileOpts, FlatFileStream}, send::BoxFuture};
 
@@ -169,7 +169,7 @@ impl Configurable for FlatFileImporter {
             "offset" => self.opts.offset = value.parse().map_err(|_| "Invalid integer")?,
             "count" => self.opts.count = if value.is_empty() { None } else { Some(value.parse().map_err(|_| "Invalid integer")?) },
             "block_size" => self.opts.block_size = value.parse().map_err(|_| "Invalid integer")?,
-            "sample_rate" => self.sample_rate = if value.is_empty() { None } else { Some(value.parse().map_err(|_| "Invalid float")?) },
+            "sample_rate" => self.sample_rate = parse_optional(parse_rate, value)?,
             _ => return Err("Unknown option".into()),
         }
         Ok(())
@@ -182,7 +182,7 @@ impl Configurable for FlatFileImporter {
             "offset" => self.opts.offset.to_string(),
             "count" => self.opts.count.map_or_else(|| "".into(), |c| c.to_string()),
             "block_size" => self.opts.block_size.to_string(),
-            "sample_rate" => self.sample_rate?.to_string(),
+            "sample_rate" => format_rate(self.sample_rate?),
             _ => return None,
         })
     }

@@ -35,8 +35,8 @@ async-lock = "3.4.1"
 zstd = { version = "0.13.3", optional = true }
 async-compression = { version = "0.4.41", features = ["futures-io", "deflate"], optional = true }
 jiff = "0.2.16"
-futures-util = "0.3.32"
-itertools = "0.15.0"
+futures-util.workspace = true
+itertools.workspace = true
 
 [features]
 fs = ["dep:blocking", "dep:piper"]
