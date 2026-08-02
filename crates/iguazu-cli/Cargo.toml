@@ -18,7 +18,6 @@ clap = { version = "4.4.4", features = ["derive"] }
 owo-colors = "4"
 futures-lite = "2.6.0"
 async-executor.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 env_logger.workspace = true
 
