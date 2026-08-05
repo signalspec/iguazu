@@ -96,16 +96,14 @@ fn heatmap_demo(ui: &mut Ui, state: &mut State) {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.push_id(1, |ui| {
-                    heatmap_demo(ui, &mut self.h1);
-                });
-                ui.push_id(2, |ui| {
-                    heatmap_demo(ui, &mut self.h2);
-                })
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.horizontal(|ui| {
+            ui.push_id(1, |ui| {
+                heatmap_demo(ui, &mut self.h1);
             });
+            ui.push_id(2, |ui| {
+                heatmap_demo(ui, &mut self.h2);
+            })
         });
     }
 }
