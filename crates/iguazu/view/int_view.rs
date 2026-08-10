@@ -61,10 +61,14 @@ impl<'a> IntView<'a> {
         let block = self.block(block);
         Some(match self.desc.element_size {
             ElementSize::U8 => *(block.get(byte_pos)?) as u64,
-            ElementSize::U16 => u16::from_le_bytes(block.get(byte_pos..byte_pos + 2)?.try_into().unwrap()) as u64,
-            ElementSize::U32 => u32::from_le_bytes(block.get(byte_pos..byte_pos + 4)?.try_into().unwrap()) as u64,
-            ElementSize::U64 => u64::from_le_bytes(block.get(byte_pos..byte_pos + 8)?.try_into().unwrap()),
+            ElementSize::U16 => u16::from_ne_bytes(block.get(byte_pos..byte_pos + 2)?.try_into().unwrap()) as u64,
+            ElementSize::U32 => u32::from_ne_bytes(block.get(byte_pos..byte_pos + 4)?.try_into().unwrap()) as u64,
+            ElementSize::U64 => u64::from_ne_bytes(block.get(byte_pos..byte_pos + 8)?.try_into().unwrap()),
         })
+    }
+
+    pub fn iter_u64(&self, range: IdxRange) -> impl Iterator<Item = Option<u64>> {
+        (range.min..range.max).map(|i| self.get_u64(i))
     }
 
     pub fn next_block_index(&self, i: Idx) -> Idx {
@@ -74,29 +78,6 @@ impl<'a> IntView<'a> {
 
     pub fn loaded_chunks<'v, T: Element>(&'v self, range: IdxRange) -> LoadedChunkIter<'v, 'a, T> {
         LoadedChunkIter::new(self, range)
-    }
-
-    pub fn for_each_elem(&self, range: IdxRange, mut f: impl FnMut(Idx, Option<u64>)) {
-        let min_block = range.min / self.desc.count as Idx;
-        let max_block  = range.max.div_ceil(self.desc.count as Idx);
-
-        for block_i in min_block..max_block {
-            let block = self.view.get_block(block_i);
-            let idx = block_i * self.desc.count as u64;
-
-            let start = range.min.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
-            let end = range.max.saturating_sub(idx).min((block.len() / self.desc.element_size.bytes()) as u64) as usize;
-
-            for (i, v) in block[start * self.desc.element_size.bytes() .. end * self.desc.element_size.bytes()].chunks_exact(self.desc.element_size.bytes()).enumerate() {
-                let mut data = [0; 8];
-                data[..v.len()].copy_from_slice(v);
-                f(idx + start as u64 + i as u64, Some(u64::from_le_bytes(data)))
-            }
-
-            for i in (idx + end as u64)..(range.max.min(idx + self.desc.count as u64)) {
-                f(i, None)
-            }
-        }
     }
 }
 

@@ -167,6 +167,10 @@ impl IdxScale {
     pub(crate) fn min_visible_width(&self, points_per_px: f32) -> NonZeroU64 {
         NonZeroU64::new((1.0 / points_per_px / self.x_scale).ceil() as u64).unwrap_or(NonZeroU64::new(1).unwrap())
     }
+
+    pub(crate) fn min_visible_width_log2(&self, points_per_px: f32) -> u8 {
+        (1.0 / points_per_px / self.x_scale).log2().round() as u8
+    }
 }
 
 #[test]

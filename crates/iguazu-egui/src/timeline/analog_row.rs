@@ -1,6 +1,6 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
-use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor}, time::{Time, TimeRange}, view::{RangeElement, RangeView, Timebase}};
+use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor}, time::{Time, TimeRange}, view::{RangeView, Timebase}};
 
 use crate::{color::named_color, ViewerContext};
 
@@ -96,63 +96,60 @@ impl<'a> YAxisRow<'a> {
 
         let dot_opacity = ((idx_scale.points_per_index() - 4.0 * stroke_width) / 8.0).clamp(0.0, 1.0);
         let dot_color = color.gamma_multiply(dot_opacity);
+        let level = idx_scale.min_visible_width_log2(ui.pixels_per_point());
 
-        let min_dist_sq = 4.0 / ui.ctx().pixels_per_point() / ui.ctx().pixels_per_point();
-
-        let min_width = idx_scale.min_visible_width(ui.pixels_per_point());
-
-        self.view.for_each_elem(x_range, min_width, |e| {
-            match e {
-                RangeElement::Loading(_) => {
+        if level == 0 {
+            for (idx, val) in x_range.into_iter().zip(self.view.iter_base(x_range)) {
+                let Some(val) = val else {
                     last = None;
-                },
-                RangeElement::Single(idx, val) => {
-                    let pos = Pos2 {
-                        x: idx_scale.x_from_idx(idx),
-                        y: y_scale.y_from_value(val),
-                    };
+                    continue;
+                };
 
-                    if dot_opacity > 0.0 {
-                        painter.circle_filled(pos, stroke_width * 2.0, dot_color);
-                    }
+                let pos = Pos2 {
+                    x: idx_scale.x_from_idx(idx),
+                    y: y_scale.y_from_value(val),
+                };
 
-                    if let Some(lpos) = last {
-                        if lpos.distance_sq(pos) < min_dist_sq {
-                            // Lines that are too short are not rendered by egui, so we skip them
-                            // to ensure that the line is continuous and to reduce overdraw.
-                            return;
-                        }
-                        painter.line_segment([lpos, pos], stroke);
-                    }
-
-                    last = Some(pos);
+                if dot_opacity > 0.0 {
+                    painter.circle_filled(pos, stroke_width * 2.0, dot_color);
                 }
-                RangeElement::Range(idx, min, max) => {
-                    let pos1 = Pos2 {
-                        x: idx_scale.x_from_idx(idx.min),
-                        y: y_scale.y_from_value(min),
-                    };
-                    let pos2 = Pos2 {
-                        x: idx_scale.x_from_idx(idx.max),
-                        y: y_scale.y_from_value(max),
-                    };
 
-                    if let Some(lpos) = last && lpos.distance_sq(pos1) > min_dist_sq {
-                        painter.line_segment([lpos, pos1], stroke);
-                    }
+                if let Some(lpos) = last {
+                    painter.line_segment([lpos, pos], stroke);
+                }
 
-                    painter.line_segment([pos1, pos2], stroke);
-
-                    last = Some(pos2);
-                },
+                last = Some(pos);
             }
-        });
+        } else {
+            for idx in x_range.into_iter().step_by(1<<level) {
+                let Some((min, max)) = self.view.get_at_level(level, idx) else {
+                    last = None;
+                    continue;
+                };
+
+                let pos1 = Pos2 {
+                    x: idx_scale.x_from_idx(idx),
+                    y: y_scale.y_from_value(min),
+                };
+                let pos2 = Pos2 {
+                    x: idx_scale.x_from_idx(idx + (1<<level)),
+                    y: y_scale.y_from_value(max),
+                };
+
+                if let Some(lpos) = last {
+                    painter.line_segment([lpos, pos1], stroke);
+                }
+
+                last = Some(pos2);
+
+                painter.line_segment([pos1, pos2], stroke);
+            }
+        }
 
         TimelineResponse {
             snap_to_time: None,
         }
-
-        }
+    }
 }
 
 fn generate_ticks(v_range: (f64, f64), desired_tick_count: f64) -> impl Iterator<Item = f64> {

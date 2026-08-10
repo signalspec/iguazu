@@ -12,7 +12,7 @@ mod number_view;
 pub use number_view::NumberView;
 
 mod timestamp_view;
-pub use timestamp_view::TimestampView;
+pub use timestamp_view::{ TimestampView, Span };
 
 mod enum_view;
 pub use enum_view::EnumView;
@@ -27,7 +27,7 @@ mod trace_view;
 pub use trace_view::{TraceView, TraceElement};
 
 mod range_view;
-pub use range_view::{ RangeView, RangeElement };
+pub use range_view::{ RangeView };
 
 pub struct ViewManager {
     waker: Waker,

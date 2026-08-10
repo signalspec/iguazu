@@ -7,6 +7,7 @@ pub struct NumberView<'a> {
     format: Format,
 }
 
+#[derive(Clone, Copy)]
 enum Format {
     UInt { scale: f64, offset: f64 },
     SInt { shift: u8, scale: f64, offset: f64 },
@@ -54,21 +55,25 @@ impl<'a> NumberView<'a> {
         Some(NumberView { view, format })
     }
 
+
+    pub fn new_like(vm: &'a ViewManager, stream: &ArcStream, base: &NumberView<'_>) -> Self {
+        let view = IntView::new_from_stream(vm, stream);
+        NumberView { view, format: base.format }
+    }
+
     pub fn get(&self, idx: Idx) -> Option<f64> {
         Some(self.format.decode(self.view.get_u64(idx)?))
     }
 
-    pub fn for_each_elem(&self, range: IdxRange, mut f: impl FnMut(Idx, Option<f64>)) {
-        self.view.for_each_elem(range, |i, elem| {
-            let v = elem.map(|elem| {
-                self.format.decode(elem)
-            });
-
-            f(i, v)
-        })
+    pub fn iter(&self, range: IdxRange) -> impl Iterator<Item = Option<f64>> {
+        self.view.iter_u64(range).map(|elem| elem.map(|elem| self.format.decode(elem)))
     }
 
     pub fn state(&self) -> StreamState {
         self.view.state()
+    }
+
+    pub fn len(&self) -> Idx {
+        self.view.len()
     }
 }

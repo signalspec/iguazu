@@ -52,8 +52,17 @@ impl IdxRange {
     }
 }
 
-impl Into<Range<Idx>> for IdxRange {
-    fn into(self) -> Range<Idx> {
-        Range { start: self.min, end: self.max }
+impl From<IdxRange> for Range<Idx> {
+    fn from(value: IdxRange) -> Self {
+        Range { start: value.min, end: value.max }
+    }
+}
+
+impl IntoIterator for IdxRange {
+    type Item = Idx;
+    type IntoIter = <Range<Idx> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        Range::<Idx>::from(self).into_iter()
     }
 }
