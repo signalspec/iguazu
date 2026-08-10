@@ -1,5 +1,5 @@
 use std::range::Range;
-use crate::{Idx, schema::{Entity, EntityStream, Field, FieldKind}};
+use crate::{Idx, schema::{Entity, EntityStream, Field, FieldKind}, time::TimeRange};
 
 use super::{ViewManager, TimestampView, timestamp_view::SkipResult};
 
@@ -30,6 +30,10 @@ impl<'v> EventView<'v> {
 
     pub fn latest_timestamp(&self) -> Option<u64> {
         self.inner.latest_timestamp()
+    }
+
+    pub fn time_range(&self) -> Option<TimeRange> {
+        self.inner.time_range()
     }
 
     pub fn range<'a>(&'a self, time_range: Range<u64>, min_width: u64) -> EventViewIter<'a, 'v> {

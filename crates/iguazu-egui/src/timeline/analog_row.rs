@@ -54,11 +54,11 @@ impl<'a> YAxisRow<'a> {
         })
     }
 
-    pub fn time_range(&self) -> TimeRange {
-        TimeRange {
+    pub fn time_range(&self) -> Option<TimeRange> {
+        Some(TimeRange {
             min: Time::ZERO,
             max: (self.view.state().end as i128) * Time::period_float(self.sample_rate),
-        }
+        })
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse{

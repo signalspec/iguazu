@@ -77,9 +77,10 @@ impl TimelineView {
         };
 
         let rows = timeline_rows(vcx, entity);
-        let time_range = rows.iter().fold(TimeRange::ZERO, |acc, row| {
-            acc.union(&row.time_range())
-        });
+        let time_range = rows.iter()
+            .filter_map(|row| row.time_range())
+            .reduce(|a, b| TimeRange::union(&a, &b))
+            .unwrap_or(TimeRange::ZERO);
 
         let scale = Scale::new(
             time_x_range,
@@ -341,7 +342,7 @@ impl<'a> TimelineRowKind<'a> {
         }
     }
 
-    fn time_range(&self) -> TimeRange {
+    fn time_range(&self) -> Option<TimeRange> {
         match self {
             TimelineRowKind::YAxis(row) => row.time_range(),
             TimelineRowKind::Trace(row) => row.time_range(),

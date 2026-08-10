@@ -25,11 +25,11 @@ impl<'a> TraceRow<'a> {
         TraceRow { view, sample_rate, label, color, formatter, mask }
     }
 
-    pub fn time_range(&self) -> TimeRange {
-        TimeRange {
+    pub fn time_range(&self) -> Option<TimeRange> {
+        Some(TimeRange {
             min: Time::ZERO,
             max: (self.view.state().end as i128) * Time::period_float(self.sample_rate),
-        }
+        })
     }
 
     pub fn render(&self, ui: &mut Ui, scale: &super::scale::Scale) -> TimelineResponse {
@@ -137,11 +137,11 @@ impl<'a> LogicRow<'a> {
         LogicRow { view, sample_rate, label, color, mask }
     }
 
-    pub fn time_range(&self) -> TimeRange {
-        TimeRange {
+    pub fn time_range(&self) -> Option<TimeRange> {
+        Some(TimeRange {
             min: Time::ZERO,
             max: (self.view.state().end as i128) * Time::period_float(self.sample_rate),
-        }
+        })
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {

@@ -1,6 +1,6 @@
 use std::{ops::ControlFlow, range::Range};
 
-use crate::{Idx, IdxRange, schema::{Entity, EntityStream, Field, FieldKind}, stream::ArcStream, summary::{LiveSummaryMap, StoredSummary}};
+use crate::{Idx, IdxRange, schema::{Entity, EntityStream, Field, FieldKind}, stream::ArcStream, summary::{LiveSummaryMap, StoredSummary}, time::{Time, TimeRange}};
 
 use super::{IntView, ViewManager};
 
@@ -53,7 +53,14 @@ impl<'v> TimestampView<'v> {
     }
 
     pub fn latest_timestamp(&self) -> Option<u64> {
-        self.view.get_u64(self.view.state().end)
+        self.view.get_u64(self.view.state().end.saturating_sub(1))
+    }
+
+    pub fn time_range(&self) -> Option<TimeRange> {
+        let period = Time::period_float(self.time_rate());
+        let min = self.first_timestamp()? as i128 * period;
+        let max = self.latest_timestamp().map(|t| (t as i128) * period).unwrap_or(min);
+        Some(TimeRange { min, max })
     }
 
     pub fn get_base(&self, idx: Idx) -> Option<u64> {

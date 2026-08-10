@@ -2,7 +2,7 @@ use std::range::Range;
 
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Align2, Color32, Rect, Stroke, Vec2};
-use iguazu::{schema::{attribute::display::AccentColor, EntityStream}, view::{EventView, TextView}, time::{Time, TimeRange}};
+use iguazu::{schema::{attribute::display::AccentColor, EntityStream}, view::{EventView, TextView}, time::TimeRange};
 
 use crate::{color::named_color, ViewerContext};
 
@@ -29,11 +29,8 @@ impl<'a> EventsRow<'a> {
         })
     }
 
-    pub fn time_range(&self) -> TimeRange {
-        TimeRange {
-            min: Time::ZERO,
-            max: (self.event_view.latest_timestamp().unwrap_or(0) as i128) * Time::period_float(self.event_view.time_rate()),
-        }
+    pub fn time_range(&self) -> Option<TimeRange> {
+        self.event_view.time_range()
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
