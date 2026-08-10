@@ -103,8 +103,21 @@ impl<'a, D> Summary<&'a [D]> {
         }
     }
 
-    pub fn get(&self, level: u8) -> Option<&'a D> {
-        self.levels.get(level.checked_sub(self.first_level)? as usize)
+    pub fn get(&self, level: u8) -> SummaryLevel<&'a D> {
+        if self.levels.len() > 0 && let Some(i) = level.checked_sub(self.first_level) {
+            let len = self.levels.len() as u8;
+            if let Some(above) = i.checked_sub(len) {
+                SummaryLevel::Above {
+                    last_level: self.first_level + len - 1,
+                    last_view: self.levels.last().unwrap(),
+                    above: above + 1,
+                }
+            } else {
+                SummaryLevel::Level(&self.levels[i as usize])
+            }
+        } else {
+            SummaryLevel::Base
+        }
     }
 
     pub fn at_least_level(&self, level: u8) -> Summary<&'a [D]> {
@@ -168,15 +181,22 @@ impl<D> StoredSummary<D> {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum SummaryLevel<D> {
+    Base,
+    Level(D),
+    Above { last_level: u8, last_view: D, above: u8 }
+}
+
 
 #[test]
 fn test_summary_ops() {
     let s = BorrowedSummary { first_level: 2, levels: &[20, 30, 40, 50] };
-    assert_eq!(s.get(0), None);
-    assert_eq!(s.get(1), None);
-    assert_eq!(s.get(2), Some(&20));
-    assert_eq!(s.get(5), Some(&50));
-    assert_eq!(s.get(6), None);
+    assert_eq!(s.get(0), SummaryLevel::Base);
+    assert_eq!(s.get(1), SummaryLevel::Base);
+    assert_eq!(s.get(2), SummaryLevel::Level(&20));
+    assert_eq!(s.get(5), SummaryLevel::Level(&50));
+    assert_eq!(s.get(6), SummaryLevel::Above { last_level: 5, last_view: &50, above: 1 });
 
     assert_eq!(s.iter_levels().collect::<Vec<_>>(), vec![(2, &20), (3, &30), (4, &40), (5, &50)]);
 
