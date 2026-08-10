@@ -96,7 +96,31 @@ impl ViewManager {
         TimestampView::new(self, ts)
     }
 
+    pub fn timebase<'a>(&'a self, entity: &EntityStream) -> Option<Timebase<'a>> {
+        if let Some(rate) = entity.time_rate() {
+            Some(Timebase::Fixed(rate))
+        } else if let Some(timestamps) = self.timestamp_view(entity) {
+            Some(Timebase::Nonuniform(timestamps))
+        } else {
+            None
+        }
+    }
+
     pub fn event_view<'a>(&'a self, entity: &EntityStream) -> Option<EventView<'a>> {
         EventView::new(self, entity)
+    }
+}
+
+#[derive(Clone)]
+pub enum Timebase<'a> {
+    Fixed(f64),
+    Nonuniform(TimestampView<'a>)
+}
+impl Timebase<'_> {
+    pub fn uniform_sample_rate(&self) -> Option<f64> {
+        match self {
+            Timebase::Fixed(rate) => Some(*rate),
+            Timebase::Nonuniform(_) => None,
+        }
     }
 }

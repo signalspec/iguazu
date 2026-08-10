@@ -1,6 +1,6 @@
 use ecow::EcoString;
 use egui::{emath::GuiRounding, Pos2, Rangef, Rect, Stroke, Vec2};
-use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor}, time::{Time, TimeRange}, view::{RangeElement, RangeView}};
+use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor}, time::{Time, TimeRange}, view::{RangeElement, RangeView, Timebase}};
 
 use crate::{color::named_color, ViewerContext};
 
@@ -36,7 +36,8 @@ pub(crate) struct YAxisRow<'a> {
 }
 
 impl<'a> YAxisRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, field: FieldRef<'_>, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> Option<YAxisRow<'a>> {
+    pub fn field(vcx: &'a ViewerContext, field: FieldRef<'_>, timebase: &Timebase<'_>, color: Option<AccentColor>, label: EcoString) -> Option<YAxisRow<'a>> {
+        let sample_rate = timebase.uniform_sample_rate()?;
         let view = RangeView::new(&vcx.view_manager, field)?;
         let color = color.unwrap_or(AccentColor::Green);
         let y_range = field.field.number_range().or(view.bounds())?;

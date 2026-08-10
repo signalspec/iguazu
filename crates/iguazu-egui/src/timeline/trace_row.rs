@@ -1,5 +1,5 @@
 use egui::{emath::GuiRounding, Align, Align2, Color32, FontId, Painter, Pos2, Rangef, Rect, Stroke, Ui, Vec2};
-use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor, fmt::TextFormat}, time::{Time, TimeRange}, view::{TraceElement, TraceView}};
+use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor, fmt::TextFormat}, time::{Time, TimeRange}, view::{Timebase, TraceElement, TraceView}};
 use ecow::EcoString;
 
 use crate::{color::named_color, ViewerContext};
@@ -16,13 +16,14 @@ pub struct TraceRow<'a> {
 }
 
 impl<'a> TraceRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, field: FieldRef, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> TraceRow<'a> {
+    pub fn field(vcx: &'a ViewerContext, field: FieldRef, timebase: &Timebase<'a>, color: Option<AccentColor>, label: EcoString) -> Option<TraceRow<'a>> {
+        let sample_rate = timebase.uniform_sample_rate()?;
         let summary = field.summaries.get("bit_and_or");
         let view = TraceView::new(&vcx.view_manager, field.data.clone(), summary);
         let mask = field.kind.mask();
         let color = color.unwrap_or(AccentColor::Green);
         let formatter = TextFormat::new(field.field);
-        TraceRow { view, sample_rate, label, color, formatter, mask }
+        Some(TraceRow { view, sample_rate, label, color, formatter, mask })
     }
 
     pub fn time_range(&self) -> Option<TimeRange> {
@@ -129,12 +130,13 @@ pub struct LogicRow<'a> {
 }
 
 impl<'a> LogicRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, field: FieldRef, sample_rate: f64, color: Option<AccentColor>, label: EcoString) -> LogicRow<'a> {
+    pub fn field(vcx: &'a ViewerContext, field: FieldRef, timebase: &Timebase<'a>, color: Option<AccentColor>, label: EcoString) -> Option<LogicRow<'a>> {
+        let sample_rate = timebase.uniform_sample_rate()?;
         let summary = field.summaries.get("bit_and_or");
         let view = TraceView::new(&vcx.view_manager, field.data.clone(), summary);
         let mask = field.field.kind.mask();
         let color = color.unwrap_or(AccentColor::Green);
-        LogicRow { view, sample_rate, label, color, mask }
+        Some(LogicRow { view, sample_rate, label, color, mask })
     }
 
     pub fn time_range(&self) -> Option<TimeRange> {

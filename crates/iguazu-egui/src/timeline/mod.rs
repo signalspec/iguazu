@@ -11,7 +11,7 @@ use analog_row::YAxisRow;
 use ecow::EcoString;
 use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
-use iguazu::{schema::{Entity, EntityStream, FieldRef, attribute::display::{AccentColor, TimelineRow}}, time::{Time, TimeRange}};
+use iguazu::{schema::{Entity, EntityStream, FieldRef, attribute::display::{AccentColor, TimelineRow}}, time::{Time, TimeRange}, view::Timebase};
 use trace_row::{LogicRow, TraceRow};
 use crate::{ egui_util:: shadow_line::draw_shadow_line, ViewerContext };
 
@@ -261,7 +261,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
         vcx: &'a ViewerContext,
         rows: &mut Vec<TimelineRowKind<'a>>,
         field: FieldRef<'_>,
-        sample_rate: f64,
+        timebase: &Timebase<'a>,
         color: Option<AccentColor>,
         name: EcoString,
     ) {
@@ -270,35 +270,37 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
             TimelineRow::Stack => {
                 if let Some(fields) = field.bit_struct_fields() {
                     for (name, field) in fields {
-                        add_field(vcx, rows, field, sample_rate, color, name.clone());
+                        add_field(vcx, rows, field, timebase, color, name.clone());
                     }
                 }
             }
             TimelineRow::Logic => {
-                rows.push(TimelineRowKind::Logic(LogicRow::field(vcx, field, sample_rate, color, name)));
+                rows.extend(LogicRow::field(vcx, field, timebase, color, name).map(TimelineRowKind::Logic));
             }
             TimelineRow::Trace => {
-                rows.push(TimelineRowKind::Trace(TraceRow::field(vcx, field, sample_rate, color, name)));
+                rows.extend(TraceRow::field(vcx, field, timebase, color, name).map(TimelineRowKind::Trace));
             }
             TimelineRow::YAxis => {
-                rows.extend(YAxisRow::field(vcx, field, sample_rate, color, name).map(TimelineRowKind::YAxis));
+                rows.extend(YAxisRow::field(vcx, field, timebase, color, name).map(TimelineRowKind::YAxis));
             }
             _ => {}
         }
     }
 
-    fn add_entity<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, name: EcoString, entity: &'a EntityStream) {
+    fn add_entity<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, name: EcoString, timebase: Option<&Timebase<'a>>, entity: &'a EntityStream) {
+        let this_timebase = vcx.view_manager.timebase(entity);
+        let timebase = this_timebase.as_ref().or(timebase);
         if let Some(field) = entity.as_field() {
             let color = entity.accent_color();
-            let Some(sample_rate) = entity.time_rate() else { return };
-            add_field(vcx, rows, field, sample_rate, color, name);
+            let Some(timebase) = timebase else { return };
+            add_field(vcx, rows, field, timebase, color, name);
         } else {
             match entity.timeline_row() {
                 TimelineRow::Stack => {
                     match &entity {
                         Entity::Group { children, .. } => {
                             for (name, child) in children {
-                                add_entity(vcx, rows, name.clone(), child)
+                                add_entity(vcx, rows, name.clone(), timebase, child)
                             }
                         }
 
@@ -314,7 +316,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
         }
     }
 
-    add_entity(vcx, &mut rows, EcoString::new(), entity);
+    add_entity(vcx, &mut rows, EcoString::new(), None, entity);
     rows
 }
 

@@ -11,6 +11,7 @@ fn resolve_time_field(mut entity: &EntityStream) -> Option<&EntityStream> {
     Some(entity)
 }
 
+#[derive(Clone)]
 pub struct TimestampView<'v> {
     view: IntView<'v>,
     summary: StoredSummary<IntView<'v>>,
