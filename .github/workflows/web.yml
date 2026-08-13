@@ -31,7 +31,7 @@ jobs:
   deploy-web:
     needs: build-web
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/deploy'
+    if: github.ref == 'refs/heads/deploy' || github.ref == 'refs/heads/main'
     environment:
       name: web
       url: https://iguazu.signalspec.org

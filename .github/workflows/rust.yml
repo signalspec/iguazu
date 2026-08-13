@@ -70,7 +70,7 @@ jobs:
   deploy-wasm:
     needs: build-wasm
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/deploy'
+    if: github.ref == 'refs/heads/deploy' || github.ref == 'refs/heads/main'
     environment:
       name: deploy
       url: https://app.iguazu.signalspec.org
