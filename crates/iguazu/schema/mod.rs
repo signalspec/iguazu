@@ -494,7 +494,7 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                 let summaries = summaries.iter()
                     .map(|(name, summary)| {
                         let levels = summary.levels.iter().map(&mut *f).collect::<Result<Vec<_>, E>>()?;
-                        Ok((name.clone(), Summary { base_level: summary.base_level, levels: levels.into_boxed_slice() }))
+                        Ok((name.clone(), Summary { first_level: summary.first_level, levels: levels.into_boxed_slice() }))
                     })
                     .collect::<Result<T::SummaryMap, E>>()?;
                 Ok(Entity::Data { data, field: field.clone(), summaries })
@@ -542,7 +542,7 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
         {
             let summaries: Vec<(EcoString, StoredSummary<T>)> = futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async move {
                 let levels: Vec<T> = futures_util::future::try_join_all(v.levels.iter().map(f)).await?;
-                Ok((k.clone(), Summary { base_level: v.base_level, levels: levels.into_boxed_slice() }))
+                Ok((k.clone(), Summary { first_level: v.first_level, levels: levels.into_boxed_slice() }))
             })).await?;
             Ok(summaries.into_iter().collect())
         }

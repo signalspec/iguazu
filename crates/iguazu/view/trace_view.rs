@@ -45,7 +45,7 @@ impl<'a> TraceView<'a> {
         let min_width_level = min_width.ilog2() as u8;
 
         let summary = self.summary.borrow();
-        let min_summary_level = if summary.levels.is_empty() { 63 } else { summary.base_level.min(63) };
+        let min_summary_level = if summary.levels.is_empty() { 63 } else { summary.first_level.min(63) };
         let min_summary_skip = 1 << min_summary_level;
 
         let mut last_pos = range.min;

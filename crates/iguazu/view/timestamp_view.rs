@@ -108,7 +108,7 @@ impl<'v> TimestampView<'v> {
         }
 
         // For the levels below the base summary level, try skipping ahead in the level 0 stream.
-        for level in (1..=max_level.min(summary.base_level)).rev() {
+        for level in (1..=max_level.min(summary.first_level)).rev() {
             let p = i + (1 << level);
             if let Break(value) = probe(i, max_t, level, &self.view, p) {
                 return value;

@@ -42,7 +42,7 @@ impl SummaryMap for LiveSummaryMap {
 impl FromIterator<(EcoString, StoredSummary<ArcStream>)> for LiveSummaryMap {
     fn from_iter<T: IntoIterator<Item = (EcoString, StoredSummary<ArcStream>)>>(iter: T) -> Self {
         LiveSummaryMap(iter.into_iter().map(|(key, summary)| {
-            (key, LiveSummary { base_level: summary.base_level, levels: Arc::new(OnceArray::from(Vec::from(summary.levels))) })
+            (key, LiveSummary { first_level: summary.first_level, levels: Arc::new(OnceArray::from(Vec::from(summary.levels))) })
         }).collect())
     }
 }
@@ -79,7 +79,8 @@ impl<D> Default for StoredSummaryMap<D> {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Summary<L> {
-    pub base_level: u8,
+    #[serde(alias = "base_level")] // pre-0.1
+    pub first_level: u8,
     pub levels: L,
 }
 
@@ -91,25 +92,25 @@ impl<L> Debug for Summary<L> {
 
 impl<'a, D> Summary<&'a [D]> {
     pub const fn empty() -> Self {
-        Summary { base_level: 255, levels: &[] }
+        Summary { first_level: 255, levels: &[] }
     }
 
     pub fn max_level(&self) -> u8 {
         if self.levels.is_empty() {
             0
         } else {
-            (self.base_level as usize + self.levels.len() - 1).try_into().unwrap_or(u8::MAX)
+            (self.first_level as usize + self.levels.len() - 1).try_into().unwrap_or(u8::MAX)
         }
     }
 
     pub fn get(&self, level: u8) -> Option<&'a D> {
-        self.levels.get(level.checked_sub(self.base_level)? as usize)
+        self.levels.get(level.checked_sub(self.first_level)? as usize)
     }
 
     pub fn at_least_level(&self, level: u8) -> Summary<&'a [D]> {
-        if let Some(min_i) = level.checked_sub(self.base_level) {
+        if let Some(min_i) = level.checked_sub(self.first_level) {
             if let Some(levels) = self.levels.get(min_i as usize ..) {
-                Summary { base_level: level, levels }
+                Summary { first_level: level, levels }
             } else {
                 Summary::empty()
             }
@@ -119,44 +120,26 @@ impl<'a, D> Summary<&'a [D]> {
     }
 
     pub fn limit_to_level(&self, level: u8) -> Summary<&'a [D]> {
-        if let Some(max_i) = level.checked_sub(self.base_level) {
-            Summary { base_level: self.base_level, levels: &self.levels[..(max_i as usize).min(self.levels.len())] }
+        if let Some(max_i) = level.checked_sub(self.first_level) {
+            Summary { first_level: self.first_level, levels: &self.levels[..(max_i as usize).min(self.levels.len())] }
         } else {
             Summary::empty()
         }
     }
 
     pub fn iter_levels(&self) -> impl DoubleEndedIterator<Item = (u8, &D)> {
-        self.levels.iter().enumerate().map(move |(i, level)| (self.base_level + i as u8, level))
+        self.levels.iter().enumerate().map(move |(i, level)| (self.first_level + i as u8, level))
     }
 
     pub fn last(&self) -> Option<(u8, &D)> {
-        self.levels.last().map(|level| (self.base_level + (self.levels.len() - 1) as u8, level))
+        self.levels.last().map(|level| (self.first_level + (self.levels.len() - 1) as u8, level))
     }
 
     pub fn map<O>(&self, f: impl Fn(&D) -> O) -> Summary<Box<[O]>> {
         Summary {
-            base_level: self.base_level,
+            first_level: self.first_level,
             levels: self.levels.iter().map(f).collect(),
         }
-    }
-}
-
-impl<D> Summary<Box<[D]>> {
-    pub fn borrowed(&self) -> Summary<&[D]> {
-        Summary { base_level: self.base_level, levels: &*self.levels }
-    }
-
-    pub fn max_level(&self) -> u8 {
-        self.borrowed().max_level()
-    }
-
-    pub fn level(&self, level: u8) -> Option<&D> {
-        self.levels.get(level.checked_sub(self.base_level)? as usize)
-    }
-
-    pub fn iter_levels(&self) -> impl DoubleEndedIterator<Item = (u8, &D)> {
-        self.levels.iter().enumerate().map(move |(i, level)| (self.base_level + i as u8, level))
     }
 }
 
@@ -165,30 +148,30 @@ pub type StoredSummary<D> = Summary<Box<[D]>>;
 pub type BorrowedSummary<'a, D> = Summary<&'a [D]>;
 
 impl LiveSummary {
-    pub fn new(base_level: u8, levels: impl IntoIterator<Item = ArcStream>) -> Self {
-        Summary { base_level, levels: Arc::new(levels.into_iter().collect::<Vec<_>>().into()) }
+    pub fn new(first_level: u8, levels: impl IntoIterator<Item = ArcStream>) -> Self {
+        Summary { first_level, levels: Arc::new(levels.into_iter().collect::<Vec<_>>().into()) }
     }
 
     pub fn with_capacity(base_level: u8, capacity: usize) -> (Self, OnceArrayWriter<ArcStream>) {
         let writer = OnceArrayWriter::with_capacity(capacity);
-        (Summary { base_level, levels: writer.reader().clone() }, writer)
+        (Summary { first_level: base_level, levels: writer.reader().clone() }, writer)
     }
 
     pub fn borrow(&self) -> BorrowedSummary<'_, ArcStream> {
-        Summary { base_level: self.base_level, levels: &self.levels }
+        Summary { first_level: self.first_level, levels: &self.levels }
     }
 }
 
 impl<D> StoredSummary<D> {
     pub fn borrow(&self) -> BorrowedSummary<'_, D> {
-        Summary { base_level: self.base_level, levels: &self.levels }
+        Summary { first_level: self.first_level, levels: &self.levels }
     }
 }
 
 
 #[test]
 fn test_summary_ops() {
-    let s = BorrowedSummary { base_level: 2, levels: &[20, 30, 40, 50] };
+    let s = BorrowedSummary { first_level: 2, levels: &[20, 30, 40, 50] };
     assert_eq!(s.get(0), None);
     assert_eq!(s.get(1), None);
     assert_eq!(s.get(2), Some(&20));

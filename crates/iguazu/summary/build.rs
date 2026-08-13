@@ -320,7 +320,7 @@ fn test_build_summary_live() {
     let Entity::Data { summaries, .. } = &entity else { unreachable!() };
     let summary = summaries.get("bit_and_or");
 
-    assert_eq!(summary.base_level, 2);
+    assert_eq!(summary.first_level, 2);
     assert_eq!(summary.levels.len(), 0);
 
     writer.extend_from_slice(&[0xFF; 600]);

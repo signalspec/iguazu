@@ -17,7 +17,7 @@ impl<'a> RangeView<'a> {
         let summary = field.summaries.get("range");
         Some(RangeView {
             view: NumberView::new(vm, field.data, field.field)?,
-            base_level: summary.base_level,
+            base_level: summary.first_level,
             summaries: summary.levels.iter().map(|s| NumberView::new(vm, s, field.field)).collect::<Option<Vec<_>>>()?,
         })
     }
