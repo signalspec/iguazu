@@ -45,7 +45,7 @@ impl<'a> EventsRow<'a> {
             return TimelineResponse::default();
         }
 
-        let idx_scale = scale.idx_scale(self.event_view.time_rate());
+        let idx_scale = scale.idx_scale(self.event_view.tick_rate());
 
         let color = named_color(self.color);
 

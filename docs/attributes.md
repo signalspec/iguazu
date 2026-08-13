@@ -18,15 +18,11 @@ This is a string containing `{name}` placeholders. For a `record` group or `bits
 
 ## `time:rate`
 
-Number of samples per second.
+Sample rate in Hz. This specifies that samples are evenly spaced in time at the specified sample rate.  It is therefore mutually exclusive with `time:point` and `time:span`.
 
-On a `timestamp`, this is the tick rate of the timestamp clock, used to map from timestamp values to real time.
+## `time:tick`
 
-On other types, this specifies that samples are evenly spaced in time at the specified sample rate. It is therefore mutually exclusive with `time:field`.
-
-## `time:field`
-
-On a `record` group, contains the name of the child field of type `timestamp` that holds the time of each sample.
+On a `timestamp`, this is the tick rate of the timestamp clock in Hz, used to map from timestamp values to real time.
 
 ## `time:epoch`
 
@@ -35,6 +31,14 @@ RFC 3339 timestamp representing the start time of data collection.
 On a `timestamp`, this is the time represented by value `0`.
 
 For other entities with a `time:rate` this is the time of the initial sample.
+
+## `time:point`
+
+On a `record` group, contains the name of the child field of type `timestamp` that holds the time of each sample for signals that are sampled at discrete points in time at a non-uniform rate.
+
+## `time:span`
+
+On a `record` group, contains the name of the child tuple with `start`, `end` element order wrapping `timestamp` stream. The record represents an event with a defined start and end time.
 
 ## `time:display`
 

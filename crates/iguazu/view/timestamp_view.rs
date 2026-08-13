@@ -4,46 +4,41 @@ use crate::{Idx, IdxRange, schema::{Entity, EntityStream, Field, FieldKind}, str
 
 use super::{IntView, ViewManager};
 
-fn resolve_time_field(mut entity: &EntityStream) -> Option<&EntityStream> {
-    while let Some(time_field) = entity.time_field() {
-        entity = entity.child(&time_field)?;
-    };
-    Some(entity)
-}
-
 #[derive(Clone)]
 pub struct TimestampView<'v> {
     view: IntView<'v>,
     summary: StoredSummary<IntView<'v>>,
-    time_rate: f64,
+    tick_rate: f64,
 }
 
 impl<'v> TimestampView<'v> {
     pub fn new(vm: &'v ViewManager, mut entity: &EntityStream) -> Option<Self> {
-        entity = resolve_time_field(entity)?;
+        while let Some(time_point_field) = entity.time_point() {
+            entity = entity.child(&time_point_field)?;
+        }
 
         let Entity::Data { field: field @ Field { kind: FieldKind::Timestamp, .. }, data, summaries } = entity else {
             return None;
         };
 
-        let time_rate = field.time_rate()?;
+        let tick_rate = field.time_tick()?;
 
-        Self::new_from_stream(vm, time_rate, data, summaries)
+        Self::new_from_stream(vm, tick_rate, data, summaries)
     }
 
-    pub fn new_from_stream(vm: &'v ViewManager, time_rate: f64, stream: &ArcStream, summaries: &LiveSummaryMap) -> Option<Self> {
+    pub fn new_from_stream(vm: &'v ViewManager, tick_rate: f64, stream: &ArcStream, summaries: &LiveSummaryMap) -> Option<Self> {
         let view = IntView::new_from_stream(vm, stream);
         let summary = summaries.get("skip").map(|s| IntView::new_from_stream(vm, s));
 
         Some(TimestampView {
             view,
             summary,
-            time_rate,
+            tick_rate,
         })
 
     }
 
-    pub fn time_rate(&self) -> f64 { self.time_rate }
+    pub fn tick_rate(&self) -> f64 { self.tick_rate }
 
     pub fn first_timestamp(&self) -> Option<u64> {
         if let Some((_, level_view)) = self.summary.borrow().last() {
@@ -58,7 +53,7 @@ impl<'v> TimestampView<'v> {
     }
 
     pub fn time_range(&self) -> Option<TimeRange> {
-        let period = Time::period_float(self.time_rate());
+        let period = Time::period_float(self.tick_rate());
         let min = self.first_timestamp()? as i128 * period;
         let max = self.latest_timestamp().map(|t| (t as i128) * period).unwrap_or(min);
         Some(TimeRange { min, max })
@@ -261,7 +256,7 @@ fn test_timestamp_view() {
 
     let mut entity = EntityStream::field_data(
         FieldKind::Timestamp, data
-    ).with_attribute(crate::schema::attribute::core::TIME_RATE, 1e6);
+    ).with_attribute(crate::schema::attribute::core::TIME_TICK, 1e6);
 
     fn check_step(view: &TimestampView<'_>) {
         // Large jump as far as possible based on alignment

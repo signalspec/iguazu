@@ -9,7 +9,7 @@ pub struct EventView<'v> {
 
 impl<'v> EventView<'v> {
     pub fn new(vm: &'v ViewManager, mut entity: &EntityStream) -> Option<Self> {
-        while let Some(time_field) = entity.time_field() {
+        while let Some(time_field) = entity.time_span() {
             entity = entity.child(&time_field)?;
         };
 
@@ -19,14 +19,14 @@ impl<'v> EventView<'v> {
             return None;
         };
 
-        let time_rate = field.time_rate()?;
+        let tick_rate = field.time_tick()?;
 
-        let inner = TimestampView::new_from_stream(vm, time_rate, data, summaries)?;
+        let inner = TimestampView::new_from_stream(vm, tick_rate, data, summaries)?;
 
         Some(EventView { inner })
     }
 
-    pub fn time_rate(&self) -> f64 { self.inner.time_rate() }
+    pub fn tick_rate(&self) -> f64 { self.inner.tick_rate() }
 
     pub fn latest_timestamp(&self) -> Option<u64> {
         self.inner.latest_timestamp()
@@ -179,7 +179,7 @@ fn test_event_view() {
 
     let ts = EntityStream::field_data(
         FieldKind::Timestamp, data
-    ).with_attribute(crate::schema::attribute::core::TIME_RATE, 1e6);
+    ).with_attribute(crate::schema::attribute::core::TIME_TICK, 1e6);
 
     let tuple = EntityStream::tuple(ts, indexmap![
         "start".into() => Default::default(),

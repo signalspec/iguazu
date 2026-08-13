@@ -8,8 +8,10 @@ use super::{ Attribute, string_attribute };
 pub const ROLE: Attribute<Role> = Attribute::named("core:role");
 pub const TEXT: Attribute<EcoString> = Attribute::named("core:text");
 
-pub const TIME_FIELD: Attribute<EcoString> = Attribute::named("time:field");
 pub const TIME_RATE: Attribute<f64> = Attribute::named("time:rate");
+pub const TIME_POINT: Attribute<EcoString> = Attribute::named("time:point");
+pub const TIME_SPAN: Attribute<EcoString> = Attribute::named("time:span");
+pub const TIME_TICK: Attribute<f64> = Attribute::named("time:tick");
 pub const TIME_EPOCH: Attribute<Zoned> = Attribute::named("time:epoch");
 pub const TIME_DISPLAY: Attribute<TimeDisplay> = Attribute::named("time:display");
 
@@ -55,8 +57,12 @@ impl<D, S> Entity<D, S> {
         self.time_rate().map(Time::period_float)
     }
 
-    pub fn time_field(&self) -> Option<EcoString> {
-        self.attribute(TIME_FIELD)
+    pub fn time_point(&self) -> Option<EcoString> {
+        self.attribute(TIME_POINT)
+    }
+
+    pub fn time_span(&self) -> Option<EcoString> {
+        self.attribute(TIME_SPAN)
     }
 
     pub fn text(&self) -> Option<EcoString> {
@@ -71,6 +77,14 @@ impl Field {
 
     pub fn time_rate_as_period(&self) -> Option<Time> {
         self.time_rate().map(Time::period_float)
+    }
+
+    pub fn time_tick(&self) -> Option<f64> {
+        self.attribute(TIME_TICK)
+    }
+
+    pub fn time_tick_as_period(&self) -> Option<Time> {
+        self.time_tick().map(Time::period_float)
     }
 
     pub fn time_epoch(&self) -> Option<Zoned> {

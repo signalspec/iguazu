@@ -183,7 +183,7 @@ impl<'a> YAxisRow<'a> {
         y_scale: YScale,
         color: egui::Color32
     ) {
-        let idx_scale = scale.idx_scale(time_view.time_rate());
+        let idx_scale = scale.idx_scale(time_view.tick_rate());
         let visible_t_range = IdxRange {
             min: idx_scale.visible.min,
             max: idx_scale.visible.max + 1,

@@ -14,8 +14,8 @@ pub(crate) enum TimeUnit {
 }
 
 impl TimeUnit {
-    pub fn from_rate(rate: f64) -> Option<Self> {
-        match rate {
+    pub fn from_tick(tick: f64) -> Option<Self> {
+        match tick {
             1.0 => Some(TimeUnit::Second),
             1_000.0 => Some(TimeUnit::Millisecond),
             1_000_000.0 => Some(TimeUnit::Microsecond),
@@ -78,18 +78,18 @@ impl ColumnParser {
                         let writer = MemoryStreamWriter::new(ElementSize::U64);
                         let data = writer.stream().clone() as Arc<dyn Stream>;
 
-                        let Some(rate) = field.time_rate() else {
-                          return Err(ImportError::SchemaMismatch("Timestamp rate must be defined".into()));
+                        let Some(tick) = field.time_tick() else {
+                          return Err(ImportError::SchemaMismatch("Timestamp tick must be defined".into()));
                         };
 
                         let parser = match field.time_epoch() {
                             Some(epoch) => {
-                                let Some(unit) = TimeUnit::from_rate(rate) else {
+                                let Some(unit) = TimeUnit::from_tick(tick) else {
                                     return Err(ImportError::SchemaMismatch("Timestamp unit must be s, ms, us, or ns".into()));
                                 };
                                 ColumnParser::TimestampIso { epoch: epoch.timestamp(), unit, writer, default_zone: epoch.time_zone().clone() }
                             }
-                            None => ColumnParser::TimestampRelative { scale: rate, writer }
+                            None => ColumnParser::TimestampRelative { scale: tick, writer }
                         };
                         (data, parser)
                     }
@@ -293,6 +293,10 @@ impl TypeInfer {
 
     pub fn is_relative_timestamp(&self) -> bool {
         self.float.is_some() && self.monotonic_float
+    }
+
+    pub fn is_timestamp(&self) -> bool {
+        self.absolute_timestamp.is_some() || (self.prioritize_relative_timestamp && self.is_relative_timestamp())
     }
 
     pub fn as_float(&self) -> Option<(f64, f64)> {

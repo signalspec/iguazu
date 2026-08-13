@@ -276,9 +276,9 @@ impl Field {
         }
     }
 
-    pub fn timestamp(rate: f64, epoch: Option<Zoned>) -> Self {
+    pub fn timestamp(tick: f64, epoch: Option<Zoned>) -> Self {
         Self::new(FieldKind::Timestamp)
-            .with_attribute(attribute::core::TIME_RATE, rate)
+            .with_attribute(attribute::core::TIME_TICK, tick)
             .with_attribute_opt(attribute::core::TIME_EPOCH, epoch)
     }
 
@@ -371,6 +371,13 @@ impl<D, S> Entity<D, S> {
     pub fn with_attribute<A: Into<AttributeValue>>(mut self, attr: Attribute<A>, val: A) -> Self {
         self.set_attribute(attr, val);
         self
+    }
+
+    pub fn with_attribute_opt<A: Into<AttributeValue>>(self, attr: Attribute<A>, val: Option<A>) -> Self {
+        match val {
+            Some(val) => self.with_attribute(attr, val),
+            None => self
+        }
     }
 
     pub fn child(&self, child: &str) -> Option<&Entity<D, S>> {

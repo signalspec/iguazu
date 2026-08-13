@@ -5,7 +5,7 @@ use ecow::{EcoString, EcoVec};
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
 
-use crate::schema::{Entity, EntityStream};
+use crate::schema::{Entity, EntityStream, attribute};
 use crate::storage::Pool;
 use crate::{io::ReadableFile, schema::EntitySchema};
 use crate::config::{Configurable, OptionDescription};
@@ -491,8 +491,9 @@ impl InferredTypes {
     }
 
     fn schema(&self) -> EntitySchema {
-        EntitySchema::record(self.0.iter().map(|col| (col.name.clone(), col.ty.schema()))
-        )
+        let time_point_col = self.0.iter().find(|col| col.ty.is_timestamp()).map(|col| col.name.clone());
+        EntitySchema::record(self.0.iter().map(|col| (col.name.clone(), col.ty.schema())))
+            .with_attribute_opt(attribute::core::TIME_POINT, time_point_col)
     }
 }
 
