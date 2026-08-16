@@ -1,6 +1,6 @@
 # Import and Export Formats
 
-Importers open an input file and create an Iguazu entity tree and streams. Some importers parse and copy the data to streams created in a default storage backend, while others create streams with a storage backend that loads data lazily from the source file. Importers are also responsible for loading Iguazu entities and attributes from file metadata, or inferring them from the file contents. If a different schema is provided on the command line, some importers can parse the file according to that schema rather than the inferred one.
+Importers open an input file and produce an Iguazu entity tree and streams. Some importers parse and copy the data to streams created in a default storage backend, while others create streams with a storage backend that loads data lazily from the source file. Importers load a schema provided in the file, or infer the schema from the file contents. If a different schema is provided on the command line, some importers can parse the file according to that schema rather than the inferred one.
 
 An importer and its options can be specified on the command line with the `-f format:option1=value1:option2=value2` syntax.
 
@@ -48,11 +48,11 @@ It's recommended to use `iguazu schema file.csv > schema.json` to infer a schema
   - **`delimiter`**: Delimiter byte, defaults to `,` for CSV and `\t` for TSV.
   - **`terminator`**: Record terminator byte. If empty, either `\n` or `\r\n` is accepted.
   - **`quote`**: Quote byte. Empty or `none` disable quoting.
-  - **`escape`**: Escape byte before quotes. Empty or `none` to disable escaping.
+  - **`escape`**: Escape byte before quotes. Empty or `none` disable escaping.
   - **`double_quote`**: Whether to interpret doubled quote characters as an escaped quote.
   - **`comment`**: Comment byte. If specified, lines beginning with this byte will be skipped.
   - **`skip`**: Number of lines to skip before reading headers.
-  - **`columns`**: Comma-separated list of column names. If empty, the first line of the file (after skip) is used as headers.
+  - **`columns`**: Comma-separated list of column names in place of the header line. If empty, the first line of the file (after skip) is used as a header.
 
 ## Sigrok srzip v2 (`sigrok`)
 

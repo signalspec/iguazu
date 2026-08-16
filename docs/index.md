@@ -4,6 +4,10 @@ Tools for viewing, storing, and sharing mixed-signal time series data
 
 [Source code on GitHub](https://github.com/signalspec/iguazu) | [Online demo](https://app.iguazu.signalspec.org)
 
+## Screenshot
+
+<img src="https://kevinmehall.net/2026/iguazu_screenshot_001.png" alt="Screenshot" width="1036" />
+
 ## Key features
 
 - Import from CSV, Sigrok srzip, and raw binary array files. *Future: JSON, WAV, SigMF, VCD, etc.*
@@ -21,7 +25,3 @@ Tools for viewing, storing, and sharing mixed-signal time series data
 - Table view
 
 - Rust library, [CLI](./cli.md), egui-based viewer app for Linux, macOS, Windows, and web
-
-## Screenshot
-
-<img src="https://kevinmehall.net/2026/iguazu_screenshot_001.png" alt="Screenshot" width="1036" />
