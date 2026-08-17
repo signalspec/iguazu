@@ -14,9 +14,6 @@ pub use number_view::NumberView;
 mod timestamp_view;
 pub use timestamp_view::{ TimestampView, Span };
 
-mod enum_view;
-pub use enum_view::EnumView;
-
 mod event_view;
 pub use event_view::{ EventView, EventViewIter, Event };
 
@@ -82,10 +79,6 @@ impl ViewManager {
         } else {
             None
         }
-    }
-
-    pub fn enum_view<'a>(&'a self, entity: &EntityStream) -> Option<EnumView<'a>> {
-        EnumView::new(self, entity)
     }
 
     pub fn text_view<'a>(&'a self, entity: &EntityStream) -> TextView<'a> {

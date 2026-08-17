@@ -89,15 +89,6 @@ pub enum Entity<D, S> {
         #[serde(flatten)]
         attributes: AttributeMap,
     },
-    Union {
-        #[serde(skip_serializing_if = "EntityData::skip_serialize", bound(serialize = "D: Serialize + EntityData", deserialize = "D: Deserialize<'de> + EntityData"))]
-        data: D,
-
-        variants: IndexMap<EcoString, Entity<D, S>>,
-
-        #[serde(flatten)]
-        attributes: AttributeMap,
-    },
     FixedArray {
         elements: u32,
         child: Box<Entity<D, S>>,
@@ -333,7 +324,6 @@ impl<D, S> Entity<D, S> {
     pub fn attributes(&self) -> &AttributeMap {
         match self {
             Entity::Group { attributes, .. }
-            | Entity::Union { attributes, .. }
             | Entity::FixedArray { attributes, .. }
             | Entity::Tuple { attributes, .. }
             | Entity::VariableArray { attributes, .. } => attributes,
@@ -344,7 +334,6 @@ impl<D, S> Entity<D, S> {
     pub fn attributes_mut(&mut self) -> &mut AttributeMap {
         match self {
             Entity::Group { attributes, .. }
-            | Entity::Union { attributes, .. }
             | Entity::FixedArray { attributes, .. }
             | Entity::Tuple { attributes, .. }
             | Entity::VariableArray { attributes, .. } => attributes,
@@ -461,7 +450,6 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
     pub fn data(&self) -> Option<&D> {
         match self {
             Entity::Data { data, .. } => Some(data),
-            Entity::Union { data, .. } => Some(data),
             Entity::VariableArray { data, .. } => Some(data),
             _ => None,
         }
@@ -475,13 +463,6 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                     .collect::<Result<IndexMap<_, _>, E>>()?;
                 Ok(Entity::Group { children, attributes: attributes.clone() })
             }
-            Entity::Union { data, variants, attributes } => {
-                let data = f(data)?;
-                let variants = variants.iter()
-                    .map(|(name, variant)| variant.try_map_data(f).map(|c| (name.clone(), c)))
-                    .collect::<Result<IndexMap<_, _>, E>>()?;
-                Ok(Entity::Union { data, variants, attributes: attributes.clone() })
-            },
             Entity::FixedArray { elements, child, attributes } => {
                 let child = Box::new(child.try_map_data(f)?);
                 Ok(Entity::FixedArray { elements: *elements, child, attributes: attributes.clone() })
@@ -579,13 +560,6 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                         ).await?;
                         Ok(Entity::Data { field: field.clone(), data, summaries })
                     }
-                    Entity::Union { ref data, ref variants, ref attributes } => {
-                        let (data, variants) = future::try_zip(
-                            f(data),
-                            map_children(variants, f)
-                        ).await?;
-                        Ok(Entity::Union { data, variants, attributes: attributes.clone() })
-                    }
                     Entity::FixedArray { elements, ref child, ref attributes } => {
                         let child = Box::new(Box::pin(map_entity(child, f)).await?);
                         Ok(Entity::FixedArray { elements, child, attributes: attributes.clone() })
@@ -621,7 +595,6 @@ impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
                     child.each_data_mut(f);
                 }
             }
-            Entity::Union { data, .. } => f(data),
             Entity::FixedArray { child, .. } | Entity::Tuple { child, .. } => {
                 child.each_data_mut(f)
             }
@@ -678,7 +651,7 @@ impl EntitySchema {
 
     pub fn single_stream(&self) -> Option<(&Field, usize)> {
         match self {
-            Entity::Group { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
+            Entity::Group { .. } | Entity::VariableArray { .. } => None,
             Entity::FixedArray { elements, child, .. } => {
                 let (field, stride) = child.single_stream()?;
                 Some((field, stride * (*elements as usize)))
@@ -693,7 +666,7 @@ impl EntitySchema {
 
     pub fn wrap_single(&self, data: ArcStream) -> Option<EntityStream> {
         match *self {
-            Entity::Group { .. } | Entity::Union { .. } | Entity::VariableArray { .. } => None,
+            Entity::Group { .. } | Entity::VariableArray { .. } => None,
             Entity::Data { data: Ignored, ref field, .. } => {
                 Some(Entity::Data { data, field: field.clone(), summaries: Default::default() })
             }

@@ -17,11 +17,6 @@ impl EntityStream {
                         inner(child, tasks, storage);
                     }
                 }
-                Entity::Union { ref mut variants, .. } => {
-                    for variant in variants.values_mut() {
-                        inner(variant, tasks, storage);
-                    }
-                }
                 Entity::FixedArray { ref mut child, .. } | Entity::Tuple { ref mut child, .. } => {
                     inner(child, tasks, storage);
                 }

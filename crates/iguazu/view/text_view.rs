@@ -6,14 +6,13 @@ use ecow::EcoString;
 
 use crate::{schema::{fmt::TextFormat, Entity, EntityStream, FieldKind }, stream::StreamState, Idx, IdxRange};
 
-use super::{EnumView, IntView, ViewManager};
+use super::{IntView, ViewManager};
 use crate::util::utf8::DisplayUtf8Lossy;
 pub struct TextView<'a>(Vec<Element<'a>>);
 
 enum Element<'a> {
     Literal(EcoString),
     Field(IntView<'a>, TextFormat),
-    Enum(EnumView<'a>, Vec<TextView<'a>>),
     Utf8Str { ends: IntView<'a>, chars: IntView<'a> },
 }
 
@@ -66,18 +65,6 @@ impl<'a> TextView<'a> {
                 Entity::Group { .. } => {}
                 Entity::Data { ref data, ref field, .. } => {
                     elements.push(Element::Field(IntView::new_from_stream(vm, data), TextFormat::new(field)));
-                },
-                Entity::Union { ref variants, .. } => {
-                    // TODO: format inner
-                    let inner = variants.iter()
-                        .map(|(name, _)| TextView::literal(name.clone()))
-                        .collect();
-
-                    if let Some(view) = vm.enum_view(entity) {
-                        elements.push(Element::Enum(view, inner))
-                    } else {
-                        elements.push(Element::Literal("‽".into()));
-                    }
                 }
                 Entity::FixedArray { .. } => {
                     // TODO
@@ -121,17 +108,6 @@ impl<'a> TextView<'a> {
                         write!(fmt, "…")?;
                     }
                 }
-                Element::Enum(ref view, ref options) => {
-                    if let Some((v, child_idx)) = view.get(idx) {
-                        if let Some(opt) = options.get(v) {
-                            opt.write(fmt, child_idx)?;
-                        } else {
-                            write!(fmt, "‽")?;
-                        }
-                    } else {
-                        write!(fmt, "…")?;
-                    }
-                }
                 Element::Utf8Str { ref ends, ref chars} => {
                     const MAX_LEN: usize = 255;
                     let start = if idx == 0 { Some(0) } else { ends.get_u64(idx - 1) };
@@ -168,7 +144,6 @@ impl<'a> TextView<'a> {
         self.0.iter().map(|e| match e {
             Element::Literal(_) => StreamState { end: 0, streaming: false },
             Element::Field(v, _) => v.state(),
-            Element::Enum(v, _) => v.state(),
             Element::Utf8Str { ends, .. } => ends.state(),
         }).reduce(|a, b| StreamState {
             end: a.end.max(b.end),
