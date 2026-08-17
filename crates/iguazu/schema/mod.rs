@@ -91,14 +91,14 @@ pub enum Entity<D, S> {
     },
     FixedArray {
         elements: u32,
-        child: Box<Entity<D, S>>,
+        inner: Box<Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
     },
     Tuple {
-        fields: IndexMap<EcoString, AttributeMap>,
-        child: Box<Entity<D, S>>,
+        names: Vec<EcoString>,
+        inner: Box<Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
@@ -106,7 +106,7 @@ pub enum Entity<D, S> {
     VariableArray {
         #[serde(skip_serializing_if = "EntityData::skip_serialize",  bound(serialize = "D: Serialize + EntityData", deserialize = "D: Deserialize<'de> + EntityData"))]
         data: D,
-        child: Box<Entity<D, S>>,
+        inner: Box<Entity<D, S>>,
 
         #[serde(flatten)]
         attributes: AttributeMap,
@@ -341,8 +341,8 @@ impl<D, S> Entity<D, S> {
         }
     }
 
-    pub fn tuple(child: Entity<D, S>, fields: IndexMap<EcoString, AttributeMap>) -> Self {
-        Entity::Tuple { child: Box::new(child), fields, attributes: Default::default() }
+    pub fn tuple(inner: Entity<D, S>, names: Vec<EcoString>) -> Self {
+        Entity::Tuple { inner: Box::new(inner), names, attributes: Default::default() }
     }
 
     pub fn attribute<'a, A: TryFrom<&'a AttributeValue>>(&'a self, attr: Attribute<A>) -> Option<A> {
@@ -374,10 +374,10 @@ impl<D, S> Entity<D, S> {
             Entity::Group { ref children, .. } => {
                 children.get(child)
             }
-            Entity::FixedArray { ref child, .. }
-            | Entity::Tuple { ref child, .. }
-            | Entity::VariableArray { ref child, .. } => {
-                Some(child)
+            Entity::FixedArray { ref inner, .. }
+            | Entity::Tuple { ref inner, .. }
+            | Entity::VariableArray { ref inner, .. } => {
+                Some(inner)
             }
             _ => None,
         }
@@ -388,10 +388,10 @@ impl<D, S> Entity<D, S> {
             Entity::Group { ref mut children, .. } => {
                 children.get_mut(child)
             }
-            Entity::FixedArray { ref mut child, .. }
-            | Entity::Tuple { ref mut child, .. }
-            | Entity::VariableArray { ref mut child, .. } => {
-                Some(child)
+            Entity::FixedArray { ref mut inner, .. }
+            | Entity::Tuple { ref mut inner, .. }
+            | Entity::VariableArray { ref mut inner, .. } => {
+                Some(inner)
             }
             _ => None,
         }
@@ -402,10 +402,10 @@ impl<D, S> Entity<D, S> {
             Entity::Group { mut children, .. } => {
                 children.swap_remove(child)
             }
-            Entity::FixedArray { child, .. }
-            | Entity::Tuple { child, .. }
-            | Entity::VariableArray { child, .. } => {
-                Some(*child)
+            Entity::FixedArray { inner, .. }
+            | Entity::Tuple { inner, .. }
+            | Entity::VariableArray { inner, .. } => {
+                Some(*inner)
             }
             _ => None,
         }
@@ -463,19 +463,19 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                     .collect::<Result<IndexMap<_, _>, E>>()?;
                 Ok(Entity::Group { children, attributes: attributes.clone() })
             }
-            Entity::FixedArray { elements, child, attributes } => {
-                let child = Box::new(child.try_map_data(f)?);
-                Ok(Entity::FixedArray { elements: *elements, child, attributes: attributes.clone() })
+            Entity::FixedArray { elements, inner, attributes } => {
+                let inner = Box::new(inner.try_map_data(f)?);
+                Ok(Entity::FixedArray { elements: *elements, inner, attributes: attributes.clone() })
             }
-            Entity::Tuple { fields, child, attributes } => {
-                let child = Box::new(child.try_map_data(f)?);
-                let fields = fields.clone();
-                Ok(Entity::Tuple { fields, child, attributes: attributes.clone() })
+            Entity::Tuple { names, inner, attributes } => {
+                let inner = Box::new(inner.try_map_data(f)?);
+                let names = names.clone();
+                Ok(Entity::Tuple { names, inner, attributes: attributes.clone() })
             }
-            Entity::VariableArray { data, child, attributes } => {
+            Entity::VariableArray { data, inner, attributes } => {
                 let data = f(data)?;
-                let child = Box::new(child.try_map_data(f)?);
-                Ok(Entity::VariableArray { data, child, attributes: attributes.clone() })
+                let inner = Box::new(inner.try_map_data(f)?);
+                Ok(Entity::VariableArray { data, inner, attributes: attributes.clone() })
             }
             Entity::Data { data, field, summaries } => {
                 let data = f(data)?;
@@ -560,20 +560,20 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
                         ).await?;
                         Ok(Entity::Data { field: field.clone(), data, summaries })
                     }
-                    Entity::FixedArray { elements, ref child, ref attributes } => {
-                        let child = Box::new(Box::pin(map_entity(child, f)).await?);
-                        Ok(Entity::FixedArray { elements, child, attributes: attributes.clone() })
+                    Entity::FixedArray { elements, ref inner, ref attributes } => {
+                        let inner = Box::new(Box::pin(map_entity(inner, f)).await?);
+                        Ok(Entity::FixedArray { elements, inner, attributes: attributes.clone() })
                     }
-                    Entity::Tuple { ref fields, ref child, ref attributes } => {
-                        let child = Box::new(Box::pin(map_entity(child, f)).await?);
-                        Ok(Entity::Tuple { fields: fields.clone(), child, attributes: attributes.clone() })
+                    Entity::Tuple { ref names, ref inner, ref attributes } => {
+                        let inner = Box::new(Box::pin(map_entity(inner, f)).await?);
+                        Ok(Entity::Tuple { names: names.clone(), inner, attributes: attributes.clone() })
                     }
-                    Entity::VariableArray { ref data, ref child, ref attributes } => {
-                        let (data, child) = future::try_zip(
+                    Entity::VariableArray { ref data, ref inner, ref attributes } => {
+                        let (data, inner) = future::try_zip(
                             f(data),
-                            Box::pin(map_entity(child, f))
+                            Box::pin(map_entity(inner, f))
                         ).await?;
-                        Ok(Entity::VariableArray { data, child: Box::new(child), attributes: attributes.clone() })
+                        Ok(Entity::VariableArray { data, inner: Box::new(inner), attributes: attributes.clone() })
                     }
                 }
             }
@@ -595,12 +595,12 @@ impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
                     child.each_data_mut(f);
                 }
             }
-            Entity::FixedArray { child, .. } | Entity::Tuple { child, .. } => {
-                child.each_data_mut(f)
+            Entity::FixedArray { inner, .. } | Entity::Tuple { inner, .. } => {
+                inner.each_data_mut(f)
             }
-            Entity::VariableArray { data, child, .. } => {
+            Entity::VariableArray { data, inner, .. } => {
                 f(data);
-                child.each_data_mut(f);
+                inner.each_data_mut(f);
             }
             Entity::Data { data, summaries, .. } => {
                 f(data);
@@ -632,7 +632,7 @@ impl EntitySchema {
     pub fn string() -> Self {
         Entity::VariableArray {
             data: Ignored,
-            child: Box::new(Entity::field(Field::character())),
+            inner: Box::new(Entity::field(Field::character())),
             attributes: Default::default()
         }
     }
@@ -640,11 +640,8 @@ impl EntitySchema {
     pub fn complex(field: impl Into<Field>) -> Self {
         let data = Self::field(field);
         Entity::Tuple {
-            fields: IndexMap::from_iter([
-                ("re".into(), Default::default()),
-                ("im".into(), Default::default()),
-            ]),
-            child: Box::new(data),
+            names: vec!["re".into(), "im".into()],
+            inner: Box::new(data),
             attributes: Default::default(),
         }
     }
@@ -652,13 +649,13 @@ impl EntitySchema {
     pub fn single_stream(&self) -> Option<(&Field, usize)> {
         match self {
             Entity::Group { .. } | Entity::VariableArray { .. } => None,
-            Entity::FixedArray { elements, child, .. } => {
-                let (field, stride) = child.single_stream()?;
+            Entity::FixedArray { elements, inner, .. } => {
+                let (field, stride) = inner.single_stream()?;
                 Some((field, stride * (*elements as usize)))
             }
-            Entity::Tuple { fields, child, .. } => {
-                let (field, stride) = child.single_stream()?;
-                Some((field, stride * fields.len()))
+            Entity::Tuple { names, inner, .. } => {
+                let (field, stride) = inner.single_stream()?;
+                Some((field, stride * names.len()))
             }
             Entity::Data { data: Ignored, field, .. } => Some((field, 1)),
         }
@@ -670,13 +667,13 @@ impl EntitySchema {
             Entity::Data { data: Ignored, ref field, .. } => {
                 Some(Entity::Data { data, field: field.clone(), summaries: Default::default() })
             }
-            Entity::FixedArray { ref child, elements, ref attributes } => {
-                let child = Box::new(child.wrap_single(data)?);
-                Some(Entity::FixedArray { elements, child, attributes: attributes.clone() })
+            Entity::FixedArray { ref inner, elements, ref attributes } => {
+                let inner = Box::new(inner.wrap_single(data)?);
+                Some(Entity::FixedArray { elements, inner, attributes: attributes.clone() })
             }
-            Entity::Tuple { ref fields, ref child, ref attributes } => {
-                let child = Box::new(child.wrap_single(data)?);
-                Some(Entity::Tuple { fields: fields.clone(), child, attributes: attributes.clone() })
+            Entity::Tuple { ref names, ref inner, ref attributes } => {
+                let inner = Box::new(inner.wrap_single(data)?);
+                Some(Entity::Tuple { names: names.clone(), inner, attributes: attributes.clone() })
             }
         }
     }

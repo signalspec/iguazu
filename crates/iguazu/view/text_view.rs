@@ -72,8 +72,8 @@ impl<'a> TextView<'a> {
                 Entity::Tuple { .. } => {
                     // TODO
                 }
-                Entity::VariableArray { data: ref ends, ref child, .. } => {
-                    match **child {
+                Entity::VariableArray { data: ref ends, ref inner, .. } => {
+                    match **inner {
                         Entity::Data { data: ref inner_data, ref field, .. } => {
                             match field.kind {
                                 FieldKind::Character { pos: 0 }=> {
@@ -196,7 +196,7 @@ fn test_textview() {
 
     let strings = Entity::VariableArray {
         data: MemoryStream::new::<u64>(&[3, 7]) as ArcStream,
-        child: Box::new(chars.clone()),
+        inner: Box::new(chars.clone()),
         attributes: Default::default(),
     };
 

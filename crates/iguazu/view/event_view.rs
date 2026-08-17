@@ -13,9 +13,9 @@ impl<'v> EventView<'v> {
             entity = entity.child(&time_field)?;
         };
 
-        let Entity::Tuple { child, .. } = &entity else { return None };
+        let Entity::Tuple { inner, .. } = &entity else { return None };
 
-        let Entity::Data { field: field @ Field { kind: FieldKind::Timestamp, .. }, data, summaries } = &**child else {
+        let Entity::Data { field: field @ Field { kind: FieldKind::Timestamp, .. }, data, summaries } = &**inner else {
             return None;
         };
 
@@ -164,7 +164,6 @@ fn test_event_view() {
     use crate::storage::MemoryStream;
     use crate::schema:: FieldKind;
     use std::task::Waker;
-    use indexmap::indexmap;
 
     let mut vm = super::ViewManager::new();
     vm.begin(&Waker::noop().clone());
@@ -181,10 +180,7 @@ fn test_event_view() {
         FieldKind::Timestamp, data
     ).with_attribute(crate::schema::attribute::core::TIME_TICK, 1e6);
 
-    let tuple = EntityStream::tuple(ts, indexmap![
-        "start".into() => Default::default(),
-        "end".into() => Default::default(),
-    ]);
+    let tuple = EntityStream::tuple(ts, vec!["start".into(), "end".into()]);
 
     let ev = vm.event_view(&tuple).unwrap();
 

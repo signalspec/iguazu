@@ -102,8 +102,8 @@ impl ColumnParser {
                 (entity, parser)
             }
 
-            Entity::VariableArray { data: Ignored, child, attributes } => {
-                match **child {
+            Entity::VariableArray { data: Ignored, inner, attributes } => {
+                match **inner {
                     Entity::Data { data: Ignored, ref field, ..} => {
                         let ends = MemoryStreamWriter::new(ElementSize::U64);
                         let ends_stream = ends.stream().clone() as Arc<dyn Stream>;
@@ -123,7 +123,7 @@ impl ColumnParser {
 
                         let entity = Entity::VariableArray {
                             data: ends_stream,
-                            child: Box::new(inner),
+                            inner: Box::new(inner),
                             attributes: attributes.clone(),
                         };
 

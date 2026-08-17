@@ -10,18 +10,18 @@ use crate::{Element, ElementSize, schema::{Entity, EntityStream, Field, FieldKin
 
 impl EntityStream {
     pub fn build_summaries(&mut self, executor: &Arc<Executor<'static>>, storage: &Arc<dyn Storage>) -> TaskSet<String> {
-        fn inner(this: &mut EntityStream, tasks: &mut TaskSetBuilder<String>, storage: &Arc<dyn Storage>) {
+        fn build_inner(this: &mut EntityStream, tasks: &mut TaskSetBuilder<String>, storage: &Arc<dyn Storage>) {
             match *this {
                 Entity::Group { ref mut children, .. } => {
                     for child in children.values_mut() {
-                        inner(child, tasks, storage);
+                        build_inner(child, tasks, storage);
                     }
                 }
-                Entity::FixedArray { ref mut child, .. } | Entity::Tuple { ref mut child, .. } => {
-                    inner(child, tasks, storage);
+                Entity::FixedArray { ref mut inner, .. } | Entity::Tuple { ref mut inner, .. } => {
+                    build_inner(inner, tasks, storage);
                 }
-                Entity::VariableArray { ref mut child, .. } => {
-                    inner(child, tasks, storage);
+                Entity::VariableArray { ref mut inner, .. } => {
+                    build_inner(inner, tasks, storage);
                 }
                 Entity::Data { ref mut summaries, ref field, ref data } => {
                     match field.kind {
@@ -41,7 +41,7 @@ impl EntityStream {
         }
 
         let mut tasks = TaskSetBuilder::new(executor.clone());
-        inner(self, &mut tasks, storage);
+        build_inner(self, &mut tasks, storage);
         tasks.task_set
     }
 }

@@ -63,17 +63,17 @@ fn info_tree_inner<D, S>(w: &mut impl Write, prefix: &str, name: &str, entity: &
         Entity::Data { field, .. } => {
             info_tree_field(w, true, prefix, name, field)?;
         }
-        Entity::FixedArray { child, .. } => {
+        Entity::FixedArray { inner, .. } => {
             header_line(w, true, name, "FixedArray")?;
-            print_children(w, prefix, [("inner", &**child)].into_iter(), info_tree_inner)?;
+            print_children(w, prefix, [("inner", &**inner)].into_iter(), info_tree_inner)?;
         }
-        Entity::Tuple { child, .. } => {
+        Entity::Tuple { inner, .. } => {
             header_line(w, true, name, "Tuple")?;
-            print_children(w, prefix, [("inner", &**child)].into_iter(), info_tree_inner)?;
+            print_children(w, prefix, [("inner", &**inner)].into_iter(), info_tree_inner)?;
         }
-        Entity::VariableArray { child, .. } => {
+        Entity::VariableArray { inner, .. } => {
             header_line(w, true, name, "VariableArray")?;
-            print_children(w, prefix, [("inner", &**child)].into_iter(), info_tree_inner)?;
+            print_children(w, prefix, [("inner", &**inner)].into_iter(), info_tree_inner)?;
         }
     }
     Ok(())
