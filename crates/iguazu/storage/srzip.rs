@@ -67,8 +67,8 @@ impl Stream for SrZipStream {
         BlockState::Pending
     }
 
-    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send + 'static>> {
-        Box::pin(SrZipIter::new(self))
+    fn iter(self: Arc<Self>) -> Box<dyn StreamIter> {
+        Box::new(SrZipIter::new(self))
     }
 }
 
@@ -96,19 +96,15 @@ enum SrZipIterState {
 }
 
 impl SrZipIter {
-    fn new(stream: Arc<SrZipStream>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send + 'static>> {
-        let block_size = stream.block_size;
-        let element_size = stream.element_size;
-        Box::pin(async move {
-            Ok(Box::new(SrZipIter {
-                stream,
-                block: 0,
-                state: SrZipIterState::Empty,
-                buffer: vec![0; block_size * element_size.bytes()],
-                in_pos: 0,
-                pos: 0,
-            }) as Box<dyn StreamIter>)
-        })
+    fn new(stream: Arc<SrZipStream>) -> Self {
+        Self {
+            block: 0,
+            state: SrZipIterState::Empty,
+            buffer: vec![0; stream.block_size * stream.element_size.bytes()],
+            in_pos: 0,
+            pos: 0,
+            stream,
+        }
     }
 }
 

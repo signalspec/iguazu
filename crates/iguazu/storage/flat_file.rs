@@ -1,7 +1,7 @@
-use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc, task::{Context, Poll}};
+use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc, task::{Context, Poll, ready}};
 
 use ecow::{EcoString, eco_format};
-use futures_lite::AsyncRead;
+use futures_lite::{AsyncBufRead, AsyncRead, FutureExt};
 use once_array::OnceArray;
 use url::Url;
 
@@ -117,36 +117,61 @@ impl Stream for FlatFileStream {
         }
     }
 
-    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send + 'static>> {
-        Box::pin(async move {
-            let size = self.count.map(|c| c * (self.block_desc.element_size.bytes() as u64));
-            let reader = self.file.clone().stream(self.offset, size).await?;
-            let file = self.file.describe();
-            Ok(Box::new(FileStreamIter::new(file, self.block_desc, reader)) as Box<dyn StreamIter>)
-        })
+    fn iter(self: Arc<Self>) -> Box<dyn StreamIter> {
+        Box::new(FileStreamIter::from_file(self.file.clone(), self.offset, self.block_desc, self.count))
     }
 }
 
 struct FileStreamIter {
     file: EcoString,
     block_desc: BlockDesc,
-    file_stream: Pin<Box<dyn AsyncRead + Send + Sync>>,
+    reader_future: FutureOutput<>,
     buffer: Box<[u8]>,
 
     /// Position within block in bytes. Always <= buffer.len().
     write_offset: usize,
 
-    /// Position within block in bytes. Always <= write_pos.
+    /// Position within block in bytes. Always <= write_offset.
     read_offset: usize,
     end: Option<Result<(), IoError>>,
 }
 
+enum FutureOutput {
+    Future(Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send>>),
+    Reader(Result<Pin<Box<dyn AsyncRead + Send + Sync>>, IoError>)
+}
+
+impl FutureOutput {
+    pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<&mut Result<Pin<Box<dyn AsyncRead + Send + Sync>>, IoError>> {
+        if let FutureOutput::Future(f) = self {
+            let result = ready!(f.poll(cx));
+            *self = FutureOutput::Reader(result.map(|r| r as _));
+        }
+        if let FutureOutput::Reader(o) = self {
+            Poll::Ready(o)
+        } else {
+            unreachable!()
+        }
+    }
+}
+
 impl FileStreamIter {
-    fn new(file: EcoString, block_desc: BlockDesc, file_stream: Pin<Box<dyn AsyncRead + Send + Sync>>) -> FileStreamIter {
+    fn from_file(file: Arc<dyn ReadableFile>, offset: u64, block_desc: BlockDesc, count: Option<u64>) -> FileStreamIter {
+        let size = count.map(|c| c * (block_desc.element_size.bytes() as u64));
+        let reader_future = file.clone().stream(offset, size);
+        FileStreamIter::new(file.describe(), FutureOutput::Future(reader_future), block_desc)
+    }
+
+    #[cfg(test)]
+    fn from_reader(name: EcoString, reader: Pin<Box<dyn AsyncRead + Send + Sync>>, block_desc: BlockDesc) -> FileStreamIter {
+        FileStreamIter::new(name, FutureOutput::Reader(Ok(reader)), block_desc)
+    }
+
+    fn new(name: EcoString, reader_future: FutureOutput, block_desc: BlockDesc) -> FileStreamIter {
         FileStreamIter {
-            file,
+            file: name,
             block_desc,
-            file_stream,
+            reader_future,
             buffer: vec![0; block_desc.size()].into_boxed_slice(),
             read_offset: 0,
             write_offset: 0,
@@ -162,8 +187,15 @@ impl StreamIter for FileStreamIter {
 
     fn poll_next(&mut self, cx: &mut Context) -> IterState<'_> {
         let element_size = self.block_desc.element_size.bytes();
+
+        let file_stream = match self.reader_future.poll(cx) {
+            Poll::Pending => return IterState::Partial(&[]),
+            Poll::Ready(Ok(file_stream)) => file_stream,
+            Poll::Ready(Err(e)) => return IterState::Error(e.clone()),
+        };
+
         while self.write_offset < self.buffer.len() && self.end.is_none() {
-            match self.file_stream.as_mut().poll_read(cx, &mut self.buffer[self.write_offset..]) {
+            match file_stream.as_mut().poll_read(cx, &mut self.buffer[self.write_offset..]) {
                 Poll::Pending => break,
                 Poll::Ready(Ok(0)) => {
                     self.end = Some(Ok(()));
@@ -201,7 +233,8 @@ impl StreamIter for FileStreamIter {
 #[test]
 fn test_iter() {
     use std::{ io, task::Waker, assert_matches };
-    use futures_lite::future::block_on;
+    use futures_lite::{future::block_on, AsyncRead};
+    use ecow::EcoString;
     let cx = &mut Context::from_waker(&Waker::noop());
 
     struct Replay(std::slice::Iter<'static, Poll<Result<&'static [u8], &'static str>>>);
@@ -240,7 +273,7 @@ fn test_iter() {
         Poll::Ready(Ok(&[9, 10, 11, 12, 13, 14, 15, 16])),
         Poll::Ready(Ok(&[16, 17]))
     ]}.iter()));
-    let mut iter = FileStreamIter::new(EcoString::default(), BlockDesc { element_size: ElementSize::U16, count: 4 }, src);
+    let mut iter = FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U16, count: 4 });
     assert_matches!(iter.poll_next(cx), IterState::Partial(&[]));
     assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
     assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
@@ -261,7 +294,7 @@ fn test_iter() {
         Poll::Ready(Ok(&[1u8, 2, 3] as &[u8])),
         Poll::Ready(Err("err")),
     ]}.iter()));
-    let mut iter = FileStreamIter::new(EcoString::default(), BlockDesc { element_size: ElementSize::U16, count: 4 }, src);
+    let mut iter = FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U16, count: 4 });
     assert_matches!(iter.poll_next(cx), IterState::Complete(&[1, 2]));
     iter.consume(1);
     assert_matches!(iter.poll_next(cx), IterState::Error(_));
@@ -273,6 +306,6 @@ fn test_iter() {
         Poll::Ready(Ok(&[5, 6])),
         Poll::Pending,
     ]}.iter()));
-    let mut iter = Box::new(FileStreamIter::new(EcoString::default(), BlockDesc { element_size: ElementSize::U8, count: 4 }, src)) as Box<dyn StreamIter>;
+    let mut iter = Box::new(FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U8, count: 4 })) as Box<dyn StreamIter>;
     assert_matches!(block_on(iter.read_to_vec(10)), Ok(v) if v == [1u8, 2, 3, 4, 5, 6]);
 }

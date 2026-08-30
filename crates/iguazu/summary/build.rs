@@ -115,7 +115,7 @@ async fn make_summary_initial<T: Element + Default, T2: Element + Default, const
     f_initial: impl FnMut([T; N1]) -> [T2; R1] + Copy + Send + Sync + 'static,
     f_reduce: impl FnMut([T2; N2]) -> [T2; R2] + Copy + Send + Sync + 'static,
 ) -> Result<(), String> {
-    let mut src_iter = base.iter().await.map_err(|e| e.to_string())?;
+    let mut src_iter = base.iter();
 
     // Do nothing until the underlying stream reaches `MIN_SUMMARY_SIZE`.
     poll_fn(|cx| -> Poll<Result<(), String>> {
@@ -164,7 +164,7 @@ fn make_next_summary_level<T: Element + Default, const N: usize, const R: usize>
     mut summaries: OnceArrayWriter<ArcStream>,
     f: impl FnMut([T; N]) -> [T; R] + Copy + Send + Sync + 'static
 ) -> impl Future<Output = Result<(), String>> + Send + 'static { async move {
-    let mut src_iter = src.iter().await.map_err(|e| e.to_string())?;
+    let mut src_iter = src.iter();
 
     let mut output = storage.create_stream(T::ELEMENT_SIZE);
     summaries.try_push(output.stream()).map_err(|_| "Summary capacity exceeded".to_string())?;

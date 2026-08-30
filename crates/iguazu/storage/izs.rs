@@ -1,5 +1,4 @@
 use std::io;
-use std::pin::Pin;
 use std::task::Waker;
 use std::sync::Arc;
 use std::fmt::Debug;
@@ -99,9 +98,7 @@ impl Stream for IzsStream {
         BlockState::Pending
     }
 
-    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send>> {
-        Box::pin(async move {
-            Ok(Box::new(crate::storage::common::CommonStreamIter::new(self as ArcStream)) as _)
-        })
+    fn iter(self: Arc<Self>) -> Box<dyn StreamIter> {
+        Box::new(crate::storage::common::CommonStreamIter::new(self as ArcStream))
     }
 }

@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(data.desc().count, 4096*1024);
 
         // Read samples via iter
-        let mut iter = block_on(data.clone().iter()).unwrap();
+        let mut iter = data.clone().iter();
         let iter_data = block_on(iter.read_to_vec(5000*1024)).unwrap();
 
         assert_eq!(iter_data[0], 0xFF);
@@ -339,7 +339,7 @@ mod tests {
         assert_eq!(data.desc().element_size, crate::ElementSize::U16);
         assert_eq!(data.desc().count, 2*1024*1024);
 
-        let mut iter = block_on(data.clone().iter()).unwrap();
+        let mut iter = data.clone().iter();
         let iter_data = block_on(iter.read_to_vec(2_000_000)).unwrap();
         let iter_data_as_u16: &[u16] = bytemuck::cast_slice(&iter_data);
 

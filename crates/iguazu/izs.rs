@@ -228,7 +228,7 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
     let mut block_index = BlockIndex::new();
     let mut pos = 0;
 
-    let mut iter = stream.iter().await.map_err(|e| ExportError::Source(Arc::new(e)))?;
+    let mut iter = stream.iter();
     loop {
         let block = iter.read_to_vec(block_size).await.map_err(ExportError::Source)?;
         let compressed_block = zstd::bulk::compress(&block, 0).unwrap();
