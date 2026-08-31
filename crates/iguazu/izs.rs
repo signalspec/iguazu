@@ -6,7 +6,7 @@ use futures_lite::{AsyncWrite, AsyncWriteExt};
 use log::debug;
 use serde::{Deserialize, Serialize};
 
-use crate::{ElementSize, export::ExportError, import::ImportError, io::ReadableFile, schema::{Entity, EntityData, EntitySchema, EntityStream}, storage::{Pool, izs::IzsStream}, stream::{ArcStream, Stream}, summary::StoredSummaryMap};
+use crate::{ElementSize, export::ExportError, import::ImportError, io::{IoError, ReadableFile}, schema::{Entity, EntityData, EntitySchema, EntityStream}, storage::{Pool, izs::IzsStream}, stream::{ArcStream, Stream}, summary::StoredSummaryMap};
 use async_lock::Mutex as AsyncMutex;
 
 pub(crate) const HEADER_MAGIC: [u8; 8] = [ 0x00, 0x21, 0x4a, 0xd9, 0xff, 0x90, 0xba, 0xed ];
@@ -107,11 +107,11 @@ impl IzsFile {
         Ok(s)
     }
 
-    pub fn filename(&self) -> Option<&str> {
-        self.file.filename()
+    pub fn file(&self) -> &Arc<dyn ReadableFile> {
+        &self.file
     }
 
-    pub(crate) async fn read_at(&self, offset: u64, len: usize) -> Result<Vec<u8>, std::io::Error> {
+    pub(crate) async fn read_at(&self, offset: u64, len: usize) -> Result<Vec<u8>, IoError> {
         let tail_offset = self.file_size.saturating_sub(self.tail.len() as u64);
         if let Some(pos) = offset.checked_sub(tail_offset) {
             debug!("Reading {len} bytes at {offset} from tail (pos {pos})");
@@ -228,7 +228,7 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
     let mut block_index = BlockIndex::new();
     let mut pos = 0;
 
-    let mut iter = stream.iter().await.map_err(ExportError::Io)?;
+    let mut iter = stream.iter().await.map_err(|e| ExportError::Source(Arc::new(e)))?;
     loop {
         let block = iter.read_to_vec(block_size).await.map_err(ExportError::Source)?;
         let compressed_block = zstd::bulk::compress(&block, 0).unwrap();

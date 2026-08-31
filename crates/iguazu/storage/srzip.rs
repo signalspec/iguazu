@@ -1,15 +1,12 @@
-use std::{fmt::Debug, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker}};
+use std::{fmt::Debug, pin::Pin, sync::Arc, task::{Context, Poll, Waker}};
+use ecow::eco_format;
 use futures_lite::AsyncRead;
 
 use itertools::{AllEqualValueError, Itertools};
 use once_array::OnceArray;
 
 use crate::{
-    ElementSize,
-    import::ImportError,
-    io::zip::{UnzipReader, ZipEntry},
-    storage::{BlockState, Pool, block::BlockCache},
-    stream::{BlockDesc, IterState, Stream, StreamIter, StreamState},
+    ElementSize, import::ImportError, io::{IoError, zip::{UnzipReader, ZipEntry}}, storage::{BlockState, Pool, block::BlockCache}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState},
 };
 
 pub struct SrZipStream {
@@ -70,7 +67,7 @@ impl Stream for SrZipStream {
         BlockState::Pending
     }
 
-    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send + 'static>> {
         Box::pin(SrZipIter::new(self))
     }
 }
@@ -93,13 +90,13 @@ struct SrZipIter {
 
 enum SrZipIterState {
     Empty,
-    Loading(Pin<Box<dyn Future<Output = Result<UnzipReader, io::Error>> + Send + 'static>>),
+    Loading(Pin<Box<dyn Future<Output = Result<UnzipReader, IoError>> + Send + 'static>>),
     Reading(Pin<Box<UnzipReader>>),
-    Error(String),
+    Error(IoError),
 }
 
 impl SrZipIter {
-    fn new(stream: Arc<SrZipStream>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
+    fn new(stream: Arc<SrZipStream>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send + 'static>> {
         let block_size = stream.block_size;
         let element_size = stream.element_size;
         Box::pin(async move {
@@ -139,7 +136,7 @@ impl StreamIter for SrZipIter {
                             self.state = SrZipIterState::Reading(Box::pin(reader));
                         }
                         Poll::Ready(Err(e)) => {
-                            self.state = SrZipIterState::Error(e.to_string());
+                            self.state = SrZipIterState::Error(e);
                         }
                         Poll::Pending => break,
                     }
@@ -155,7 +152,7 @@ impl StreamIter for SrZipIter {
                                 self.in_pos += read;
                             }
                             Poll::Ready(Err(e)) => {
-                                self.state = SrZipIterState::Error(e.to_string());
+                                self.state = SrZipIterState::Error(IoError::new(eco_format!("failed to read file: {e}"), None, Some(e.kind())));
                             }
                             Poll::Pending => break,
                         }
@@ -164,7 +161,7 @@ impl StreamIter for SrZipIter {
                     }
                 }
                 SrZipIterState::Error(ref err) => {
-                    return IterState::Error(err)
+                    return IterState::Error(err.clone())
                 }
             }
         }

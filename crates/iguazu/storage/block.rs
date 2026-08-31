@@ -1,10 +1,11 @@
-use std::{collections::VecDeque, io, sync::{Arc, Mutex, OnceLock, Weak}, task::Waker, fmt::Debug};
+use std::{collections::VecDeque, sync::{Arc, Mutex, OnceLock, Weak}, task::Waker, fmt::Debug};
 use once_array::OnceArray;
 
 use hashbrown::HashMap;
 use async_executor::Task;
 
 use crate::util::waker_set::WakerSet;
+use crate::io::IoError;
 
 /// Result of `[Stream::get_block]`.
 #[derive(Clone)]
@@ -22,14 +23,14 @@ pub enum BlockState {
     End,
 
     /// There was a problem retrieving the block from storage.
-    Error,
+    Error(Arc<IoError>),
 }
 
 impl BlockState {
     pub fn bytes(&self) -> &[u8] {
         match self {
             BlockState::Complete(arc) | BlockState::Partial(arc) => &*arc,
-            BlockState::Error | BlockState::Pending | BlockState::End => &[],
+            BlockState::Error(_) | BlockState::Pending | BlockState::End => &[],
         }
     }
 
@@ -45,13 +46,13 @@ impl Debug for BlockState {
             BlockState::Partial(arc) => write!(f, "Streaming({} bytes)", arc.len()),
             BlockState::Pending => write!(f, "Pending"),
             BlockState::End => write!(f, "End"),
-            BlockState::Error => write!(f, "Error"),
+            BlockState::Error(e) => write!(f, "Error({:?})", e),
         }
     }
 }
 
 pub struct BlockTask {
-    result: OnceLock<Result<Arc<OnceArray<u8>>, io::Error>>,
+    result: OnceLock<Result<Arc<OnceArray<u8>>, Arc<IoError>>>,
     wakers: WakerSet,
     _task: Task<()>,
 }
@@ -69,7 +70,7 @@ impl BlockTask {
         self.wakers.insert(waker);
     }
 
-    pub(crate) fn complete(&self, result: Result<Arc<OnceArray<u8>>, io::Error>) {
+    pub(crate) fn complete(&self, result: Result<Arc<OnceArray<u8>>, Arc<IoError>>) {
         self.result.set(result).ok();
         self.wakers.wake_all();
     }
@@ -92,7 +93,7 @@ impl CacheEntry {
                         *self = CacheEntry::OnceArray(Arc::downgrade(inner));
                         Some(block)
                     }
-                    Some(Err(_)) => Some(BlockState::Error),
+                    Some(Err(e)) => Some(BlockState::Error(e.clone())),
                     None => {
                         task.subscribe(waker);
                         Some(BlockState::Pending)

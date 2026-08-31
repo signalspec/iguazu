@@ -1,10 +1,11 @@
-use std::{fmt::Debug, future::Future, io, pin::Pin, sync::Arc, task::{Context, Poll}};
+use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc, task::{Context, Poll}};
 
+use ecow::{EcoString, eco_format};
 use futures_lite::AsyncRead;
 use once_array::OnceArray;
 use url::Url;
 
-use crate::{ElementSize, import::ImportError, io::ReadableFile, schema::{EntitySchema, EntityStream}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState}};
+use crate::{ElementSize, import::ImportError, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState}};
 use crate::storage::{ Pool, block::BlockCache };
 
 use super::BlockState;
@@ -45,7 +46,7 @@ impl Debug for FlatFileStream {
 }
 
 impl FlatFileStream {
-    pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_size: ElementSize, opts: &FlatFileOpts) -> Result<Self, io::Error> {
+    pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_size: ElementSize, opts: &FlatFileOpts) -> Result<Self, IoError> {
         let file_len = file.clone().get_len().await?;
         let block_desc = BlockDesc { element_size, count: opts.block_size };
         let cache = BlockCache::new();
@@ -76,7 +77,7 @@ impl FlatFileStream {
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 
-    fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Arc<OnceArray<u8>>, io::Error>> + Send + 'static {
+    fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Arc<OnceArray<u8>>, IoError>> + Send + 'static {
         log::debug!("Loading block {block} of {}", self.file.filename().unwrap_or("<unknown>"));
         let offset = block.saturating_mul(self.block_desc.size() as u64);
         let file_offset = self.offset.saturating_add(offset);
@@ -116,16 +117,18 @@ impl Stream for FlatFileStream {
         }
     }
 
-    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send + 'static>> {
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send + 'static>> {
         Box::pin(async move {
             let size = self.count.map(|c| c * (self.block_desc.element_size.bytes() as u64));
             let reader = self.file.clone().stream(self.offset, size).await?;
-            Ok(Box::new(FileStreamIter::new(self.block_desc, reader)) as Box<dyn StreamIter>)
+            let file = self.file.describe();
+            Ok(Box::new(FileStreamIter::new(file, self.block_desc, reader)) as Box<dyn StreamIter>)
         })
     }
 }
 
 struct FileStreamIter {
+    file: EcoString,
     block_desc: BlockDesc,
     file_stream: Pin<Box<dyn AsyncRead + Send + Sync>>,
     buffer: Box<[u8]>,
@@ -135,12 +138,13 @@ struct FileStreamIter {
 
     /// Position within block in bytes. Always <= write_pos.
     read_offset: usize,
-    end: Option<Result<(), String>>,
+    end: Option<Result<(), IoError>>,
 }
 
 impl FileStreamIter {
-    fn new(block_desc: BlockDesc, file_stream: Pin<Box<dyn AsyncRead + Send + Sync>>) -> FileStreamIter {
+    fn new(file: EcoString, block_desc: BlockDesc, file_stream: Pin<Box<dyn AsyncRead + Send + Sync>>) -> FileStreamIter {
         FileStreamIter {
+            file,
             block_desc,
             file_stream,
             buffer: vec![0; block_desc.size()].into_boxed_slice(),
@@ -168,7 +172,7 @@ impl StreamIter for FileStreamIter {
                     self.write_offset += read;
                 }
                 Poll::Ready(Err(e)) => {
-                    self.end = Some(Err(e.to_string()));
+                    self.end = Some(Err(IoError::new(eco_format!("failed to read file: {e}"), Some(self.file.clone()), Some(e.kind()))));
                 }
             }
         }
@@ -176,7 +180,7 @@ impl StreamIter for FileStreamIter {
         let available = &self.buffer[self.read_offset..(self.write_offset / element_size * element_size)];
 
         if available.is_empty() && let Some(Err(err)) = &self.end {
-            IterState::Error(err)
+            IterState::Error(err.clone())
         } else if self.write_offset < self.buffer.len() && self.end.is_none() {
             IterState::Partial(available)
         } else {
@@ -196,7 +200,7 @@ impl StreamIter for FileStreamIter {
 
 #[test]
 fn test_iter() {
-    use std::task::Waker;
+    use std::{ io, task::Waker, assert_matches };
     use futures_lite::future::block_on;
     let cx = &mut Context::from_waker(&Waker::noop());
 
@@ -236,31 +240,31 @@ fn test_iter() {
         Poll::Ready(Ok(&[9, 10, 11, 12, 13, 14, 15, 16])),
         Poll::Ready(Ok(&[16, 17]))
     ]}.iter()));
-    let mut iter = FileStreamIter::new(BlockDesc { element_size: ElementSize::U16, count: 4 }, src);
-    assert_eq!(iter.poll_next(cx), IterState::Partial(&[]));
-    assert_eq!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
-    assert_eq!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
-    assert_eq!(iter.poll_next(cx), IterState::Partial(&[1, 2, 3, 4]));
-    assert_eq!(iter.poll_next(cx), IterState::Partial(&[1, 2, 3, 4]));
+    let mut iter = FileStreamIter::new(EcoString::default(), BlockDesc { element_size: ElementSize::U16, count: 4 }, src);
+    assert_matches!(iter.poll_next(cx), IterState::Partial(&[]));
+    assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
+    assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
+    assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2, 3, 4]));
+    assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2, 3, 4]));
     iter.consume(1);
-    assert_eq!(iter.poll_next(cx), IterState::Complete(&[3, 4, 5, 6, 7, 8]));
+    assert_matches!(iter.poll_next(cx), IterState::Complete(&[3, 4, 5, 6, 7, 8]));
     iter.consume(1);
-    assert_eq!(iter.poll_next(cx), IterState::Complete(&[5, 6, 7, 8]));
+    assert_matches!(iter.poll_next(cx), IterState::Complete(&[5, 6, 7, 8]));
     iter.consume(2);
-    assert_eq!(iter.poll_next(cx), IterState::Complete(&[9, 10, 11, 12, 13, 14, 15, 16]));
+    assert_matches!(iter.poll_next(cx), IterState::Complete(&[9, 10, 11, 12, 13, 14, 15, 16]));
     iter.consume(4);
-    assert_eq!(iter.poll_next(cx), IterState::Complete(&[16, 17]));
+    assert_matches!(iter.poll_next(cx), IterState::Complete(&[16, 17]));
     iter.consume(1);
-    assert_eq!(iter.poll_next(cx), IterState::Complete(&[]));
+    assert_matches!(iter.poll_next(cx), IterState::Complete(&[]));
 
     let src = Box::pin(Replay(const { &[
         Poll::Ready(Ok(&[1u8, 2, 3] as &[u8])),
         Poll::Ready(Err("err")),
     ]}.iter()));
-    let mut iter = FileStreamIter::new(BlockDesc { element_size: ElementSize::U16, count: 4 }, src);
-    assert_eq!(iter.poll_next(cx), IterState::Complete(&[1, 2]));
+    let mut iter = FileStreamIter::new(EcoString::default(), BlockDesc { element_size: ElementSize::U16, count: 4 }, src);
+    assert_matches!(iter.poll_next(cx), IterState::Complete(&[1, 2]));
     iter.consume(1);
-    assert_eq!(iter.poll_next(cx), IterState::Error("err"));
+    assert_matches!(iter.poll_next(cx), IterState::Error(_));
 
     let src = Box::pin(Replay(const { &[
         Poll::Ready(Ok(&[1u8, 2, 3, 4] as &[u8])),
@@ -269,6 +273,6 @@ fn test_iter() {
         Poll::Ready(Ok(&[5, 6])),
         Poll::Pending,
     ]}.iter()));
-    let mut iter = Box::new(FileStreamIter::new(BlockDesc { element_size: ElementSize::U8, count: 4 }, src)) as Box<dyn StreamIter>;
-    assert_eq!(block_on(iter.read_to_vec(10)), Ok(vec![1u8, 2, 3, 4, 5, 6]));
+    let mut iter = Box::new(FileStreamIter::new(EcoString::default(), BlockDesc { element_size: ElementSize::U8, count: 4 }, src)) as Box<dyn StreamIter>;
+    assert_matches!(block_on(iter.read_to_vec(10)), Ok(v) if v == [1u8, 2, 3, 4, 5, 6]);
 }

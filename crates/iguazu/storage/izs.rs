@@ -4,8 +4,10 @@ use std::task::Waker;
 use std::sync::Arc;
 use std::fmt::Debug;
 
+use ecow::eco_format;
 use once_array::OnceArray;
 
+use crate::io::IoError;
 use crate::izs::{BlockIndex, CompressionMethod, IzsFile, StreamMeta};
 use crate::storage::{ Pool, block::{ BlockCache, BlockState } };
 use crate::stream::{ArcStream, BlockDesc, Stream, StreamIter, StreamState};
@@ -43,7 +45,7 @@ impl IzsStream {
 impl Debug for IzsStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IzsStream")
-            .field("file", &self.shared.filename().unwrap_or("<unknown>"))
+            .field("file", &self.shared.file().filename().unwrap_or("<unknown>"))
             .finish()
     }
 }
@@ -66,14 +68,14 @@ impl Stream for IzsStream {
         };
 
         if let Some(block) = self.cache.get(block_i, waker) {
-            log::debug!("Block {block_i} of {}:{:x} found in cache", self.shared.filename().unwrap_or("<unknown>"), self.id);
+            log::debug!("Block {block_i} of {}:{:x} found in cache", self.shared.file().filename().unwrap_or("<unknown>"), self.id);
             return block;
         }
 
         let block_bytes = self.block_desc.size();
         let compression = self.compress;
         let len = self.block_index.lengths[block_i as usize] as usize;
-        log::debug!("Loading block {block_i} of {}:{:x} at {} len {}", self.shared.filename().unwrap_or("<unknown>"), self.id, offset, len);
+        log::debug!("Loading block {block_i} of {}:{:x} at {} len {}", self.shared.file().filename().unwrap_or("<unknown>"), self.id, offset, len);
 
         let shared = self.shared.clone();
         let task = self.pool.clone().spawn_block_fetch(async move {
@@ -82,10 +84,10 @@ impl Stream for IzsStream {
                 CompressionMethod::None => data,
                 CompressionMethod::Zstd => {
                     zstd::bulk::decompress(&data, block_bytes)
-                        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to decompress block: {}", e)))?
+                        .map_err(|e| IoError::new(eco_format!("failed to decompress block: {e}"), None, Some(e.kind())))?
                 }
                 CompressionMethod::Unknown => {
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, "Unknown compression method"));
+                    return Err(IoError::new(eco_format!("unknown compression method"), None, Some(io::ErrorKind::InvalidData)));
                 }
             };
 
@@ -97,7 +99,7 @@ impl Stream for IzsStream {
         BlockState::Pending
     }
 
-    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send>> {
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send>> {
         Box::pin(async move {
             Ok(Box::new(crate::storage::common::CommonStreamIter::new(self as ArcStream)) as _)
         })

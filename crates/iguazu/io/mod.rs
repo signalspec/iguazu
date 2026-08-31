@@ -1,7 +1,8 @@
 //! File I/O abstraction layer
-use std::{io, pin::Pin, sync::Arc};
+use std::{fmt::{Display, Debug}, io, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
+use ecow::{EcoString, eco_format};
 use futures_lite::{AsyncBufRead, AsyncReadExt, AsyncWrite};
 
 mod mem;
@@ -25,6 +26,11 @@ pub(crate) mod zip;
 
 #[async_trait]
 pub trait ReadableFile: Send + Sync + 'static {
+    /// Description of the file. This will be a URL, a filename, or a `<placeholder>`.
+    fn describe(&self) -> EcoString {
+        self.url().map(|u| u.as_str().into()).or_else(|| self.filename().map(|f| f.into())).unwrap_or("<unknown>".into())
+    }
+
     /// Get the filename part of the path
     fn filename(&self) -> Option<&str>;
 
@@ -32,20 +38,20 @@ pub trait ReadableFile: Send + Sync + 'static {
     fn url(&self) -> Option<Url>;
 
     /// Open a file adjacent to this one
-    async fn relative(&self, _path: &RelativePath) -> Result<Arc<dyn ReadableFile>, io::Error> {
-        return Err(io::Error::new(io::ErrorKind::Unsupported, "Relative paths are not supported for this file type"));
+    async fn relative(&self, _path: &RelativePath) -> Result<Arc<dyn ReadableFile>, IoError> {
+        Err(IoError::new(eco_format!("could not open file by relative path"), Some(self.describe()), Some(io::ErrorKind::Unsupported)))
     }
 
     /// Get the length of the file
-    async fn get_len(self: Arc<Self>) -> Result<u64, io::Error>;
+    async fn get_len(self: Arc<Self>) -> Result<u64, IoError>;
 
     /// Read a chunk of the file
-    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, io::Error>;
+    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, IoError>;
 
     /// Read a chunk at the end of the file, also returning the total size
     ///
     /// Some backends, such as HTTP, can do this in a single request.
-    async fn read_at_end(self: Arc<Self>, len: usize) -> Result<(Vec<u8>, u64), io::Error> {
+    async fn read_at_end(self: Arc<Self>, len: usize) -> Result<(Vec<u8>, u64), IoError> {
         let total_len = self.clone().get_len().await?;
         let offset = total_len.saturating_sub(len as u64);
         let data = self.read_at(offset, len).await?;
@@ -53,20 +59,20 @@ pub trait ReadableFile: Send + Sync + 'static {
     }
 
     /// Read the entire file into a `Vec<u8>`
-    async fn read_all(self: Arc<Self>, limit: usize) -> Result<Vec<u8>, io::Error> {
-        let mut take = self.stream(0, None).await?.take(limit as u64);
+    async fn read_all(self: Arc<Self>, limit: usize) -> Result<Vec<u8>, IoError> {
+        let mut take = self.clone().stream(0, None).await?.take(limit as u64);
         let mut buf = Vec::new();
-        take.read_to_end(&mut buf).await?;
+        take.read_to_end(&mut buf).await.err_from_file("failed to read from file", &*self)?;
 
         if take.limit() == 0 {
-            return Err(io::Error::new(io::ErrorKind::FileTooLarge, "File too large"));
+            return Err(IoError::new(eco_format!("size limit exceeded"), Some(self.describe()), Some(io::ErrorKind::FileTooLarge)));
         }
 
         Ok(buf)
     }
 
     /// Create a stream for reading the file
-    async fn stream(self: Arc<Self>, offset: u64, size: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error>;
+    async fn stream(self: Arc<Self>, offset: u64, size: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>;
 }
 
 #[async_trait]
@@ -78,4 +84,51 @@ pub trait WritableFile: Send + Sync + 'static {
 
     /// Create the file and get an `AsyncWrite`
     async fn writer(&self) -> Result<Pin<Box<dyn AsyncWrite + Send>>, io::Error>;
+}
+
+#[derive(Debug, Clone)]
+pub struct IoError {
+    /// Error message.
+    pub msg: EcoString,
+
+    /// URL, filename, or pseudo-file type in `<>` of the file where the error occurred.
+    pub file: Option<EcoString>,
+
+    /// Error kind. This should be pre-formatted into `msg` and is not displayed.
+    pub kind: Option<io::ErrorKind>,
+}
+
+impl IoError {
+    pub fn new(msg: EcoString, file: Option<EcoString>, kind: Option<io::ErrorKind>) -> Self {
+        Self { msg, file, kind }
+    }
+}
+
+impl std::error::Error for IoError {}
+
+impl Display for IoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(file) = &self.file {
+            write!(f, "{}: {}", file, self.msg)
+        } else {
+            write!(f, "{}", self.msg)
+        }
+    }
+}
+
+pub trait ResultExt<T> {
+    fn err_from_file<F: ReadableFile + ?Sized>(self, msg: &str, file: &F) -> Result<T, IoError>;
+}
+
+impl<T, E: Into<io::Error>> ResultExt<T> for Result<T, E> {
+    fn err_from_file<F: ReadableFile + ?Sized>(self, msg: &str, file: &F) -> Result<T, IoError> {
+        self.map_err(|e| {
+            let e = e.into();
+            IoError {
+                msg: eco_format!("{msg}: {e}"),
+                file: Some(file.describe()),
+                kind: Some(e.kind()),
+            }
+        })
+    }
 }

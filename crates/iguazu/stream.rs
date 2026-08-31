@@ -1,8 +1,8 @@
 //! Stream abstraction for storing and reading raw signal data
-use std::{any::Any, fmt::Debug, future::poll_fn, io, pin::Pin, sync::Arc, task::{Context, Poll, Waker, ready}};
+use std::{any::Any, fmt::Debug, future::poll_fn, pin::Pin, sync::Arc, task::{Context, Poll, Waker, ready}};
 use once_array::OnceArrayWriter;
 
-use crate::{ElementSize, Idx, storage::block::BlockState};
+use crate::{ElementSize, Idx, io::IoError, storage::block::BlockState};
 
 pub trait Stream: Send + Sync + Debug + Any {
     fn desc(&self) -> BlockDesc;
@@ -11,12 +11,12 @@ pub trait Stream: Send + Sync + Debug + Any {
 
     fn get_block(&self, block: u64, waker: &Waker) -> BlockState;
 
-    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send>>;
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send>>;
 }
 
 pub type ArcStream = Arc<dyn Stream>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum IterState<'a> {
     /// The data received so far. Polling again may return more contiguous data.
     Partial(&'a [u8]),
@@ -27,11 +27,11 @@ pub enum IterState<'a> {
     Complete(&'a [u8]),
 
     /// An error has occurred.
-    Error(&'a str),
+    Error(IoError),
 }
 
 impl<'a> IterState<'a> {
-    pub fn complete_block(self) -> Poll<Result<&'a [u8], &'a str>> {
+    pub fn complete_block(self) -> Poll<Result<&'a [u8], IoError>> {
         match self {
             IterState::Partial(_) => Poll::Pending,
             IterState::Complete(data) => Poll::Ready(Ok(data)),
@@ -39,7 +39,7 @@ impl<'a> IterState<'a> {
         }
     }
 
-    pub fn at_least(self, needed_bytes: usize) -> Poll<Result<&'a [u8], &'a str>> {
+    pub fn at_least(self, needed_bytes: usize) -> Poll<Result<&'a [u8], IoError>> {
         match self {
             IterState::Partial(data) if data.len() > needed_bytes => Poll::Ready(Ok(data)),
             IterState::Partial(_) => Poll::Pending,
@@ -58,12 +58,12 @@ pub trait StreamIter: Send {
 }
 
 impl dyn StreamIter {
-    pub async fn read_to_vec(&mut self, len: usize) -> Result<Vec<u8>, String> {
+    pub async fn read_to_vec(&mut self, len: usize) -> Result<Vec<u8>, Arc<IoError>> {
         let element_size = self.desc().element_size;
         let mut buf = Vec::with_capacity(len * element_size.bytes());
-        poll_fn(|cx| -> Poll<Result<(), String>> {
+        poll_fn(|cx| -> Poll<Result<(), Arc<IoError>>> {
             loop {
-                let block = ready!(self.poll_next(cx).complete_block())?;
+                let block = ready!(self.poll_next(cx).complete_block()).map_err(|e| e.clone())?;
                 let l = (block.len() / element_size.bytes()).min(len - buf.len() / element_size.bytes());
                 buf.extend_from_slice(&block[.. l * element_size.bytes()]);
 

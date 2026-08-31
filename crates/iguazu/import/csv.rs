@@ -1,10 +1,11 @@
 use std::iter;
 use std::{pin::Pin, sync::Arc};
 use csv_core::{ReadRecordResult, ReaderBuilder};
-use ecow::{EcoString, EcoVec};
+use ecow::{EcoString, EcoVec, eco_format};
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
 
+use crate::io::IoError;
 use crate::schema::{Entity, EntityStream, attribute};
 use crate::storage::Pool;
 use crate::{io::ReadableFile, schema::EntitySchema};
@@ -136,7 +137,7 @@ impl CsvImporter {
 
     async fn begin_parser(&self) -> Result<(EcoVec<EcoString>, CsvParser), ImportError> {
         let stream = self.file.clone().stream(0, None).await?;
-        let mut csv = CsvParser::new(stream, ReaderBuilder::new()
+        let mut csv = CsvParser::new(self.file.describe(), stream, ReaderBuilder::new()
             .delimiter(self.delimiter)
             .terminator(match self.terminator {
                 Some(b) => csv_core::Terminator::Any(b),
@@ -354,6 +355,7 @@ impl CsvHandler for ColumnsHandler<'_> {
 }
 
 struct CsvParser {
+    file: EcoString,
     source: Pin<Box<dyn AsyncBufRead + Send>>,
     reader: csv_core::Reader,
     out: Vec<u8>,
@@ -361,8 +363,9 @@ struct CsvParser {
 }
 
 impl CsvParser {
-    fn new(source: Pin<Box<dyn AsyncBufRead + Send>>, reader: csv_core::Reader) -> Self {
+    fn new(file: EcoString, source: Pin<Box<dyn AsyncBufRead + Send>>, reader: csv_core::Reader) -> Self {
         CsvParser {
+            file,
             source,
             reader,
             out: vec![0; 1024],
@@ -418,7 +421,9 @@ impl CsvParser {
                     self.source.as_mut().consume(consumed);
                     consumed = 0;
                 }
-                input = self.source.fill_buf().await.map_err(ImportError::Io)?;
+                input = self.source.fill_buf().await.map_err(|e| {
+                    ImportError::Io(IoError::new(eco_format!("failed to read file: {e}"), Some(self.file.clone()), Some(e.kind())))
+                })?;
             }
 
             let (res, nin, nout, nend) = self.reader.read_record(

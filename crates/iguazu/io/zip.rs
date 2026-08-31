@@ -1,9 +1,9 @@
-use std::{collections::BTreeMap, mem::size_of, pin::Pin, sync::Arc};
+use std::{collections::BTreeMap, io::ErrorKind, mem::size_of, pin::Pin, sync::Arc};
 use async_compression::futures::bufread::DeflateDecoder;
 use ecow::EcoString;
 use futures_lite::{AsyncBufRead, AsyncRead, AsyncReadExt as _};
 
-use crate::io::ReadableFile;
+use crate::io::{IoError, ReadableFile, ResultExt};
 
 pub struct EndOfCentralDirectoryRecord([u8; 22]);
 
@@ -91,7 +91,7 @@ impl ZipEntry {
     pub fn name(&self) -> &EcoString { &self.name }
     pub fn uncompressed_size(&self) -> u64 { self.uncompressed_size }
 
-    pub fn reader(&self) -> impl Future<Output = Result<UnzipReader, std::io::Error>> + Send + 'static {
+    pub fn reader(&self) -> impl Future<Output = Result<UnzipReader, IoError>> + Send + 'static {
         let compression  = self.compression;
         let name_len = self.name.len();
         let compressed_size = self.compressed_size;
@@ -105,21 +105,21 @@ impl ZipEntry {
             let lfh_size = size_of::<LocalFileHeader>() + name_len + extra_len;
 
             let read_size = compressed_size.checked_add(lfh_size as u64)
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid compressed size"))?;
+                .ok_or_else(|| IoError::new("invalid compressed size".into(), Some(file.describe()), Some(ErrorKind::InvalidData)))?;
 
-            let mut stream = file.stream(data_offset, Some(read_size)).await?;
+            let mut stream = file.clone().stream(data_offset, Some(read_size)).await?;
 
             let mut header = Vec::with_capacity(lfh_size);
-            (&mut stream).take(lfh_size as u64).read_to_end(&mut header).await?;
+            (&mut stream).take(lfh_size as u64).read_to_end(&mut header).await.err_from_file("failed to read file", &*file)?;
 
             if header.len() != lfh_size {
-                return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "unexpected end of file when reading zip entry"));
+                return Err(IoError::new("unexpected end of file when reading zip entry".into(), Some(file.describe()), Some(ErrorKind::UnexpectedEof)));
             }
 
             let lfh = LocalFileHeader(header[..size_of::<LocalFileHeader>()].try_into().unwrap());
 
             if lfh.magic() != LocalFileHeader::MAGIC {
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid local file header in zip entry"));
+                return Err(IoError::new("invalid local file header in zip entry".into(), Some(file.describe()), Some(ErrorKind::InvalidData)));
             }
 
             if lfh.compression() != compression
@@ -127,25 +127,25 @@ impl ZipEntry {
             || lfh.uncompressed_size() as u64 != uncompressed_size
             || lfh.file_name_length() as usize != name_len
             || lfh.extra_field_length() as usize != extra_len {
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "local file header does not match central directory entry"));
+                return Err(IoError::new("local file header does not match central directory entry".into(), Some(file.describe()), Some(ErrorKind::InvalidData)));
             }
 
             Ok(match compression {
                 0 => UnzipReader::Stored(stream),
                 8 => UnzipReader::Deflate(DeflateDecoder::new(stream)),
-                _ => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "unsupported compression method in zip entry"))
+                _ => return Err(IoError::new("unsupported compression method in zip entry".into(), Some(file.describe()), Some(ErrorKind::InvalidData)))
             })
         }
     }
 
-    pub async fn read_all(&self, limit: usize) -> Result<Vec<u8>, std::io::Error> {
+    pub async fn read_all(&self, limit: usize) -> Result<Vec<u8>, IoError> {
         if self.uncompressed_size > limit as u64 {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "uncompressed size exceeds limit"));
+            return Err(IoError::new("uncompressed size exceeds limit".into(), Some(self.file.describe()), Some(ErrorKind::InvalidData)));
         }
 
         let reader = self.reader().await?;
         let mut buf = Vec::with_capacity(self.uncompressed_size as usize);
-        reader.take(limit as u64).read_to_end(&mut buf).await?;
+        reader.take(limit as u64).read_to_end(&mut buf).await.err_from_file("failed to read zip entry", &*self.file)?;
 
         Ok(buf)
     }
@@ -155,7 +155,7 @@ impl ZipEntry {
 #[derive(Debug, thiserror::Error)]
 pub enum ZipError {
     #[error("{0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] IoError),
     #[error("{0}")]
     MalformedFile(&'static str),
     #[error("{0} is not supported")]

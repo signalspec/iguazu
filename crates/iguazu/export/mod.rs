@@ -4,7 +4,7 @@ use std::{pin::Pin, sync::Arc};
 use async_executor::Executor;
 use thiserror::Error;
 
-use crate::{io::WritableFile, schema::EntityStream};
+use crate::{io::{IoError, WritableFile}, schema::EntityStream};
 
 mod json_virtual;
 mod flat_file;
@@ -22,7 +22,7 @@ pub enum ExportError {
     UnsupportedSchema(String),
 
     #[error("Failed to read input: {0}")]
-    Source(String),
+    Source(Arc<IoError>),
 
     #[error("{0}")]
     UnsupportedStream(String),

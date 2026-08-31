@@ -1,4 +1,3 @@
-use std::io;
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::{sync::Arc, task::{Context, Poll, Waker}};
@@ -10,6 +9,7 @@ use crate::stream::{ArcStream, StreamIter, StreamWriter};
 use crate::Idx;
 use crate::util::waker_set::WakerSet;
 use crate::{Element, ElementSize, stream::{Stream, BlockDesc, StreamState}};
+use crate::io::IoError;
 
 const BLOCK_SIZE: usize = 1<<16;
 
@@ -81,7 +81,7 @@ impl Stream for MemoryStream {
         }
     }
 
-    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, io::Error>> + Send>> {
+    fn iter(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<Box<dyn StreamIter>, IoError>> + Send>> {
         Box::pin(async move {
             Ok(Box::new(crate::storage::common::CommonStreamIter::new(self as ArcStream)) as _)
         })

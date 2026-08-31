@@ -3,12 +3,19 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ecow::EcoString;
 use futures_lite::{AsyncBufRead, AsyncRead};
+
+use crate::io::IoError;
 
 use super::ReadableFile;
 
 #[async_trait]
 impl ReadableFile for Vec<u8> {
+    fn describe(&self) -> EcoString {
+        "<memory>".into()
+    }
+
     fn filename(&self) -> Option<&str> {
         None
     }
@@ -17,11 +24,11 @@ impl ReadableFile for Vec<u8> {
         None
     }
 
-    async fn get_len(self: Arc<Self>) -> Result<u64, io::Error> {
+    async fn get_len(self: Arc<Self>) -> Result<u64, IoError> {
         Ok(self.len() as u64)
     }
 
-    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, io::Error> {
+    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, IoError> {
         let Ok(offset) = usize::try_from(offset) else {
             return Ok(Vec::new());
         };
@@ -33,7 +40,7 @@ impl ReadableFile for Vec<u8> {
         self: Arc<Self>,
         offset: u64,
         size: Option<u64>,
-    ) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, io::Error> {
+    ) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError> {
         let pos = offset.try_into().unwrap_or(usize::MAX);
         let end = pos
             .saturating_add(size.unwrap_or(u64::MAX).try_into().unwrap_or(usize::MAX))

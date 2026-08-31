@@ -3,7 +3,7 @@ use std::{pin::Pin, sync::Arc};
 
 use thiserror::Error;
 
-use crate::{config::Configurable, io::ReadableFile, schema::{EntitySchema, EntityStream}, storage::Pool};
+use crate::{config::Configurable, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, storage::Pool};
 
 mod column_parser;
 
@@ -31,7 +31,7 @@ pub use srzip::SrZipImporter;
 #[derive(Error, Debug)]
 pub enum ImportError {
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] IoError),
 
     #[error("Schema mismatch: {0}")]
     SchemaMismatch(String),

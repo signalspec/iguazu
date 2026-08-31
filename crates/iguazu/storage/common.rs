@@ -37,9 +37,7 @@ impl StreamIter for CommonStreamIter {
             BlockState::End => IterState::Complete(&[]),
             BlockState::Partial(buf) => IterState::Partial(&buf[self.pos_in_block * self.block_desc.element_size.bytes()..]),
             BlockState::Complete(buf) => IterState::Complete(&buf[self.pos_in_block * self.block_desc.element_size.bytes()..]),
-            BlockState::Error => {
-                IterState::Error("")
-            }
+            BlockState::Error(err) => IterState::Error((**err).clone()),
         }
     }
 
