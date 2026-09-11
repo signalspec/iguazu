@@ -89,9 +89,7 @@ pub(crate) struct StreamMeta {
     pub end: u64,
 }
 
-impl EntityData for StreamMeta {
-    type SummaryMap = StoredSummaryMap<StreamMeta>;
-}
+impl EntityData for StreamMeta {}
 
 pub struct IzsFile {
     file: Arc<dyn ReadableFile>,
@@ -152,7 +150,7 @@ impl IzsFile {
     pub async fn load_entity(self: Arc<Self>, pool: Arc<Pool>) -> Result<EntityStream, ImportError> {
         let meta = self.load_meta().await?;
 
-        meta.entity.try_map_data_async(move |s| {
+        meta.entity.try_map_data_async(&move |s| {
             let shared = self.clone();
             let pool_inner = pool.clone();
             let s = s.clone();
@@ -300,7 +298,7 @@ pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<
 
     // Write entities
     let w = write.clone();
-    let mut meta_entity = entity.try_map_data_async(move |stream| ex.spawn(write_stream(w.clone(), stream.clone()))).await?;
+    let mut meta_entity = entity.try_map_data_async(&move |stream| ex.spawn(write_stream(w.clone(), stream.clone()))).await?;
 
     let mut write = write.lock().await;
 

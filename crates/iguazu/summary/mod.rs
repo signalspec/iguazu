@@ -1,81 +1,15 @@
 //! Downsampled overviews of data for zoomed-out views
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, mem, sync::{Arc, Mutex}, task::{Poll, Waker}};
 
 use ecow::EcoString;
 use indexmap::IndexMap;
-use once_array::{OnceArray, OnceArrayWriter};
 use serde::{Deserialize, Serialize};
-use crate::stream::ArcStream;
+use crate::{stream::ArcStream, util::waker_set::WakerSetUnlocked};
 
 mod build;
 
-pub trait SummaryMap: Default + FromIterator<(EcoString, StoredSummary<Self::Data>)> {
-    type Data;
-    fn iter(&self) -> impl Iterator<Item = (EcoString, BorrowedSummary<'_, Self::Data>)>;
-    fn is_empty(&self) -> bool;
-}
-
-#[derive(Clone)]
-pub struct LiveSummaryMap(IndexMap<EcoString, LiveSummary>);
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct StoredSummaryMap<D>(pub IndexMap<EcoString, StoredSummary<D>>);
-
-impl LiveSummaryMap {
-    pub fn get(&self, key: &str) -> BorrowedSummary<'_, ArcStream> {
-        self.0.get(key).map_or(BorrowedSummary::empty(), |summary| summary.borrow())
-    }
-}
-
-impl SummaryMap for LiveSummaryMap {
-    type Data = ArcStream;
-
-    fn iter(&self) -> impl Iterator<Item = (EcoString, BorrowedSummary<'_, Self::Data>)> {
-        self.0.iter().map(|(key, summary)| (key.clone(), summary.borrow()))
-    }
-
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl FromIterator<(EcoString, StoredSummary<ArcStream>)> for LiveSummaryMap {
-    fn from_iter<T: IntoIterator<Item = (EcoString, StoredSummary<ArcStream>)>>(iter: T) -> Self {
-        LiveSummaryMap(iter.into_iter().map(|(key, summary)| {
-            (key, LiveSummary { first_level: summary.first_level, levels: Arc::new(OnceArray::from(Vec::from(summary.levels))) })
-        }).collect())
-    }
-}
-
-impl Default for LiveSummaryMap {
-    fn default() -> Self {
-        LiveSummaryMap(IndexMap::new())
-    }
-}
-
-impl<D> SummaryMap for StoredSummaryMap<D> {
-    type Data = D;
-
-    fn iter(&self) -> impl Iterator<Item = (EcoString, BorrowedSummary<'_, Self::Data>)> {
-        self.0.iter().map(|(key, summary)| (key.clone(), summary.borrow()))
-    }
-
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl<D> FromIterator<(EcoString, StoredSummary<D>)> for StoredSummaryMap<D> {
-    fn from_iter<T: IntoIterator<Item = (EcoString, StoredSummary<D>)>>(iter: T) -> Self {
-        StoredSummaryMap(iter.into_iter().collect())
-    }
-}
-
-impl<D> Default for StoredSummaryMap<D> {
-    fn default() -> Self {
-        StoredSummaryMap(IndexMap::new())
-    }
-}
+pub type LiveSummaryMap = IndexMap<EcoString, LiveSummary>;
+pub type StoredSummaryMap<S> = IndexMap<EcoString, StoredSummary<S>>;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Summary<L> {
@@ -84,17 +18,22 @@ pub struct Summary<L> {
     pub levels: L,
 }
 
+pub type StoredSummary<D> = Summary<Box<[D]>>;
+pub type BorrowedSummary<'a, D> = Summary<&'a [D]>;
+
 impl<L> Debug for Summary<L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Summary").finish()
     }
 }
 
-impl<'a, D> Summary<&'a [D]> {
-    pub const fn empty() -> Self {
-        Summary { first_level: 255, levels: &[] }
+impl<L> Summary<L> {
+    pub fn empty() -> Self where L: Default {
+        Summary { first_level: 255, levels: Default::default() }
     }
+}
 
+impl<'a, D> Summary<&'a [D]> {
     pub fn max_level(&self) -> u8 {
         if self.levels.is_empty() {
             0
@@ -156,25 +95,6 @@ impl<'a, D> Summary<&'a [D]> {
     }
 }
 
-pub type LiveSummary = Summary<Arc<OnceArray<ArcStream>>>;
-pub type StoredSummary<D> = Summary<Box<[D]>>;
-pub type BorrowedSummary<'a, D> = Summary<&'a [D]>;
-
-impl LiveSummary {
-    pub fn new(first_level: u8, levels: impl IntoIterator<Item = ArcStream>) -> Self {
-        Summary { first_level, levels: Arc::new(levels.into_iter().collect::<Vec<_>>().into()) }
-    }
-
-    pub fn with_capacity(base_level: u8, capacity: usize) -> (Self, OnceArrayWriter<ArcStream>) {
-        let writer = OnceArrayWriter::with_capacity(capacity);
-        (Summary { first_level: base_level, levels: writer.reader().clone() }, writer)
-    }
-
-    pub fn borrow(&self) -> BorrowedSummary<'_, ArcStream> {
-        Summary { first_level: self.first_level, levels: &self.levels }
-    }
-}
-
 impl<D> StoredSummary<D> {
     pub fn borrow(&self) -> BorrowedSummary<'_, D> {
         Summary { first_level: self.first_level, levels: &self.levels }
@@ -188,6 +108,102 @@ pub enum SummaryLevel<D> {
     Above { last_level: u8, last_view: D, above: u8 }
 }
 
+#[derive(Clone)]
+pub struct LiveSummary {
+    inner: Arc<Mutex<LiveSummaryInner>>,
+}
+
+pub struct LiveSummaryWriter {
+    inner: Arc<Mutex<LiveSummaryInner>>,
+}
+
+pub struct LiveSummaryInner {
+    levels: Vec<ArcStream>,
+    first_level: u8,
+    done: bool,
+    wakers: WakerSetUnlocked,
+}
+
+impl LiveSummaryInner {
+    fn new(first_level: u8, levels: Vec<ArcStream>, done: bool) -> Self {
+        let wakers = Default::default();
+        LiveSummaryInner { levels, first_level, done, wakers }
+    }
+}
+
+impl LiveSummary {
+    pub fn new(first_level: u8, levels: impl IntoIterator<Item = ArcStream>) -> Self {
+        LiveSummary {
+            inner: Arc::new(Mutex::new(LiveSummaryInner::new(first_level, levels.into_iter().collect::<Vec<_>>(), true))),
+        }
+    }
+
+    pub fn map<R>(&self, waker: &Waker, f: impl FnMut(&ArcStream) -> R) -> StoredSummary<R> {
+        let mut inner = self.inner.lock().unwrap();
+        if !inner.done {
+            inner.wakers.insert(waker);
+        }
+        StoredSummary {
+            first_level: inner.first_level,
+            levels: inner.levels.iter().map(f).collect(),
+        }
+    }
+
+    pub fn async_iter(&self) -> impl futures_lite::Stream<Item = ArcStream> {
+        let mut i = 0;
+        futures_lite::stream::poll_fn(move |cx| {
+            let mut inner = self.inner.lock().unwrap();
+            if let Some(level) = inner.levels.get(i) {
+                i += 1;
+                Poll::Ready(Some(level.clone()))
+            } else if inner.done {
+                Poll::Ready(None)
+            } else {
+                inner.wakers.insert(cx.waker());
+                Poll::Pending
+            }
+
+        })
+    }
+
+    pub fn levels(&self) -> usize {
+        self.inner.lock().unwrap().levels.len()
+    }
+
+    pub fn first_level(&self) -> u8 {
+        self.inner.lock().unwrap().first_level
+    }
+}
+
+impl LiveSummaryWriter {
+    pub fn new(first_level: u8) -> Self {
+        LiveSummaryWriter {
+            inner: Arc::new(Mutex::new(LiveSummaryInner::new(first_level, Vec::new(), false))),
+        }
+    }
+
+    pub fn reader(&self) -> LiveSummary {
+        LiveSummary { inner: self.inner.clone() }
+    }
+
+    fn modify(&self, f: impl FnOnce(&mut LiveSummaryInner)) {
+        let mut inner = self.inner.lock().unwrap();
+        f(&mut inner);
+        let wakers = mem::take(&mut inner.wakers);
+        drop(inner);
+        wakers.wake_all();
+    }
+
+    pub fn insert(&self, stream: ArcStream) {
+        self.modify(|inner| inner.levels.push(stream));
+    }
+}
+
+impl Drop for LiveSummaryWriter {
+    fn drop(&mut self) {
+        self.modify(|inner| inner.done = true);
+    }
+}
 
 #[test]
 fn test_summary_ops() {

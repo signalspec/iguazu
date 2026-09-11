@@ -10,7 +10,7 @@ pub struct RangeView<'a> {
 impl<'a> RangeView<'a> {
     pub fn new(vm: &'a ViewManager, field: FieldRef<'_>) -> Option<Self> {
         let view = NumberView::new(vm, field.data, field.field)?;
-        let summary = field.summaries.get("range").map(|s| NumberView::new_like(vm, s, &view));
+        let summary = vm.summary(&field.summaries, "range", |s| NumberView::new_like(vm, s, &view));
         Some(RangeView { view, summary })
     }
 

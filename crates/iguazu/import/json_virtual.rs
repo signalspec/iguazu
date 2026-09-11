@@ -30,7 +30,7 @@ impl Importer for VirtualImporter {
         let file = self.file.clone();
         Box::pin(async move {
             let schema = load(file.clone()).await?;
-            let entity = schema.try_map_data_async(move |s| pool.executor.spawn(create_stream(file.clone(), pool.clone(), s.clone()))).await?;
+            let entity = schema.try_map_data_async(&move |s| pool.executor.spawn(create_stream(file.clone(), pool.clone(), s.clone()))).await?;
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }

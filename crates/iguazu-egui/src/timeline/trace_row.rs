@@ -18,8 +18,7 @@ pub struct TraceRow<'a> {
 impl<'a> TraceRow<'a> {
     pub fn field(vcx: &'a ViewerContext, field: FieldRef, timebase: &Timebase<'a>, color: Option<AccentColor>, label: EcoString) -> Option<TraceRow<'a>> {
         let sample_rate = timebase.uniform_sample_rate()?;
-        let summary = field.summaries.get("bit_and_or");
-        let view = TraceView::new(&vcx.view_manager, field.data.clone(), summary);
+        let view = TraceView::new(&vcx.view_manager, field);
         let mask = field.kind.mask();
         let color = color.unwrap_or(AccentColor::Green);
         let formatter = TextFormat::new(field.field);
@@ -130,10 +129,9 @@ pub struct LogicRow<'a> {
 }
 
 impl<'a> LogicRow<'a> {
-    pub fn field(vcx: &'a ViewerContext, field: FieldRef, timebase: &Timebase<'a>, color: Option<AccentColor>, label: EcoString) -> Option<LogicRow<'a>> {
+    pub fn field(vcx: &'a ViewerContext, field: FieldRef<'_>, timebase: &Timebase<'a>, color: Option<AccentColor>, label: EcoString) -> Option<LogicRow<'a>> {
         let sample_rate = timebase.uniform_sample_rate()?;
-        let summary = field.summaries.get("bit_and_or");
-        let view = TraceView::new(&vcx.view_manager, field.data.clone(), summary);
+        let view = TraceView::new(&vcx.view_manager, field);
         let mask = field.field.kind.mask();
         let color = color.unwrap_or(AccentColor::Green);
         Some(LogicRow { view, sample_rate, label, color, mask })

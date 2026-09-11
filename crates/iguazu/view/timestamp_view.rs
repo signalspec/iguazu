@@ -28,7 +28,7 @@ impl<'v> TimestampView<'v> {
 
     pub fn new_from_stream(vm: &'v ViewManager, tick_rate: f64, stream: &ArcStream, summaries: &LiveSummaryMap) -> Option<Self> {
         let view = IntView::new_from_stream(vm, stream);
-        let summary = summaries.get("skip").map(|s| IntView::new_from_stream(vm, s));
+        let summary = vm.summary(summaries, "skip", |s| IntView::new_from_stream(vm, s));
 
         Some(TimestampView {
             view,

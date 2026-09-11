@@ -11,7 +11,10 @@ pub(crate) fn export(_executor: Arc<Executor<'static>>, entity: EntityStream, fi
     Box::pin(async move {
         let url = file.url()
             .ok_or_else(|| ExportError::InvalidFile(format!("Cannot get URL of output file")))?;
-        let contents = entity.try_map_data(&mut |stream| stream_ref(stream, &url))?;
+        let contents = entity.try_map_data_async(&|stream| {
+           let url = &url;
+           async move { stream_ref(&stream, url) }
+        }).await?;
         let json = serde_json::to_string(&contents).unwrap();
 
         let mut writer = file.writer().await?;

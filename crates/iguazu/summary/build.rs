@@ -5,8 +5,7 @@ use ecow::EcoString;
 use futures_lite::ready;
 use indexmap::map::Entry;
 use num_traits::Float;
-use once_array::OnceArrayWriter;
-use crate::{Element, ElementSize, schema::{Entity, EntityStream, Field, FieldKind}, storage::Storage, stream::{ArcStream, StreamIter, StreamWriter}, summary::{LiveSummary, LiveSummaryMap}, util::task_set::{TaskSet, TaskSetBuilder}};
+use crate::{Element, ElementSize, schema::{Entity, EntityStream, Field, FieldKind}, storage::Storage, stream::{ArcStream, StreamIter, StreamWriter}, summary::{LiveSummary, LiveSummaryMap, LiveSummaryWriter}, util::task_set::{TaskSet, TaskSetBuilder}};
 
 impl EntityStream {
     pub fn build_summaries(&mut self, executor: &Arc<Executor<'static>>, storage: &Arc<dyn Storage>) -> TaskSet<String> {
@@ -64,18 +63,12 @@ fn make_summary(
     initial_level: u8,
     func: impl FnOnce(SummaryGen, &Field)
 ) {
-    let Entry::Vacant(entry) = summaries.0.entry(key.into()) else { return; };
+    let Entry::Vacant(entry) = summaries.entry(key.into()) else { return; };
 
     let state = stream.state();
-    let capacity = if state.streaming {
-        // The stream is still growing. Assume it will reach 2^64 elements because we can't know when it will end.
-        (u64::BITS as u8).saturating_sub(MIN_SUMMARY_SIZE.ilog2() as u8).saturating_sub(initial_level)
-    } else if state.end >= MIN_SUMMARY_SIZE {
-        (state.end.checked_ilog2().unwrap_or(0) as u8 + 1).saturating_sub(initial_level).saturating_sub(MIN_SUMMARY_SIZE.ilog2() as u8) + 1
-    } else { 0 };
 
-    if capacity > 0 {
-        func(SummaryGen { tasks, storage: storage.clone(), stream: stream.clone(), initial_level, capacity, entry, key }, field)
+    if state.streaming || state.end >= MIN_SUMMARY_SIZE {
+        func(SummaryGen { tasks, storage: storage.clone(), stream: stream.clone(), initial_level, entry, key }, field)
     }
 }
 
@@ -84,7 +77,6 @@ struct SummaryGen<'a> {
     tasks: &'a mut TaskSetBuilder<String>,
     storage: Arc<dyn Storage>,
     initial_level: u8,
-    capacity: u8,
     stream: ArcStream,
     entry: indexmap::map::VacantEntry<'a, EcoString, LiveSummary>,
     key: &'static str,
@@ -97,21 +89,35 @@ impl<'a> SummaryGen<'a> {
         f_reduce: impl FnMut([T; N2]) -> [T; R2] + Copy + Send + Sync + 'static,
     ) {
         log::debug!("Spawning summary task for {}", self.key);
-        let SummaryGen { tasks, storage, stream, entry, initial_level, capacity, key, .. } = self;
-        let (summary, writer) = LiveSummary::with_capacity(initial_level, capacity as usize);
-        entry.insert(summary);
-        tasks.spawn(make_summary_initial(tasks.executor.clone(), storage.clone(), stream, key, initial_level, writer, f_initial, f_reduce))
+        let SummaryGen { tasks, storage, stream, entry, initial_level, key, .. } = self;
+        let summaries = LiveSummaryWriter::new(initial_level);
+        entry.insert(summaries.reader());
+
+        let levels = SummaryLevelWriter { storage, summaries };
+        tasks.spawn(make_summary_initial(tasks.executor.clone(), stream, key, initial_level, levels, f_initial, f_reduce))
+    }
+}
+
+struct SummaryLevelWriter {
+    storage: Arc<dyn Storage>,
+    summaries: LiveSummaryWriter,
+}
+
+impl SummaryLevelWriter {
+    fn create(&mut self, element: ElementSize) -> Box<dyn StreamWriter> {
+        let writer = self.storage.create_stream(element);
+        self.summaries.insert(writer.stream());
+        writer
     }
 }
 
 /// Build the first level of the summary, and when it reaches `MIN_SUMMARY_SIZE`, spawn a task to build the next level.
 async fn make_summary_initial<T: Element + Default, T2: Element + Default, const N1: usize, const R1: usize, const N2: usize, const R2: usize>(
     executor: Arc<Executor<'static>>,
-    storage: Arc<dyn Storage>,
     base: ArcStream,
     key: &'static str,
     level: u8,
-    mut summaries: OnceArrayWriter<ArcStream>,
+    mut levels: SummaryLevelWriter,
     f_initial: impl FnMut([T; N1]) -> [T2; R1] + Copy + Send + Sync + 'static,
     f_reduce: impl FnMut([T2; N2]) -> [T2; R2] + Copy + Send + Sync + 'static,
 ) -> Result<(), String> {
@@ -123,21 +129,19 @@ async fn make_summary_initial<T: Element + Default, T2: Element + Default, const
         Poll::Ready(Ok(()))
    }).await?;
 
-    let mut output = storage.create_stream(T::ELEMENT_SIZE);
-    summaries.try_push(output.stream()).map_err(|_| "Summary capacity exceeded".to_string())?;
-    summaries.commit();
+    let mut output = levels.create(T::ELEMENT_SIZE);
 
     log::info!("Building {key} summary level {level}");
 
     // taken when starting next level
-    let mut summaries = Some(summaries);
+    let mut levels = Some(levels);
     let mut next = None;
 
     poll_fn(|cx| {
         let r = poll_process_summary(cx, &mut src_iter, &mut output, f_initial);
 
-        if output.pos() >= MIN_SUMMARY_SIZE * (R2 as u64) && let Some(summaries) = summaries.take() {
-            next = Some(executor.spawn(make_next_summary_level(executor.clone(), storage.clone(), output.stream(), key, level+1, summaries, f_reduce)));
+        if output.pos() >= MIN_SUMMARY_SIZE * (R2 as u64) && let Some(levels) = levels.take() {
+            next = Some(executor.spawn(make_next_summary_level(executor.clone(), output.stream(), key, level+1, levels, f_reduce)));
         }
 
         r
@@ -157,30 +161,27 @@ async fn make_summary_initial<T: Element + Default, T2: Element + Default, const
 /// Build a subsequent level of summary.
 fn make_next_summary_level<T: Element + Default, const N: usize, const R: usize>(
     executor: Arc<Executor<'static>>,
-    storage: Arc<dyn Storage>,
     src: ArcStream,
     key: &'static str,
     level: u8,
-    mut summaries: OnceArrayWriter<ArcStream>,
+    mut levels: SummaryLevelWriter,
     f: impl FnMut([T; N]) -> [T; R] + Copy + Send + Sync + 'static
 ) -> impl Future<Output = Result<(), String>> + Send + 'static { async move {
     let mut src_iter = src.iter();
 
-    let mut output = storage.create_stream(T::ELEMENT_SIZE);
-    summaries.try_push(output.stream()).map_err(|_| "Summary capacity exceeded".to_string())?;
-    summaries.commit();
+    let mut output = levels.create(T::ELEMENT_SIZE);
 
     log::info!("Building {key} summary level {level}");
 
     // taken when starting next level
-    let mut summaries = Some(summaries);
+    let mut levels = Some(levels);
     let mut next = None;
 
     poll_fn(|cx| {
         let r = poll_process_summary(cx, &mut src_iter, &mut output, f);
 
-        if output.pos() >= MIN_SUMMARY_SIZE * (R as u64) && let Some(summaries) = summaries.take() {
-            next = Some(executor.spawn(make_next_summary_level(executor.clone(), storage.clone(), output.stream(), key, level+1, summaries, f)));
+        if output.pos() >= MIN_SUMMARY_SIZE * (R as u64) && let Some(levels) = levels.take() {
+            next = Some(executor.spawn(make_next_summary_level(executor.clone(), output.stream(), key, level+1, levels, f)));
         }
 
         r
@@ -313,25 +314,31 @@ fn test_build_summary_live() {
     assert_eq!(summary_tasks.len(), 1);
 
     let Entity::Data { summaries, .. } = &entity else { unreachable!() };
-    let summary = summaries.get("bit_and_or");
+    let summary = summaries.get("bit_and_or").unwrap();
 
-    assert_eq!(summary.first_level, 2);
-    assert_eq!(summary.levels.len(), 0);
-
-    writer.extend_from_slice(&[0xFF; 600]);
-    writer.commit();
-
-    while executor.try_tick() { }
-    let summary = summaries.get("bit_and_or");
-    assert_eq!(summary.levels.len(), 0);
+    {
+        let inner = summary.inner.lock().unwrap();
+        assert_eq!(inner.first_level, 2);
+        assert_eq!(inner.levels.len(), 0);
+    }
 
     writer.extend_from_slice(&[0xFF; 600]);
     writer.commit();
 
     while executor.try_tick() { }
-    let summary = summaries.get("bit_and_or");
-    assert_eq!(summary.levels.len(), 1);
-    assert_eq!(summary.levels[0].state(), StreamState { end: 1200 / 4 * 2, streaming: true});
+
+    assert_eq!(summary.levels(), 0);
+
+    writer.extend_from_slice(&[0xFF; 600]);
+    writer.commit();
+
+    while executor.try_tick() { }
+
+    {
+        let inner = summary.inner.lock().unwrap();
+        assert_eq!(inner.levels.len(), 1);
+        assert_eq!(inner.levels[0].state(), StreamState { end: 1200 / 4 * 2, streaming: true});
+    }
 
     writer.extend_from_slice(&[0xFF; 64000]);
     writer.commit();
@@ -345,18 +352,26 @@ fn test_build_summary_live() {
 
     let total = 1200 + 64000 + 512;
 
-    while executor.try_tick() { }
-    let summary = summaries.get("bit_and_or");
-    assert_eq!(summary.levels[0].state(), StreamState { end: total / 4 * 2, streaming: true});
-    assert_eq!(summary.levels[1].state(), StreamState { end: total / 4 / 2 * 2, streaming: true});
-    assert_eq!(summary.levels[2].state(), StreamState { end: total / 4 / 2 / 2 * 2, streaming: true});
-    assert_eq!(summary.levels[3].state(), StreamState { end: total / 4 / 2 / 2 / 2 * 2, streaming: true});
-    assert_eq!(summary.levels[4].state(), StreamState { end: total / 4 / 2 / 2 / 2 / 2 * 2, streaming: true});
-    assert_eq!(summary.levels[5].state(), StreamState { end: total / 4 / 2 / 2 / 2 / 2 / 2 * 2, streaming: true});
-    assert_eq!(summary.levels.len(), 6);
-
+    {
+        let inner = summary.inner.lock().unwrap();
+        assert_eq!(inner.levels[0].state(), StreamState { end: total / 4 * 2, streaming: true});
+        assert_eq!(inner.levels[1].state(), StreamState { end: total / 4 / 2 * 2, streaming: true});
+        assert_eq!(inner.levels[2].state(), StreamState { end: total / 4 / 2 / 2 * 2, streaming: true});
+        assert_eq!(inner.levels[3].state(), StreamState { end: total / 4 / 2 / 2 / 2 * 2, streaming: true});
+        assert_eq!(inner.levels[4].state(), StreamState { end: total / 4 / 2 / 2 / 2 / 2 * 2, streaming: true});
+        assert_eq!(inner.levels[5].state(), StreamState { end: total / 4 / 2 / 2 / 2 / 2 / 2 * 2, streaming: true});
+        assert_eq!(inner.levels.len(), 6);
+        assert_eq!(inner.done, false);
+    }
 
     drop(writer);
+    while executor.try_tick() { }
+
+    {
+        let inner = summary.inner.lock().unwrap();
+        assert_eq!(inner.done, true);
+    }
+
     block_on(executor.run(summary_tasks)).unwrap();
 }
 
@@ -383,8 +398,12 @@ fn test_build_summary_completed() {
     block_on(executor.run(summary_tasks)).unwrap();
 
     let Entity::Data { summaries, .. } = &entity else { unreachable!() };
-    let summary = summaries.get("bit_and_or");
-    assert_eq!(summary.levels.len(), 2);
-    assert_eq!(summary.levels[0].state(), StreamState { end: 5000 / 4 * 2, streaming: false});
-    assert_eq!(summary.levels[1].state(), StreamState { end: 5000 / 4 / 2 * 2, streaming: false});
+    let summary = summaries.get("bit_and_or").unwrap();
+    {
+        let inner = summary.inner.lock().unwrap();
+        assert_eq!(inner.levels.len(), 2);
+        assert_eq!(inner.levels[0].state(), StreamState { end: 5000 / 4 * 2, streaming: false});
+        assert_eq!(inner.levels[1].state(), StreamState { end: 5000 / 4 / 2 * 2, streaming: false});
+        assert_eq!(inner.done, true);
+    }
 }

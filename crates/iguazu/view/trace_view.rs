@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use crate::{Idx, IdxRange, stream::{ArcStream, BlockDesc, StreamState}, summary::{BorrowedSummary, StoredSummary}, view::ViewManager};
+use crate::{Idx, IdxRange, schema::FieldRef, stream::{BlockDesc, StreamState}, summary::StoredSummary, view::ViewManager};
 
 use super::IntView;
 
@@ -12,10 +12,10 @@ pub struct TraceView<'a> {
 }
 
 impl<'a> TraceView<'a> {
-    pub fn new(vm: &'a ViewManager, stream: ArcStream, summary: BorrowedSummary<'_, ArcStream>) -> Self {
+    pub fn new(vm: &'a ViewManager, field: FieldRef<'_>) -> Self {
         TraceView {
-            base: IntView::new_from_stream(vm, &stream),
-            summary: summary.map(|s| IntView::new_from_stream(vm, s)),
+            base: IntView::new_from_stream(vm, &field.data),
+            summary: vm.summary(&field.summaries, "bit_and_or", |s| IntView::new_from_stream(vm, s)),
         }
     }
 
@@ -142,7 +142,7 @@ pub enum TraceElement {
 fn test_traceview() {
     env_logger::builder().is_test(true).filter_module("iguazu", log::LevelFilter::Debug).try_init().ok();
 
-    use crate::{ stream::ArcStream, storage::Storage, schema::{Entity, FieldKind, EntityStream}, storage::{MemoryStorage, MemoryStreamWriter} };
+    use crate::{ stream::ArcStream, storage::Storage, schema::{Entity, FieldKind, EntityStream, Field}, storage::{MemoryStorage, MemoryStreamWriter} };
     use std::task::Waker;
     use std::sync::Arc;
     use async_executor::Executor;
@@ -161,7 +161,9 @@ fn test_traceview() {
     let stream: ArcStream = writer.stream().clone();
     drop(writer);
 
-    let trace_view = TraceView::new(&vm, stream.clone(), BorrowedSummary::empty());
+    let field = &Field::bits(1);
+    let empty_summaries = Default::default();
+    let trace_view = TraceView::new(&vm, FieldRef { data: &stream, field, summaries: &empty_summaries });
 
     let mut results = Vec::new();
     trace_view.scan(IdxRange { min: 0, max: 250 },
@@ -186,10 +188,9 @@ fn test_traceview() {
     block_on(executor.run(entity.build_summaries(&executor, &storage))).unwrap();
 
     let Entity::Data { data, summaries, .. } = &entity else { unreachable!() };
-    let summary = summaries.get("bit_and_or");
-    assert_eq!(summary.levels.len(), 2);
+    assert_eq!(summaries.get("bit_and_or").unwrap().levels(), 2);
 
-    let trace_view = TraceView::new(&vm, data.clone(), summary);
+    let trace_view = TraceView::new(&vm, FieldRef { data, field, summaries: &summaries });
 
     let mut results = Vec::new();
     trace_view.scan(IdxRange { min: 0, max: 200 },
@@ -225,7 +226,7 @@ fn test_traceview() {
 
 #[test]
 fn test_traceview_zoom() {
-    use crate::{ schema::{Entity, EntityStream, FieldKind}, storage::{MemoryStorage, MemoryStream, Storage} };
+    use crate::{ schema::{Entity, EntityStream, FieldKind, Field}, storage::{MemoryStorage, MemoryStream, Storage} };
     use std::task::Waker;
     use std::sync::Arc;
     use async_executor::Executor;
@@ -246,10 +247,10 @@ fn test_traceview_zoom() {
     block_on(executor.run(entity.build_summaries(&executor, &storage))).unwrap();
 
     let Entity::Data { data, summaries, .. } = &entity else { unreachable!() };
-    let summary = summaries.get("bit_and_or");
-    assert_eq!(summary.levels.len(), (input.len() / 1024).ilog2() as usize);
+    assert_eq!(summaries.get("bit_and_or").unwrap().levels(), (input.len() / 1024).ilog2() as usize);
 
-    let trace_view = TraceView::new(&vm, data.clone(), summary);
+    let field = Field::bits(1);
+    let trace_view = TraceView::new(&vm, FieldRef { data: &data, field: &field, summaries: &summaries });
 
     let scan = |mask, min_width, range| {
         let mut results = Vec::new();

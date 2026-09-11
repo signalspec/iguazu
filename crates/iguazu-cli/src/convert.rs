@@ -24,17 +24,22 @@ pub fn main(args: &Cli) -> Result<(), String> {
 
     block_on(executor.run(async {
         let (mut entity, import_completion) = args.import.import(IMPORTERS, pool).await?;
-        let import_completion = executor.spawn(import_completion);
+        let import_task = executor.spawn(import_completion);
 
-        if args.build_summary {
-            entity.build_summaries(&executor, &storage).await?;
-        }
+        let summary_task = if args.build_summary {
+            executor.spawn(entity.build_summaries(&executor, &storage))
+        } else {
+            executor.spawn(async { Ok(()) })
+        };
 
-        let export_completion = args.export.export(EXPORTERS, executor.clone(), entity);
+        let export_task = args.export.export(EXPORTERS, executor.clone(), entity);
 
         future::try_zip(
-            async { import_completion.await.map_err(|s| s.to_string()) },
-            async { export_completion.await.map_err(|s| s.to_string()) },
+            future::try_zip(
+                async { import_task.await.map_err(|s| s.to_string()) },
+                summary_task,
+            ),
+            async { export_task.await.map_err(|s| s.to_string()) },
         ).await?;
 
         Ok(())

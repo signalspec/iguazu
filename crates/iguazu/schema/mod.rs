@@ -1,9 +1,9 @@
 //! Types for signal metadata
-use std::{convert::Infallible, fmt::Debug, ops::Deref};
+use std::{fmt::Debug, ops::Deref};
 
 use attribute::AttributeValue;
 use ecow::{eco_format, EcoString};
-use futures_lite::future;
+use futures_lite::{StreamExt, future};
 use indexmap::IndexMap;
 use jiff::Zoned;
 use serde::{Deserialize, Serialize};
@@ -16,17 +16,30 @@ pub mod fmt;
 
 pub mod json_virtual;
 
-use crate::{ElementSize, schema::attribute::Attribute, stream::ArcStream, summary::{BorrowedSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap, Summary, SummaryMap}};
+use crate::{ElementSize, schema::attribute::Attribute, stream::ArcStream, summary::{LiveSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap}};
 
 /// Types that can be used as the data of an `Entity`.
 pub trait EntityData: Sized + Clone + Send + Sync + 'static {
-    type SummaryMap: SummaryMap<Data = Self>;
     fn skip_serialize(&self) -> bool { false }
 }
 
-impl EntityData for ArcStream {
-    type SummaryMap = LiveSummaryMap;
+pub trait IsEmpty {
+    fn is_empty(&self) -> bool;
 }
+
+impl IsEmpty for Ignored {
+    fn is_empty(&self) -> bool {
+        true
+    }
+}
+
+impl<K, V> IsEmpty for IndexMap<K, V> {
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+}
+
+impl EntityData for ArcStream {}
 
 /// Placeholder for `data` field in `EntitySchema` which does not carry data of its own.
 #[derive(Debug, Default, Clone)]
@@ -46,29 +59,7 @@ impl serde::Serialize for Ignored {
 }
 
 impl EntityData for Ignored {
-    type SummaryMap = Ignored;
-
-    fn skip_serialize(&self) -> bool {
-        true
-    }
-}
-
-impl SummaryMap for Ignored {
-    type Data = Ignored;
-
-    fn iter(&self) -> impl Iterator<Item = (EcoString, BorrowedSummary<'_, Self::Data>)> {
-        std::iter::empty()
-    }
-
-    fn is_empty(&self) -> bool {
-        true
-    }
-}
-
-impl FromIterator<(EcoString, StoredSummary<Ignored>)> for Ignored {
-    fn from_iter<T: IntoIterator<Item = (EcoString, StoredSummary<Ignored>)>>(_iter: T) -> Self {
-        Ignored
-    }
+    fn skip_serialize(&self) -> bool { true }
 }
 
 /// Schema of an entity with only metadata.
@@ -119,7 +110,7 @@ pub enum Entity<D, S> {
         #[serde(skip_serializing_if = "EntityData::skip_serialize")]
         data: D,
 
-        #[serde(skip_serializing_if = "SummaryMap::is_empty", default = "Default::default", bound(serialize = "S: Serialize + SummaryMap", deserialize = "S: Deserialize<'de> + SummaryMap + Default"))]
+        #[serde(skip_serializing_if = "IsEmpty::is_empty", default = "Default::default", bound(serialize = "S: Serialize + IsEmpty", deserialize = "S: Deserialize<'de> + Default"))]
         summaries: S,
     }
 }
@@ -444,9 +435,7 @@ impl<D, S> Entity<D, S> {
         }
         Some(current)
     }
-}
 
-impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
     pub fn data(&self) -> Option<&D> {
         match self {
             Entity::Data { data, .. } => Some(data),
@@ -455,139 +444,82 @@ impl<D: EntityData, S: SummaryMap<Data = D>> Entity<D, S> {
         }
     }
 
-    pub fn try_map_data<T: EntityData + Send, E: Send>(&self, f: &mut impl FnMut(&D) -> Result<T, E>) -> Result<Entity<T, T::SummaryMap>, E> {
+    pub fn schema(&self) -> EntitySchema {
         match self {
             Entity::Group { children, attributes } => {
-                let children = children.iter()
-                    .map(|(name, child)| child.try_map_data(f).map(|c| (name.clone(), c)))
-                    .collect::<Result<IndexMap<_, _>, E>>()?;
-                Ok(Entity::Group { children, attributes: attributes.clone() })
+                let children = children.iter().map(|(name, child)| (name.clone(), child.schema())).collect();
+                Entity::Group { children, attributes: attributes.clone() }
             }
             Entity::FixedArray { elements, inner, attributes } => {
-                let inner = Box::new(inner.try_map_data(f)?);
-                Ok(Entity::FixedArray { elements: *elements, inner, attributes: attributes.clone() })
+                Entity::FixedArray { elements: *elements, inner: Box::new(inner.schema()), attributes: attributes.clone() }
             }
             Entity::Tuple { names, inner, attributes } => {
-                let inner = Box::new(inner.try_map_data(f)?);
-                let names = names.clone();
-                Ok(Entity::Tuple { names, inner, attributes: attributes.clone() })
+                Entity::Tuple { names: names.clone(), inner: Box::new(inner.schema()), attributes: attributes.clone() }
             }
-            Entity::VariableArray { data, inner, attributes } => {
-                let data = f(data)?;
-                let inner = Box::new(inner.try_map_data(f)?);
-                Ok(Entity::VariableArray { data, inner, attributes: attributes.clone() })
+            Entity::VariableArray { inner, attributes, .. } => {
+                Entity::VariableArray { data: Ignored, inner: Box::new(inner.schema()), attributes: attributes.clone() }
             }
-            Entity::Data { data, field, summaries } => {
-                let data = f(data)?;
-                let summaries = summaries.iter()
-                    .map(|(name, summary)| {
-                        let levels = summary.levels.iter().map(&mut *f).collect::<Result<Vec<_>, E>>()?;
-                        Ok((name.clone(), Summary { first_level: summary.first_level, levels: levels.into_boxed_slice() }))
-                    })
-                    .collect::<Result<T::SummaryMap, E>>()?;
-                Ok(Entity::Data { data, field: field.clone(), summaries })
+            Entity::Data { field, .. } => {
+                Entity::Data { data: Ignored, field: field.clone(), summaries: Ignored }
             }
         }
-    }
-
-    pub async fn try_map_data_async<T, TM, E, F, R>(&self, f: F) -> Result<Entity<T, TM>, E>
-    where
-        D: Send + Sync + 'static,
-        S: Send + Sync + 'static,
-        T: EntityData<SummaryMap = TM> + Send + Sync + 'static,
-        TM: SummaryMap<Data = T> + Send + Sync + 'static,
-        E: Send + 'static,
-        F: Fn(&D) -> R + Send + Sync + Clone,
-        R: Future<Output = Result<T, E>> + Send,
-    {
-        async fn map_children<D, S, T, TM, E, F, R>(
-            children: &IndexMap<EcoString, Entity<D, S>>,
-            f: &F
-        ) -> Result<IndexMap<EcoString, Entity<T, TM>>, E> where
-            D: EntityData + Send + Sync + 'static,
-            S: SummaryMap<Data = D> + Send + Sync + 'static,
-            T: EntityData + Send + Sync + 'static,
-            TM: SummaryMap<Data = T> + Send + Sync + 'static,
-            E: Send + 'static,
-            F: Fn(&D) -> R + Send + Sync + Clone,
-            R: Future<Output = Result<T, E>> + Send
-        {
-            Ok(futures_util::future::try_join_all(children.iter().map(|(k, v)| async {
-                let v = map_entity(v, f).await?;
-                Ok::<_, E>((k.clone(), v))
-            })).await?.into_iter().collect())
-        }
-
-        async fn map_summaries<D, S, T, TM, E, F, R>(summaries: &S, f: &F) -> Result<TM, E>
-        where
-            D: EntityData + Send + Sync + 'static,
-            S: SummaryMap<Data = D> + Send + Sync + 'static,
-            T: EntityData + Send + Sync + 'static,
-            TM: SummaryMap<Data = T> + Send + Sync + 'static,
-            E: Send + 'static,
-            F: Fn(&D) -> R + Send + Sync + Clone,
-            R: Future<Output = Result<T, E>> + Send
-        {
-            let summaries: Vec<(EcoString, StoredSummary<T>)> = futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async move {
-                let levels: Vec<T> = futures_util::future::try_join_all(v.levels.iter().map(f)).await?;
-                Ok((k.clone(), Summary { first_level: v.first_level, levels: levels.into_boxed_slice() }))
-            })).await?;
-            Ok(summaries.into_iter().collect())
-        }
-
-        fn map_entity<D, S, T, TM, E, F, R>(
-            schema: &Entity<D, S>,
-            f: &F
-        ) -> impl Future<Output = Result<Entity<T, TM>, E>> + Send where
-            D: EntityData + Send + Sync + 'static,
-            S: SummaryMap<Data = D> + Send + Sync + 'static,
-            T: EntityData + Send + Sync + 'static,
-            TM: SummaryMap<Data = T> + Send + Sync + 'static,
-            E: Send + 'static,
-            F: Fn(&D) -> R + Send + Sync + Clone,
-            R: Future<Output = Result<T, E>> + Send
-        {
-            async move {
-                match *schema {
-                    Entity::Group { ref children, ref attributes } => {
-                        let children = map_children(children, f).await?;
-                        Ok(Entity::Group { children, attributes: attributes.clone() })
-                    }
-                    Entity::Data { ref data, ref field, ref summaries } => {
-                        let (data, summaries) = future::try_zip(
-                            f(data),
-                            map_summaries(summaries, f),
-                        ).await?;
-                        Ok(Entity::Data { field: field.clone(), data, summaries })
-                    }
-                    Entity::FixedArray { elements, ref inner, ref attributes } => {
-                        let inner = Box::new(Box::pin(map_entity(inner, f)).await?);
-                        Ok(Entity::FixedArray { elements, inner, attributes: attributes.clone() })
-                    }
-                    Entity::Tuple { ref names, ref inner, ref attributes } => {
-                        let inner = Box::new(Box::pin(map_entity(inner, f)).await?);
-                        Ok(Entity::Tuple { names: names.clone(), inner, attributes: attributes.clone() })
-                    }
-                    Entity::VariableArray { ref data, ref inner, ref attributes } => {
-                        let (data, inner) = future::try_zip(
-                            f(data),
-                            Box::pin(map_entity(inner, f))
-                        ).await?;
-                        Ok(Entity::VariableArray { data, inner: Box::new(inner), attributes: attributes.clone() })
-                    }
-                }
-            }
-        }
-
-        map_entity(self, &f).await
-    }
-
-    pub fn schema(&self) -> EntitySchema {
-        self.try_map_data(&mut |_| Ok::<Ignored, Infallible>(Ignored)).unwrap()
     }
 }
 
 impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
+    pub async fn try_map_data_async<E, F, R>(&self, f: &F) -> Result<EntityStream, E>
+    where
+        D: Send + Sync + 'static,
+        E: Send + 'static,
+        F: Fn(&D) -> R + Send + Sync + Clone,
+        R: Future<Output = Result<ArcStream, E>> + Send,
+    {
+        async fn map_summaries<D, E, F, R>(summaries: &StoredSummaryMap<D>, f: &F) -> Result<LiveSummaryMap, E>
+        where
+            D: Send + Sync + 'static,
+            E: Send + 'static,
+            F: Fn(&D) -> R + Send + Sync + Clone,
+            R: Future<Output = Result<ArcStream, E>> + Send
+        {
+            let summaries = futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async move {
+                let levels = futures_util::future::try_join_all(v.levels.iter().map(f)).await?;
+                Ok((k.clone(), LiveSummary::new(v.first_level, levels)))
+            })).await?;
+            Ok(summaries.into_iter().collect())
+        }
+
+        match *self {
+            Entity::Group { ref children, ref attributes } => {
+                let children = futures_util::future::try_join_all(children.iter().map(|(k, v)| async {
+                    Ok::<_, E>((k.clone(), v.try_map_data_async(f).await?))
+                })).await?.into_iter().collect();
+                Ok(Entity::Group { children, attributes: attributes.clone() })
+            }
+            Entity::Data { ref data, ref field, ref summaries } => {
+                let (data, summaries) = future::try_zip(
+                    f(data),
+                    map_summaries(summaries, f),
+                ).await?;
+                Ok(Entity::Data { field: field.clone(), data, summaries })
+            }
+            Entity::FixedArray { elements, ref inner, ref attributes } => {
+                let inner = Box::new(Box::pin(inner.try_map_data_async(f)).await?);
+                Ok(Entity::FixedArray { elements, inner, attributes: attributes.clone() })
+            }
+            Entity::Tuple { ref names, ref inner, ref attributes } => {
+                let inner = Box::new(Box::pin(inner.try_map_data_async(f)).await?);
+                Ok(Entity::Tuple { names: names.clone(), inner, attributes: attributes.clone() })
+            }
+            Entity::VariableArray { ref data, ref inner, ref attributes } => {
+                let (data, inner) = future::try_zip(
+                    f(data),
+                    Box::pin(inner.try_map_data_async(f))
+                ).await?;
+                Ok(Entity::VariableArray { data, inner: Box::new(inner), attributes: attributes.clone() })
+            }
+        }
+    }
+
     pub fn each_data_mut(&mut self, mut f: &mut impl FnMut(&mut D)) {
         match self {
             Entity::Group { children, .. } => {
@@ -604,7 +536,7 @@ impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
             }
             Entity::Data { data, summaries, .. } => {
                 f(data);
-                for s in summaries.0.values_mut() {
+                for s in summaries.values_mut() {
                     s.levels.iter_mut().for_each(&mut f);
                 }
             }
@@ -684,6 +616,60 @@ impl EntityStream {
         match self {
             Entity::Data { data, field, summaries } => Some(FieldRef { data, field, summaries }),
             _ => None,
+        }
+    }
+
+    pub async fn try_map_data_async<D, E, F, R>(&self, f: &F) -> Result<Entity<D, StoredSummaryMap<D>>, E>
+    where
+        D: Send + Sync + 'static,
+        E: Send + 'static,
+        F: Fn(ArcStream) -> R + Send + Sync + Clone,
+        R: Future<Output = Result<D, E>> + Send,
+    {
+        async fn map_summaries<D, E, F, R>(summaries: &LiveSummaryMap, f: &F) -> Result<StoredSummaryMap<D>, E>
+        where
+            D: Send + Sync + 'static,
+            E: Send + 'static,
+            F: Fn(ArcStream) -> R + Send + Sync + Clone,
+            R: Future<Output = Result<D, E>> + Send
+        {
+            let summaries = futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async move {
+                let level_futures = v.async_iter().map(|s| f(s)).collect::<Vec<_>>().await;
+                let levels = futures_util::future::try_join_all(level_futures).await?;
+                Ok((k.clone(), StoredSummary { first_level: v.first_level(), levels: levels.into_boxed_slice() }))
+            })).await?;
+            Ok(summaries.into_iter().collect())
+        }
+
+        match *self {
+            Entity::Group { ref children, ref attributes } => {
+                let children = futures_util::future::try_join_all(children.iter().map(|(k, v)| async {
+                    Ok::<_, E>((k.clone(), v.try_map_data_async(f).await?))
+                })).await?.into_iter().collect();
+                Ok(Entity::Group { children, attributes: attributes.clone() })
+            }
+            Entity::Data { ref data, ref field, ref summaries } => {
+                let (data, summaries) = future::try_zip(
+                    f(data.clone()),
+                    map_summaries(summaries, f),
+                ).await?;
+                Ok(Entity::Data { field: field.clone(), data, summaries })
+            }
+            Entity::FixedArray { elements, ref inner, ref attributes } => {
+                let inner = Box::new(Box::pin(inner.try_map_data_async(f)).await?);
+                Ok(Entity::FixedArray { elements, inner, attributes: attributes.clone() })
+            }
+            Entity::Tuple { ref names, ref inner, ref attributes } => {
+                let inner = Box::new(Box::pin(inner.try_map_data_async(f)).await?);
+                Ok(Entity::Tuple { names: names.clone(), inner, attributes: attributes.clone() })
+            }
+            Entity::VariableArray { ref data, ref inner, ref attributes } => {
+                let (data, inner) = future::try_zip(
+                    f(data.clone()),
+                    Box::pin(inner.try_map_data_async(f))
+                ).await?;
+                Ok(Entity::VariableArray { data, inner: Box::new(inner), attributes: attributes.clone() })
+            }
         }
     }
 }

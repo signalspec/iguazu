@@ -3,7 +3,7 @@ use std::{ sync::Arc, task::Waker};
 
 use elsa::sync::FrozenMap;
 
-use crate::{schema::{Entity, EntityStream}, stream::ArcStream};
+use crate::{schema::{Entity, EntityStream}, stream::ArcStream, summary::{LiveSummaryMap, StoredSummary}};
 
 mod block_view;
 pub use block_view::BlockView;
@@ -68,6 +68,14 @@ impl ViewManager {
         } else {
             let v = BlockView::new(stream.clone());
             self.streams.insert(key(stream), Box::new(v))
+        }
+    }
+
+    pub fn summary<T>(&self, summaries: &LiveSummaryMap, key: &str, f: impl FnMut(&ArcStream) -> T) -> StoredSummary<T> {
+        if let Some(summary) = summaries.get(key) {
+            summary.map(&self.waker, f)
+        } else {
+            StoredSummary::empty()
         }
     }
 

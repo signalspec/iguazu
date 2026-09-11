@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use num_traits::Zero;
 
-use crate::{ElementSize, io::RelativePath, schema::EntityData, summary::StoredSummaryMap};
+use crate::{ElementSize, io::RelativePath, schema::EntityData};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "storage", rename_all = "snake_case")]
@@ -21,9 +21,7 @@ pub enum StreamRef {
     Inline(InlineData)
 }
 
-impl EntityData for StreamRef {
-    type SummaryMap = StoredSummaryMap<StreamRef>;
-}
+impl EntityData for StreamRef {}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
