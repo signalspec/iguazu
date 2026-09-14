@@ -41,7 +41,7 @@ impl<'a> IterState<'a> {
 
     pub fn at_least(self, needed_bytes: usize) -> Poll<Result<&'a [u8], IoError>> {
         match self {
-            IterState::Partial(data) if data.len() > needed_bytes => Poll::Ready(Ok(data)),
+            IterState::Partial(data) if data.len() >= needed_bytes => Poll::Ready(Ok(data)),
             IterState::Partial(_) => Poll::Pending,
             IterState::Complete(data) => Poll::Ready(Ok(data)),
             IterState::Error(e) => Poll::Ready(Err(e)),

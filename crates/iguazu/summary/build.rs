@@ -208,7 +208,7 @@ fn poll_process_summary<T: Element + Default, T2: Element + Default, const N: us
         let out_buf = ready!(output.poll_buf(cx))?;
         match r {
             Err(e) => return Poll::Ready(Err(e.to_string())),
-            Ok(mut src) if src.len() > N * size_of::<T>() => {
+            Ok(mut src) if src.len() >= N * size_of::<T>() => {
                 let mut consumed = 0;
                 while out_buf.remaining_capacity() > 0 && let Some(copy) = src.split_off(..N * size_of::<T>()) {
                     let mut buffer = [T::default(); N];
@@ -333,13 +333,28 @@ fn test_build_summary_live() {
     assert_eq!(summary.levels.len(), 1);
     assert_eq!(summary.levels[0].state(), StreamState { end: 1200 / 4 * 2, streaming: true});
 
-    writer.extend_from_slice(&[0xFF; 3800]);
+    writer.extend_from_slice(&[0xFF; 64000]);
     writer.commit();
     while executor.try_tick() { }
+
+    for _ in 0..512 {
+        writer.extend_from_slice(&[0xFF; 1]);
+        writer.commit();
+        while executor.try_tick() { }
+    }
+
+    let total = 1200 + 64000 + 512;
+
+    while executor.try_tick() { }
     let summary = summaries.get("bit_and_or");
-    assert_eq!(summary.levels.len(), 2);
-    assert_eq!(summary.levels[0].state(), StreamState { end: 5000 / 4 * 2, streaming: true});
-    assert_eq!(summary.levels[1].state(), StreamState { end: 5000 / 4 / 2 * 2, streaming: true});
+    assert_eq!(summary.levels[0].state(), StreamState { end: total / 4 * 2, streaming: true});
+    assert_eq!(summary.levels[1].state(), StreamState { end: total / 4 / 2 * 2, streaming: true});
+    assert_eq!(summary.levels[2].state(), StreamState { end: total / 4 / 2 / 2 * 2, streaming: true});
+    assert_eq!(summary.levels[3].state(), StreamState { end: total / 4 / 2 / 2 / 2 * 2, streaming: true});
+    assert_eq!(summary.levels[4].state(), StreamState { end: total / 4 / 2 / 2 / 2 / 2 * 2, streaming: true});
+    assert_eq!(summary.levels[5].state(), StreamState { end: total / 4 / 2 / 2 / 2 / 2 / 2 * 2, streaming: true});
+    assert_eq!(summary.levels.len(), 6);
+
 
     drop(writer);
     block_on(executor.run(summary_tasks)).unwrap();
