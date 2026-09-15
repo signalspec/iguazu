@@ -1,7 +1,7 @@
 // Based on egui-desktop under MIT license
 // https://github.com/PxlSyl/egui-desktop/tree/42f93944ba91ce871524e3d0e3a818320564023c
 
-use egui::{Align, Color32, Context, Frame, Id, Layout, Margin, Painter, Panel, PointerButton, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, ViewportCommand, WidgetType};
+use egui::{Align, Color32, Context, Frame, Id, Layout, Margin, Painter, Panel, PointerButton, PointerState, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, ViewportCommand, WidgetType};
 
 pub trait ViewportBuilderExt {
     fn with_custom_title_bar(self) -> Self;
@@ -79,18 +79,15 @@ impl TitleBar {
 
         let response = ui.interact(title_bar_rect, self.id, Sense::click_and_drag());
 
-        if response.is_pointer_button_down_on() && ui.input(|input| input.pointer.primary_pressed()) {
-            log::debug!("Pressed");
-        }
-
         if response.drag_started_by(PointerButton::Primary) {
-            log::debug!("Starting drag from title bar");
             ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+            egui_drag_workaround(ui.ctx());
         }
 
         if response.double_clicked() {
             let is_maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
             ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!is_maximized));
+            egui_drag_workaround(ui.ctx());
         }
 
         if response.clicked_by(PointerButton::Secondary) {
@@ -137,6 +134,7 @@ impl TitleBar {
 
                 if ctx.input(|i| i.pointer.primary_pressed()) {
                     ctx.send_viewport_cmd(ViewportCommand::BeginResize(direction));
+                    egui_drag_workaround(ctx);
                 }
             }
         }
@@ -156,6 +154,7 @@ impl TitleBar {
              if close_response.clicked() {
                  log::debug!("Close clicked");
                  ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+                 egui_drag_workaround(ui.ctx());
              }
 
              let is_maximized = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
@@ -164,12 +163,14 @@ impl TitleBar {
                      self.draw_restore_icon(painter, rect, color);
                  }).clicked().then(|| {
                      ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(false));
+                     egui_drag_workaround(ui.ctx());
                  });
              } else {
                 self.render_button("Maximize", ui, |painter, rect| {
                     self.draw_maximize_icon(painter, rect, color);
                 }).clicked().then(|| {
                     ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(true));
+                    egui_drag_workaround(ui.ctx());
                 });
              }
 
@@ -177,6 +178,7 @@ impl TitleBar {
                 self.draw_minimize_icon(painter, rect, color);
             }).clicked().then(|| {
                 ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
+                egui_drag_workaround(ui.ctx());
             });
         });
     }
@@ -275,4 +277,10 @@ impl TitleBar {
             stroke,
         );
     }
+}
+
+fn egui_drag_workaround(ctx: &egui::Context) {
+    // Work around https://github.com/emilk/egui/issues/7959
+    ctx.input_mut(|i| i.pointer = PointerState::default());
+    ctx.stop_dragging();
 }
