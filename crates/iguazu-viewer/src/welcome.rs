@@ -96,7 +96,7 @@ async fn pick_file() -> Option<Result<WelcomeResponse, String>> {
 
     #[cfg(target_arch = "wasm32")]
     let file = iguazu::io::WebFile::new(res.inner().clone());
-    let filename = file.filename().unwrap_or("").to_owned();
+    let filename = file.filename().to_owned();
 
     let Some(importer) = IMPORTERS.importer_for_file(Arc::new(file)) else {
         return Some(Err(format!(

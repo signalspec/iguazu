@@ -44,7 +44,7 @@ impl IzsStream {
 impl Debug for IzsStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("IzsStream")
-            .field("file", &self.shared.file().filename().unwrap_or("<unknown>"))
+            .field("file", &self.shared.file().filename())
             .finish()
     }
 }
@@ -67,14 +67,14 @@ impl Stream for IzsStream {
         };
 
         if let Some(block) = self.cache.get(block_i, waker) {
-            log::debug!("Block {block_i} of {}:{:x} found in cache", self.shared.file().filename().unwrap_or("<unknown>"), self.id);
+            log::debug!("Block {block_i} of {}:{:x} found in cache", self.shared.file().filename(), self.id);
             return block;
         }
 
         let block_bytes = self.block_desc.size();
         let compression = self.compress;
         let len = self.block_index.lengths[block_i as usize] as usize;
-        log::debug!("Loading block {block_i} of {}:{:x} at {} len {}", self.shared.file().filename().unwrap_or("<unknown>"), self.id, offset, len);
+        log::debug!("Loading block {block_i} of {}:{:x} at {} len {}", self.shared.file().filename(), self.id, offset, len);
 
         let shared = self.shared.clone();
         let task = self.pool.clone().spawn_block_fetch(async move {

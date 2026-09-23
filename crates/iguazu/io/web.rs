@@ -36,8 +36,8 @@ impl WebFile {
 
 #[async_trait]
 impl ReadableFile for WebFile {
-    fn filename(&self) -> Option<&str> {
-        Some(&self.name)
+    fn filename(&self) -> &str {
+        &self.name
     }
 
     fn url(&self) -> Option<Url> {
@@ -118,8 +118,8 @@ impl WebFetchFile {
 
 #[async_trait]
 impl ReadableFile for WebFetchFile {
-    fn filename(&self) -> Option<&str> {
-        self.url.path_segments().and_then(|segments| segments.last())
+    fn filename(&self) -> &str {
+        self.url.path_segments().and_then(|segments| segments.last()).unwrap_or("<unnamed>")
     }
 
     fn url(&self) -> Option<Url> {

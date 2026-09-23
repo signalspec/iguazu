@@ -40,7 +40,7 @@ pub struct FlatFileStream {
 impl Debug for FlatFileStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("FlatFileStream")
-            .field(&self.file.filename().unwrap_or("<unknown>"))
+            .field(&self.file.filename())
             .finish()
     }
 }
@@ -78,7 +78,7 @@ impl FlatFileStream {
     }
 
     fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Arc<OnceArray<u8>>, IoError>> + Send + 'static {
-        log::debug!("Loading block {block} of {}", self.file.filename().unwrap_or("<unknown>"));
+        log::debug!("Loading block {block} of {}", self.file.filename());
         let offset = block.saturating_mul(self.block_desc.size() as u64);
         let file_offset = self.offset.saturating_add(offset);
         let size = self.count.map(|c| (c * (self.block_desc.element_size.bytes() as u64)).saturating_sub(offset))

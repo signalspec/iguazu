@@ -53,7 +53,7 @@ impl Stream for SrZipStream {
             return BlockState::End
         };
 
-        let file_name = entry.file().filename().unwrap_or("<unknown>");
+        let file_name = entry.file().filename();
         let block_bytes = self.desc().size();
         log::debug!("Loading block {block_i} from {} : {}", file_name, entry.name());
         let entry = entry.clone();
@@ -119,7 +119,7 @@ impl StreamIter for SrZipIter {
             match self.state {
                 SrZipIterState::Empty => {
                     if let Some(entry) = self.stream.blocks.get(self.block) {
-                        let file_name = entry.file().filename().unwrap_or("<unknown>");
+                        let file_name = entry.file().filename();
                         log::debug!("Loading block {} from {} : {}", self.block, file_name, entry.name());
                         self.state = SrZipIterState::Loading(Box::pin(entry.reader()));
                     } else {

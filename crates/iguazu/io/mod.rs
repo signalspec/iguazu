@@ -28,11 +28,11 @@ pub(crate) mod zip;
 pub trait ReadableFile: Send + Sync + 'static {
     /// Description of the file. This will be a URL, a filename, or a `<placeholder>`.
     fn describe(&self) -> EcoString {
-        self.url().map(|u| u.as_str().into()).or_else(|| self.filename().map(|f| f.into())).unwrap_or("<unknown>".into())
+        self.url().map(|u| u.as_str().into()).unwrap_or_else(|| self.filename().into())
     }
 
-    /// Get the filename part of the path
-    fn filename(&self) -> Option<&str>;
+    /// Get the filename part of the path, or a `<placeholder>` for pseudo-files.
+    fn filename(&self) -> &str;
 
     /// Get the absolute URL of the file
     fn url(&self) -> Option<Url>;

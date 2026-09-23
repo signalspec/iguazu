@@ -1,5 +1,5 @@
 use std::{
-    ffi::OsStr, fs::File, future::poll_fn, io, path::{Path, PathBuf}, pin::Pin,
+    fs::File, future::poll_fn, io, path::{Path, PathBuf}, pin::Pin,
     sync::{atomic::{AtomicBool, Ordering}, Arc}, task::{ready, Poll},
 };
 
@@ -21,6 +21,7 @@ use super::{ReadableFile, url::RelativePath};
 
 pub struct FsFile {
     path: PathBuf,
+    filename: String,
     file: File,
 }
 
@@ -30,12 +31,15 @@ impl FsFile {
             let path = std::path::absolute(&path).map_err(|e| {
                 IoError::new(eco_format!("failed to get absolute path for file: {e}"), None, Some(e.kind()))
             })?;
+
+            let filename = path.file_name().map_or("<unnamed>".into(), |f| f.to_string_lossy().to_string());
+
             let file = File::open(&path)
                 .map_err(|e| {
                     let url = Url::from_file_path(&path).ok().map(|u| u.as_str().into());
                     IoError::new(eco_format!("failed to open file: {e}"), url, Some(e.kind()))
                 })?;
-            Ok(FsFile { path, file })
+            Ok(FsFile { path, file, filename })
         }).await
     }
 
@@ -52,8 +56,8 @@ impl FsFile {
 
 #[async_trait]
 impl ReadableFile for FsFile {
-    fn filename(&self) -> Option<&str> {
-        self.path.file_name().and_then(OsStr::to_str)
+    fn filename(&self) -> &str {
+        self.filename.as_str()
     }
 
     fn url(&self) -> Option<Url> {
@@ -106,8 +110,8 @@ impl StdinFile {
 
 #[async_trait]
 impl ReadableFile for StdinFile {
-    fn filename(&self) -> Option<&str> {
-        Some("<stdin>")
+    fn filename(&self) -> &str {
+        "<stdin>"
     }
 
     fn url(&self) -> Option<Url> {

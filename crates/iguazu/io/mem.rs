@@ -3,7 +3,6 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ecow::EcoString;
 use futures_lite::{AsyncBufRead, AsyncRead};
 
 use crate::io::IoError;
@@ -12,12 +11,8 @@ use super::ReadableFile;
 
 #[async_trait]
 impl ReadableFile for Vec<u8> {
-    fn describe(&self) -> EcoString {
-        "<memory>".into()
-    }
-
-    fn filename(&self) -> Option<&str> {
-        None
+    fn filename(&self) -> &str {
+        "<memory>"
     }
 
     fn url(&self) -> Option<url::Url> {

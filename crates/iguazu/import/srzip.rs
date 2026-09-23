@@ -51,7 +51,7 @@ async fn load_metadata(file: Arc<dyn ReadableFile>) -> Result<(BTreeMap<EcoStrin
         .map_err(|e| ImportError::InvalidFile(e.to_string()))?;
 
     if log::log_enabled!(log::Level::Debug) {
-        log::debug!("{} contents:", file.filename().unwrap_or("<unknown>"));
+        log::debug!("{} contents:", file.filename());
         for (name, entry) in &entries {
             log::debug!("  {name:?} ({} bytes)", entry.uncompressed_size());
         }

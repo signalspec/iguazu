@@ -105,7 +105,7 @@ impl<'a> ImportFormats<'a> {
     }
 
     pub fn importer_for_file(&self, file: Arc<dyn ReadableFile>) -> Option<Box<dyn Importer>> {
-        self.first_for_filename(file.filename().unwrap_or("")).map(|imp| imp.importer(file))
+        self.first_for_filename(file.filename()).map(|imp| imp.importer(file))
     }
 }
 

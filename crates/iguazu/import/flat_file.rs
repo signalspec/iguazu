@@ -94,7 +94,7 @@ impl FlatFileImporter {
     }
 
     pub fn for_file(file: Arc<dyn ReadableFile>,) -> Self {
-        let (element, dtype) = match file.filename().unwrap_or("").rsplit('.').next().unwrap_or("") {
+        let (element, dtype) = match file.filename().rsplit('.').next().unwrap_or("") {
             "logic8" => (ElementSize::U8, DataType::Logic),
             "f32" => (ElementSize::U32, DataType::Real(ScalarType::Float)),
             "cf32" | "cfile" => (ElementSize::U32, DataType::Complex(ScalarType::Float)),
