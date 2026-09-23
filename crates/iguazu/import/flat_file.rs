@@ -198,4 +198,8 @@ impl Importer for FlatFileImporter {
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }
+
+    fn file(&self) -> &Arc<dyn ReadableFile> {
+        &self.file
+    }
 }

@@ -34,6 +34,10 @@ impl Importer for VirtualImporter {
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }
+
+    fn file(&self) -> &Arc<dyn ReadableFile> {
+        &self.file
+    }
 }
 
 async fn load(file: Arc<dyn ReadableFile>) -> Result<Entity<StreamRef, StoredSummaryMap<StreamRef>>, ImportError> {

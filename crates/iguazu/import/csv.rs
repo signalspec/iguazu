@@ -302,6 +302,10 @@ impl Importer for CsvImporter {
             Ok((entity, Box::pin(completion) as Pin<Box<_>>))
         })
     }
+
+    fn file(&self) -> &Arc<dyn ReadableFile> {
+        &self.file
+    }
 }
 
 fn column_parsers(schema: &EntitySchema, headers: &[EcoString]) -> Result<(Vec<ColumnParser>, EntityStream), ImportError> {

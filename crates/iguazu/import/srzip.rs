@@ -44,6 +44,10 @@ impl Importer for SrZipImporter {
             Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
         })
     }
+
+    fn file(&self) -> &Arc<dyn ReadableFile> {
+        &self.file
+    }
 }
 
 async fn load_metadata(file: Arc<dyn ReadableFile>) -> Result<(BTreeMap<EcoString, ZipEntry>, Vec<Metadata>), ImportError> {

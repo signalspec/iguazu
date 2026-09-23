@@ -59,6 +59,9 @@ pub trait Importer: Configurable + Send {
     /// the entire import is complete. Depending on the format, that may be
     /// immediately ready or may require reading and parsing the file.
     fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>>;
+
+    /// The wrapped file
+    fn file(&self) -> &Arc<dyn ReadableFile>;
 }
 
 /// A description of an import format.
