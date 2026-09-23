@@ -5,14 +5,17 @@ use std::task::Poll;
 
 use async_executor::Task;
 use eframe::{egui, CreationContext};
-use egui::{RichText, TextStyle};
+use egui::menu::{MenuButton, menu_style};
+use egui::{Atom, AtomExt, Button, RichText, TextStyle, Vec2};
 use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
 
-use iguazu::import::{ImportError, Importer};
+use iguazu::import::{IMPORTERS, ImportError, Importer};
+use iguazu::io::ReadableFile;
 use iguazu::schema::{EntitySchema, EntityStream};
 use iguazu::storage::{Pool, Storage, MemoryStorage};
 use iguazu_egui::ViewerContext;
 use iguazu_egui::import::{ImportResponse, ImportUi};
+use rfd::AsyncFileDialog;
 
 mod welcome;
 mod viewer;
@@ -170,21 +173,35 @@ fn main() {
 
 enum AppState {
     Welcome(welcome::Welcome),
-    ImportOptions(Option<ImportUi>),
     Loading(Task<Result<EntityStream, ImportError>>),
+    Error(String, String),
     Viewer(viewer::Viewer),
+}
+
+enum Source {
+    File {
+        importer: Box<dyn Importer>,
+    },
+    Demo,
 }
 
 struct App {
     vctx: ViewerContext,
+
+    file_picker_task: Option<Task<Option<Result<Box<dyn Importer>, String>>>>,
+
+    editing_import_options: Option<ImportUi>,
+    source: Option<Source>,
     state: AppState,
-    filename: Option<String>,
+
     frame_time_history: History<f32>,
     enable_debug_ui: bool,
 }
 
 impl App {
     fn new(cc: &CreationContext, pool: Arc<Pool>, storage: Arc<dyn Storage>) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
+
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         cc.egui_ctx.global_style_mut(|style| {
             style.text_styles.insert(TextStyle::Body, egui::FontId::proportional(16.0));
@@ -201,21 +218,24 @@ impl App {
 
         App {
             state: AppState::Welcome(Welcome::new()),
-            filename: None,
+            source: None,
+            file_picker_task: None,
+            editing_import_options: None,
             vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
             enable_debug_ui: std::env::var("IGUAZU_DEBUG_UI").is_ok(),
         }
     }
 
-    fn set_state(&mut self, state: AppState) {
+    fn set_state(&mut self, source: Source, state: AppState) {
         self.state = state;
+        self.source = Some(source);
         self.vctx.waker().wake_by_ref();
     }
 
     fn prompt_import_options(&mut self, importer: Box<dyn Importer>) {
         if importer.should_show_options() {
-            self.set_state(AppState::ImportOptions(Some(ImportUi::new(importer))));
+            self.editing_import_options = Some(ImportUi::new(importer));
         } else {
             self.import(importer, None);
         }
@@ -224,27 +244,68 @@ impl App {
     fn import(&mut self, importer: Box<dyn Importer>, schema: Option<EntitySchema>) {
         let pool = self.vctx.pool().clone();
         let storage = self.vctx.default_storage().clone();
+        let import_fut = importer.import(schema, pool.clone());
         let task = self.vctx.spawn(async move {
-            let (mut entity, completion) = importer.import(schema, pool.clone()).await?;
-            pool.executor.spawn(completion).detach();
+            let (mut entity, completion) = import_fut.await?;
+            completion.detach();
             entity.build_summaries(&pool.executor, &storage).detach();
             Ok(entity)
         });
-        self.set_state(AppState::Loading(task));
+        self.set_state(Source::File { importer }, AppState::Loading(task));
     }
 
-    fn return_to_welcome(&mut self) {
-        self.filename = None;
-        self.set_state(AppState::Welcome(Welcome::new()));
-    }
-
-    fn set_import_error(&mut self, message: String) {
-        self.filename = None;
-        self.set_state(AppState::Welcome(Welcome::with_error(message)));
+    fn set_import_error(&mut self, title: String, message: String) {
+        self.state = AppState::Error(title, message);
+        self.vctx.waker().wake_by_ref();
     }
 
     fn set_entity(&mut self, entity: EntityStream) {
-        self.set_state(AppState::Viewer(Viewer::new(entity)));
+        self.state = AppState::Viewer(Viewer::new(entity));
+        self.vctx.waker().wake_by_ref();
+    }
+
+    fn source_header_ui(&mut self, ui: &mut Ui) {
+        menu_style(ui.style_mut());
+
+        let label = if let Some(i) = &self.editing_import_options {
+            i.inner().file().filename()
+        } else {
+            match &self.source {
+                Some(Source::File { importer }) => importer.file().filename(),
+                Some(Source::Demo) => "Demo".into(),
+                None => "Choose file or device".into(),
+            }
+        };
+
+        MenuButton::from_button(Button::new((label, icon_chevron_down())).image_tint_follows_text_color(true)).ui(ui, |ui| {
+            if ui.button("Open file…").clicked() {
+                self.pick_file();
+            }
+        });
+    }
+
+    fn pick_file(&mut self) {
+        self.file_picker_task = Some(self.vctx.spawn(async move {
+            #[cfg(not(target_arch = "wasm32"))]
+            let res = AsyncFileDialog::new().pick_file().await?;
+
+            #[cfg(target_arch = "wasm32")]
+            let res = send_wrapper::SendWrapper::new(AsyncFileDialog::new().pick_file()).await?;
+
+            #[cfg(not(target_arch = "wasm32"))]
+            let file = iguazu::io::FsFile::open(res.inner().to_owned()).await.ok()?;
+
+            #[cfg(target_arch = "wasm32")]
+            let file = iguazu::io::WebFile::new(res.inner().clone());
+
+            let file = Arc::new(file) as Arc<dyn ReadableFile>;
+
+            let Some(importer) = IMPORTERS.importer_for_file(file.clone()) else {
+                return Some(Err(format!("No import format matched filename `{}`", file.filename())));
+            };
+
+            Some(Ok(importer))
+        }));
     }
 }
 
@@ -253,68 +314,103 @@ impl eframe::App for App {
         [0.0; 4]
     }
 
+    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(res) = self.vctx.poll_unpin_take(&mut self.file_picker_task) {
+            match res {
+                None => { /* file picker cancelled */ }
+                Some(Ok(importer)) => {
+                    self.prompt_import_options(importer)
+                }
+                Some(Err(e)) => {
+                    self.set_import_error("Import failed".into(), e);
+                }
+            }
+        }
+
+        match &mut self.state {
+            AppState::Welcome(..) | AppState::Viewer(..) | AppState::Error(..) => {},
+            AppState::Loading(task) => {
+                if let Poll::Ready(result) = self.vctx.poll_unpin(task) {
+                    match result {
+                        Ok(entity) => self.set_entity(entity),
+                        Err(e) => self.set_import_error("Import failed".into(), e.to_string()),
+                    }
+                }
+            }
+        }
+    }
+
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         self.vctx.begin();
 
-        #[cfg(not(target_arch = "wasm32"))]
-        iguazu_egui::egui_util::titlebar::TitleBar::new().show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(8.0);
-                ui.add(egui::Label::new("Iguazu Viewer").selectable(false));
-                if let Some(filename) = &self.filename {
-                    ui.add_space(4.0);
-                    ui.add(egui::Label::new(RichText::new(filename).weak()).selectable(false));
-                }
-            });
-        });
+        if self.file_picker_task.is_some() {
+            ui.disable();
+        }
+
+        cfg_select! {
+            target_arch = "wasm32" => {
+                egui::Panel::top(egui::Id::new("top_bar"))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            self.source_header_ui(ui);
+                        });
+                    });
+            }
+            _ => {
+                iguazu_egui::egui_util::titlebar::TitleBar::new().show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add_space(8.0);
+                        self.source_header_ui(ui);
+                    });
+                });
+
+            }
+        }
 
         let central_panel = Frame::central_panel(ui.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(central_panel).show(ui, |ui| {
-            match &mut self.state {
-                AppState::Welcome(welcome) => {
-                    if let Some(response) = welcome.show(&mut self.vctx, ui) {
-                        match response {
-                            WelcomeResponse::Import { importer } => {
-                                self.prompt_import_options(importer);
-                            }
-                            WelcomeResponse::Entity(entity) => {
-                                self.set_entity(entity);
-                            }
+            if let Some(import_ui) = &mut self.editing_import_options {
+                if let Some(response) = import_ui.show(ui) {
+                    match response {
+                        ImportResponse::Accepted => {
+                            let importer = self.editing_import_options.take().unwrap().into_inner();
+                            self.import(importer, None);
+                        }
+                        ImportResponse::Cancelled => {
+                            self.editing_import_options = None;
                         }
                     }
                 }
-                AppState::ImportOptions(import_ui) => {
-                    if let Some(response) = import_ui.as_mut().unwrap().show(ui) {
-                        match response {
-                            ImportResponse::Accepted => {
-                                let importer = import_ui.take().unwrap().into_inner();
-                                self.import(importer, None);
+            } else {
+                match &mut self.state {
+                    AppState::Welcome(welcome) => {
+                        match welcome.show(&mut self.vctx, ui) {
+                            Some(WelcomeResponse::PickFile) => self.pick_file(),
+                            Some(WelcomeResponse::Entity(entity)) => {
+                                self.source = Some(Source::Demo);
+                                self.set_entity(entity)
                             }
-                            ImportResponse::Cancelled => {
-                                self.return_to_welcome();
-                            }
+                            None => {}
                         }
                     }
-                }
-                AppState::Loading(task) => {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(100.0);
-                        ui.spinner();
-                        ui.add_space(10.0);
-                        ui.label(RichText::new(
-                            format!("Importing {}...", self.filename.as_deref().unwrap_or(""))
-                        ).size(20.0));
-                    });
-
-                    if let Poll::Ready(result) = self.vctx.poll_unpin(task) {
-                        match result {
-                            Ok(entity) => self.set_entity(entity),
-                            Err(e) => self.set_import_error(format!("Failed to import {}: {}", self.filename.as_deref().unwrap_or(""), e)),
-                        }
+                    AppState::Loading(_) => {
+                        centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Center), |ui| {
+                            ui.spinner();
+                            ui.add_space(10.0);
+                            ui.label(RichText::new(
+                                format!("Importing...")
+                            ).size(20.0));
+                        });
                     }
-                }
-                AppState::Viewer(viewer) => {
-                    viewer.show(&mut self.vctx, ui);
+                    AppState::Error(title, message) => {
+                        centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Min), |ui| {
+                            ui.heading(title);
+                            ui.label(message.as_str());
+                        });
+                    }
+                    AppState::Viewer(viewer) => {
+                        viewer.show(&mut self.vctx, ui);
+                    }
                 }
             }
         });
@@ -371,4 +467,20 @@ impl App {
             ));
         }
     }
+}
+
+fn icon_chevron_down() -> Atom<'static> {
+    egui::include_image!("../icons/chevron-down.svg").atom_max_height(16.0)
+}
+
+fn centered_box<R>(ui: &mut Ui, size: Vec2, layout: Layout, child_ui: impl FnOnce(&mut Ui) -> R) -> R {
+    let available_rect = ui.available_rect_before_wrap();
+    let center = available_rect.center();
+    let top_left = center - size * 0.5;
+    let box_rect = Rect::from_min_size(top_left, size);
+
+    ui.scope_builder(
+        UiBuilder::new().max_rect(box_rect).layout(layout),
+        child_ui
+    ).inner
 }

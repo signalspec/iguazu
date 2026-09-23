@@ -6,6 +6,7 @@ use crate::config::ConfigEdit;
 pub struct ImportUi {
     config_edit: ConfigEdit<Box<dyn Importer>>,
 }
+
 pub enum ImportResponse {
     Accepted,
     Cancelled,
@@ -14,6 +15,10 @@ pub enum ImportResponse {
 impl ImportUi {
     pub fn new(importer: Box<dyn Importer>) -> Self {
         Self { config_edit: ConfigEdit::new(importer) }
+    }
+
+    pub fn inner(&self) -> &Box<dyn Importer> {
+        self.config_edit.inner()
     }
 
     pub fn show(&mut self, ui: &mut Ui) -> Option<ImportResponse> {

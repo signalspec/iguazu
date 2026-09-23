@@ -1,112 +1,40 @@
-use std::sync::Arc;
-
-use async_executor::Task;
-use egui::{Button, Color32, Layout, Rect, RichText, Ui, UiBuilder, Vec2};
-use iguazu::{import::{IMPORTERS, Importer}, io::ReadableFile, schema::{Entity, EntityStream, Field, FieldKind}, storage::MemoryStream, stream::ArcStream};
+use egui::{Button, Layout, RichText, Ui, Vec2};
+use iguazu::{schema::{Entity, EntityStream, Field, FieldKind}, storage::MemoryStream, stream::ArcStream};
 use iguazu_egui::ViewerContext;
-use rfd::AsyncFileDialog;
 
-pub struct Welcome {
-    picker_task: Option<Task<Option<Result<WelcomeResponse, String>>>>,
-    error: Option<String>,
-}
+use crate::centered_box;
+
+pub struct Welcome {}
+
 
 pub enum WelcomeResponse {
-    Import {
-        importer: Box<dyn Importer>,
-    },
+    PickFile,
     Entity(EntityStream),
 }
 
 impl Welcome {
     pub fn new() -> Self {
-        Self {
-            picker_task: None,
-            error: None,
-        }
+        Self {}
     }
 
-    pub(crate) fn with_error(message: String) -> Welcome {
-        Self {
-            picker_task: None,
-            error: Some(message),
-        }
-    }
-
-    pub fn show(&mut self, vctx: &mut ViewerContext, ui: &mut Ui) -> Option<WelcomeResponse> {
+    pub fn show(&mut self, _vctx: &mut ViewerContext, ui: &mut Ui) -> Option<WelcomeResponse> {
         centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Center), |ui| {
             let mut response = None;
 
             let button_font = egui::FontId::proportional(28.0);
             ui.style_mut().spacing.item_spacing.y = 16.0;
 
-            if self.picker_task.is_some() {
-                ui.disable();
-            }
-
             if ui.add_sized((ui.available_width(), 0.0), Button::new(RichText::new("Open file…").font(button_font.clone()))).clicked() {
-                self.error = None;
-                self.picker_task = Some(vctx.spawn(pick_file()));
-            }
-
-            if let Some(res) = vctx.poll_unpin_take(&mut self.picker_task) {
-                match res {
-                    None => {} // cancelled
-                    Some(Ok(entity)) => response = Some(entity),
-                    Some(Err(e)) => self.error = Some(e),
-                }
+                response = Some(WelcomeResponse::PickFile);
             }
 
             if ui.add_sized((ui.available_width(), 0.0), Button::new(RichText::new("Load demo data").font(button_font.clone()))).clicked() {
                 response = Some(WelcomeResponse::Entity(generate_demo_entity()));
             }
 
-            if let Some(error) = &self.error {
-                ui.heading(RichText::from("Error").color(Color32::RED));
-                ui.colored_label(Color32::RED, error);
-            }
-
             response
         })
     }
-}
-
-
-fn centered_box<R>(ui: &mut Ui, size: Vec2, layout: Layout, child_ui: impl FnOnce(&mut Ui) -> R) -> R {
-    let available_rect = ui.available_rect_before_wrap();
-    let center = available_rect.center();
-    let top_left = center - size * 0.5;
-    let box_rect = Rect::from_min_size(top_left, size);
-
-    ui.scope_builder(
-        UiBuilder::new().max_rect(box_rect).layout(layout),
-        child_ui
-    ).inner
-}
-
-async fn pick_file() -> Option<Result<WelcomeResponse, String>> {
-    #[cfg(not(target_arch = "wasm32"))]
-    let res = AsyncFileDialog::new().pick_file().await?;
-
-    #[cfg(target_arch = "wasm32")]
-    let res = send_wrapper::SendWrapper::new(AsyncFileDialog::new().pick_file()).await?;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let file = iguazu::io::FsFile::open(res.inner().to_owned()).await.ok()?;
-
-    #[cfg(target_arch = "wasm32")]
-    let file = iguazu::io::WebFile::new(res.inner().clone());
-    let filename = file.filename().to_owned();
-
-    let Some(importer) = IMPORTERS.importer_for_file(Arc::new(file)) else {
-        return Some(Err(format!(
-            "No import format matched filename `{filename}`"
-        )));
-    };
-
-    Some(Ok(WelcomeResponse::Import {
-        importer,
-    }))
 }
 
 fn generate_demo_entity() -> EntityStream {

@@ -21,6 +21,10 @@ impl<T: Configurable> ConfigEdit<T> {
         }
     }
 
+    pub fn inner(&self) -> &T {
+        &self.configurable
+    }
+
     pub fn into_inner(self) -> T {
         self.configurable
     }
