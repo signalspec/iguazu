@@ -1,4 +1,5 @@
 use std::{pin::Pin, sync::Arc};
+use async_executor::Task;
 
 use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::{InlineData, StreamRef}}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream, Pool }, stream::ArcStream, summary::StoredSummaryMap};
 
@@ -26,12 +27,12 @@ impl Importer for VirtualImporter {
         })
     }
 
-    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send>> {
+    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>> {
         let file = self.file.clone();
         Box::pin(async move {
             let schema = load(file.clone()).await?;
-            let entity = schema.try_map_data_async(&move |s| pool.executor.spawn(create_stream(file.clone(), pool.clone(), s.clone()))).await?;
-            Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
+            let entity = schema.try_map_data_async(&|s| pool.executor.spawn(create_stream(file.clone(), pool.clone(), s.clone()))).await?;
+            Ok((entity, pool.executor.spawn(async move { Ok(()) })))
         })
     }
 

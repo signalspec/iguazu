@@ -1,7 +1,7 @@
 //! Utilities for `clap` command line argument parsing
-use std::{path::{Path, PathBuf}, pin::Pin, sync::Arc};
+use std::{path::{Path, PathBuf}, sync::Arc};
 
-use async_executor::Executor;
+use async_executor::{Executor, Task};
 use clap::Args;
 
 use crate::{export::ExportFormat, import::{ImportError, ImportFormat, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile, StdinFile}, schema::{EntitySchema, EntityStream}, storage::Pool};
@@ -140,7 +140,7 @@ impl ImportOpts {
     /// Run the import.
     ///
     /// Returns the imported entity, as well as a future that completes when the import is fully done.
-    pub async fn import(&self, importers: ImportFormats<'_>, pool: Arc<Pool>) -> Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), String> {
+    pub async fn import(&self, importers: ImportFormats<'_>, pool: Arc<Pool>) -> Result<(EntityStream, Task<Result<(), ImportError>>), String> {
         let importer = self.importer(importers).await?;
         let schema = self.specified_schema().await?;
 

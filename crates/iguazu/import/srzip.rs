@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::{pin::Pin, sync::Arc};
 use ecow::{EcoString, eco_format};
+use async_executor::Task;
 
 use crate::ElementSize;
 use crate::schema::{Entity, EntityStream, Field, FieldKind, Ignored, attribute};
@@ -33,7 +34,7 @@ impl Importer for SrZipImporter {
         })
     }
 
-    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
+    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>> {
         let file = self.file.clone();
         Box::pin(async move {
             let (mut zip_entries, metadata) = load_metadata(file).await?;
@@ -41,7 +42,7 @@ impl Importer for SrZipImporter {
                 let entries = find_chunks(&mut zip_entries, entry_prefix);
                 Ok(Arc::new(SrZipStream::new(pool.clone(), entries, element_size)?) as Arc<dyn Stream>)
             })?;
-            Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
+            Ok((entity, pool.executor.spawn(async move { Ok(()) })))
         })
     }
 
@@ -296,7 +297,7 @@ mod tests {
         let executor = Arc::new(async_executor::Executor::new());
         let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
         let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
-        block_on(completion).expect("import completion failed");
+        block_on(executor.run(completion)).expect("import completion failed");
 
         let data = check_schema(entity);
 
@@ -329,7 +330,7 @@ mod tests {
         let executor = Arc::new(async_executor::Executor::new());
         let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
         let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
-        block_on(completion).expect("import completion failed");
+        block_on(executor.run(completion)).expect("import completion failed");
 
         let Entity::Data { ref field, data, .. } = entity else {
             panic!("expected `Data` entity in schema");
@@ -364,7 +365,7 @@ mod tests {
         let executor = Arc::new(async_executor::Executor::new());
         let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
         let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
-        block_on(completion).expect("import completion failed");
+        block_on(executor.run(completion)).expect("import completion failed");
 
         let ch1 = entity.child("CH1").unwrap();
         assert_eq!(ch1.attribute(TIME_RATE), Some(48000.0));

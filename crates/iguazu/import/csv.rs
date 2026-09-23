@@ -4,6 +4,7 @@ use csv_core::{ReadRecordResult, ReaderBuilder};
 use ecow::{EcoString, EcoVec, eco_format};
 use futures_lite::{AsyncBufRead, AsyncBufReadExt};
 use indexmap::IndexMap;
+use async_executor::Task;
 
 use crate::io::IoError;
 use crate::schema::{Entity, EntityStream, attribute};
@@ -13,6 +14,7 @@ use crate::config::{Configurable, OptionDescription};
 use super::{ImportError, Importer, column_parser::{ ColumnParser, TypeInfer }};
 
 /// Importer for CSV / TSV and similar formats.
+#[derive(Clone)]
 pub struct CsvImporter {
     file: Arc<dyn ReadableFile>,
     delimiter: u8,
@@ -291,15 +293,17 @@ impl Importer for CsvImporter {
         })
     }
 
-    fn import(&self, schema: Option<EntitySchema>, _pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
-        Box::pin(async {
+    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>> {
+        let importer = self.clone();
+        Box::pin(async move{
             let schema = if let Some(schema) = schema {
                 schema
             } else {
-                self.load_schema().await?
+                importer.load_schema().await?
             };
-            let (entity, completion) = self.load(schema).await?;
-            Ok((entity, Box::pin(completion) as Pin<Box<_>>))
+            let (entity, completion) = importer.load(schema).await?;
+            let task = pool.executor.spawn(completion);
+            Ok((entity, task))
         })
     }
 

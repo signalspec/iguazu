@@ -1,5 +1,7 @@
 use std::{pin::Pin, sync::Arc};
 use std::future;
+use async_executor::Task;
+
 use crate::ElementSize;
 use crate::config::{Configurable, OptionDescription};
 use crate::schema::{EntityStream, Field};
@@ -191,11 +193,17 @@ impl Importer for FlatFileImporter {
         Box::pin(future::ready(self.schema()))
     }
 
-    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>> {
+    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>> {
+        let file = self.file.clone();
+        let element = self.element;
+        let opts = self.opts.clone();
+        let schema = if let Some(s) = schema { Ok(s) } else { self.schema() };
+
         Box::pin(async move {
-            let schema = if let Some(s) = schema { s } else { self.schema()? };
-            let entity = FlatFileStream::entity(self.file.clone(), pool, self.element, schema, &self.opts).await?;
-            Ok((entity, Box::pin(async move {Ok(())}) as Pin<Box<_>>))
+            let schema = schema?;
+            let task = pool.executor.spawn(async move { Ok(()) });
+            let entity = FlatFileStream::entity(file, pool, element, schema, &opts).await?;
+            Ok((entity, task))
         })
     }
 

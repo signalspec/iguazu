@@ -1,6 +1,7 @@
 //! Data import
 use std::{pin::Pin, sync::Arc};
 
+use async_executor::Task;
 use thiserror::Error;
 
 use crate::{config::Configurable, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, storage::Pool};
@@ -58,7 +59,7 @@ pub trait Importer: Configurable + Send {
     /// providing the [`EntityStream`] and a second future that resolves once
     /// the entire import is complete. Depending on the format, that may be
     /// immediately ready or may require reading and parsing the file.
-    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Pin<Box<dyn Future<Output = Result<(), ImportError>> + Send>>), ImportError>> + Send + '_>>;
+    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>>;
 
     /// The wrapped file
     fn file(&self) -> &Arc<dyn ReadableFile>;
