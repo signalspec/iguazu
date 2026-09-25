@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 iguazu = { workspace = true, features = ["clap", "web"] }
 iguazu-egui.workspace = true
+iguazu-capture = { workspace = true, optional = true }
 async-executor.workspace = true
 clap = { workspace = true, features = ["derive"] }
 eframe = { workspace = true, default-features = false, features = ["default_fonts", "wgpu", "wayland"] }
@@ -28,3 +29,7 @@ tracing-subscriber = "0.3.16"
 wasm-bindgen-futures = "0.4.50"
 web-sys = "0.3.70"
 log = "0.4.27"
+
+[features]
+capture = ["dep:iguazu-capture"]
+default = ["capture"]

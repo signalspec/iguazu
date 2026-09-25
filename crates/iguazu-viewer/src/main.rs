@@ -5,9 +5,12 @@ use std::task::Poll;
 
 use async_executor::Task;
 use eframe::{egui, CreationContext};
-use egui::menu::{MenuButton, menu_style};
-use egui::{Atom, AtomExt, Button, RichText, TextStyle, Vec2};
-use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
+use egui::{
+    Align2, Area, Atom, AtomExt, Button, Color32, Direction, Frame, Layout, Order, Rect, RichText,
+    Sense, TextStyle, Ui, UiBuilder, UiKind, Vec2, Widget,
+    menu::{MenuButton, menu_style},
+    util::History
+};
 
 use iguazu::import::{IMPORTERS, ImportError, Importer};
 use iguazu::io::{IoError, ReadableFile};
@@ -194,18 +197,30 @@ enum Source {
     File {
         importer: Box<dyn Importer>,
     },
+    #[cfg(feature = "capture")]
+    Capture {
+        session: iguazu_egui::config::ConfigEdit<Box<dyn iguazu_capture::DeviceSession>>,
+        config_modal_open: bool,
+        running: Option<Task<Result<(), iguazu_capture::CaptureError>>>,
+        error: Option<iguazu_capture::CaptureError>,
+    },
     Demo,
 }
 
 enum PendingSource {
     Import(ImportUi),
-    Error { filename: String, title: String, message: String },
+    #[cfg(feature = "capture")]
+    CaptureDevice(String, Task<Result<Box<dyn iguazu_capture::DeviceSession>, iguazu_capture::CaptureError>>),
+    Error { name: String, title: String, message: String },
 }
 
 struct App {
     vctx: ViewerContext,
 
     file_picker_task: Option<Task<Option<Result<Arc<dyn ReadableFile>, IoError>>>>,
+
+    #[cfg(feature = "capture")]
+    device_watch: iguazu_capture::DeviceWatch,
 
     pending_source: Option<PendingSource>,
     source: Option<Source>,
@@ -236,6 +251,10 @@ impl App {
         App {
             state: AppState::Welcome(Welcome::new()),
             file_picker_task: None,
+
+            #[cfg(feature = "capture")]
+            device_watch: iguazu_capture::DeviceWatch::new(&pool.executor, iguazu_capture::DRIVERS),
+
             pending_source: None,
             source: None,
             vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
@@ -259,7 +278,7 @@ impl App {
         match IMPORTERS.importer_for_file(file.clone()) {
             Some(importer) => self.prompt_import_options(importer),
             None => self.set_pending_source(Some(PendingSource::Error {
-                filename: file.filename().to_string(),
+                name: file.filename().to_string(),
                 title: "Unsupported file".to_string(),
                 message: "No import format matched the file".to_string(),
             })),
@@ -303,12 +322,16 @@ impl App {
         let label = if let Some(pending_source) = &self.pending_source {
             match pending_source {
                 PendingSource::Import(import_ui) => import_ui.inner().file().filename(),
-                PendingSource::Error { filename, .. } => filename.as_str(),
+                PendingSource::Error { name: filename, .. } => filename.as_str(),
+                #[cfg(feature = "capture")]
+                PendingSource::CaptureDevice(name, _) => name.as_str(),
             }
         } else {
             match &self.source {
                 Some(Source::File { importer }) => importer.file().filename(),
                 Some(Source::Demo) => "Demo",
+                #[cfg(feature = "capture")]
+                Some(Source::Capture { session, .. }) => session.inner().device().description(),
                 None => "Choose file or device",
             }
         };
@@ -317,7 +340,57 @@ impl App {
             if ui.button("Open file…").clicked() {
                 self.pick_file();
             }
+
+            #[cfg(feature = "capture")]
+            {
+                ui.separator();
+                ui.label("Capture from device:");
+
+                let selected_device = capture_device_list_ui(ui, &mut self.device_watch);
+
+                if let Some(device) = selected_device {
+                    self.select_device(device);
+                }
+            }
         });
+
+        if self.pending_source.is_none() {
+            match &mut self.source {
+                None | Some(Source::Demo) => {}
+                Some(Source::File { .. }) => {}
+                #[cfg(feature = "capture")]
+                Some(Source::Capture { session, config_modal_open, running, error }) => {
+                    capture_config_button(ui, session, config_modal_open);
+                    capture_start_stop_button(ui, session, running, error, &self.vctx, &mut self.state);
+                    if let Some(error) = error.as_ref() {
+                        ui.label("Error").on_hover_ui(|ui| {
+                            ui.label(error.to_string());
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "capture")]
+    fn select_device(&mut self, device: Arc<dyn iguazu_capture::Device>) {
+        let name = device.description().to_owned();
+        let task = self.vctx.spawn(device.open());
+        self.set_pending_source(Some(PendingSource::CaptureDevice(name, task)));
+    }
+
+    #[cfg(feature = "capture")]
+    fn set_capture_session(&mut self, session: Box<dyn iguazu_capture::DeviceSession>) {
+        self.set_pending_source(None);
+        let empty = EntityStream::group()
+            .with_attribute(iguazu::schema::attribute::core::ROLE, iguazu::schema::attribute::core::Role::Capture);
+        let session = iguazu_egui::config::ConfigEdit::new(session);
+        self.set_state(Source::Capture {
+            session,
+            config_modal_open: false,
+            running: None,
+            error: None
+        }, AppState::Viewer(Viewer::new(empty)));
     }
 
     fn pick_file(&mut self) {
@@ -345,6 +418,13 @@ impl eframe::App for App {
     }
 
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(feature = "capture")] {
+            let res = self.vctx.poll_fn(|c| self.device_watch.poll(c));
+            if let Some(dev) = res.requested_device {
+                self.select_device(dev);
+            }
+        }
+
         if let Some(res) = self.vctx.poll_unpin_take(&mut self.file_picker_task) {
             match res {
                 None => { /* file picker cancelled */ }
@@ -353,12 +433,45 @@ impl eframe::App for App {
                 }
                 Some(Err(e)) => {
                     self.set_pending_source(Some(PendingSource::Error {
-                        filename: e.file.as_ref().and_then(|n| n.split('/').next_back()).unwrap_or("Unknown file").to_string(),
+                        name: e.file.as_ref().and_then(|n| n.split('/').next_back()).unwrap_or("Unknown file").to_string(),
                         title: "Failed to open file".to_string(),
                         message: e.to_string(),
                     }));
                 }
             }
+        }
+
+        match &mut self.pending_source {
+            #[cfg(feature = "capture")]
+            Some(PendingSource::CaptureDevice(name, task)) => {
+                if let Poll::Ready(res) = self.vctx.poll_unpin(task) {
+                    match res {
+                        Ok(session) => self.set_capture_session(session),
+                        Err(e) => {
+                            let name = std::mem::take(name);
+                            self.set_pending_source(Some(PendingSource::Error {
+                                name,
+                                title: "Failed to open device".to_string(),
+                                message: e.to_string(),
+                            }));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        match &mut self.source {
+            #[cfg(feature = "capture")]
+            Some(Source::Capture { running, error, .. }) => {
+                match self.vctx.poll_unpin_take(running) {
+                    Some(Err(e)) => {
+                        *error = Some(e);
+                    }
+                    Some(Ok(())) | None => {}
+                }
+            }
+            _ => {}
         }
 
         match &mut self.state {
@@ -417,6 +530,16 @@ impl eframe::App for App {
                                 }
                             }
                         }
+                    }
+                    #[cfg(feature = "capture")]
+                    PendingSource::CaptureDevice(_, _) => {
+                        centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Center), |ui| {
+                            ui.spinner();
+                            ui.add_space(10.0);
+                            ui.label(RichText::new(
+                                format!("Opening capture device...")
+                            ).size(20.0));
+                        });
                     }
                     PendingSource::Error { title, message, .. } => {
                         let close = centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Min), |ui| {
@@ -517,8 +640,115 @@ impl App {
     }
 }
 
+#[cfg(feature = "capture")]
+fn capture_device_list_ui(ui: &mut Ui, device_watch: &mut iguazu_capture::DeviceWatch) -> Option<Arc<dyn iguazu_capture::Device>> {
+    let mut any_device = false;
+    let mut selected_device = None;
+
+    for device in device_watch.devices() {
+        any_device = true;
+        if ui.add(Button::new(device.description())).clicked() {
+            selected_device = Some(device.clone());
+        }
+    }
+
+    if let Err(s) = device_watch.status() {
+        ui.add_enabled(false, egui::Button::new(s));
+    } else if device_watch.needs_request_device() {
+        if ui.add(Button::new("Connect device")).clicked() {
+            device_watch.request_device();
+        }
+    } else if !any_device {
+        ui.add_enabled(false, egui::Button::new("No devices found"));
+    }
+
+    selected_device
+}
+
+#[cfg(feature = "capture")]
+fn capture_config_button(
+    ui: &mut Ui,
+    session: &mut iguazu_egui::config::ConfigEdit<Box<dyn iguazu_capture::DeviceSession + 'static>>,
+    config_modal_open: &mut bool
+) {
+    let label = session.inner().config_summary().unwrap_or("Settings".into());
+    let button_response = Button::new((icon_settings(), label, icon_chevron_down()))
+        .image_tint_follows_text_color(true)
+        .ui(ui);
+
+    if button_response.clicked() {
+        *config_modal_open = true;
+    }
+
+    if *config_modal_open {
+        let modal = popup_modal(button_response, egui::Id::new("capture-session-config"));
+
+        let modal_response = modal.show(ui.ctx(), |ui| {
+            ui.allocate_space(Vec2::new(380.0, 12.0));
+            session.show(ui)
+        });
+
+        if modal_response.should_close() {
+            *config_modal_open = false;
+        }
+    }
+}
+
+#[cfg(feature = "capture")]
+fn capture_start_stop_button(
+    ui: &mut Ui,
+    session: &mut iguazu_egui::config::ConfigEdit<Box<dyn iguazu_capture::DeviceSession + 'static>>,
+    running: &mut Option<Task<Result<(), iguazu_capture::CaptureError>>>,
+    error: &mut Option<iguazu_capture::CaptureError>,
+    vctx: &ViewerContext,
+    entity_state: &mut AppState
+) {
+    if !running.is_some() {
+        if ui.add(Button::new("Start")).clicked() {
+            match session.inner().start_capture(vctx.executor(), vctx.default_storage()) {
+                Ok((mut entity, task)) => {
+                    entity.build_summaries(&vctx.executor(), vctx.default_storage()).detach();
+                    *entity_state = AppState::Viewer(Viewer::new(entity));
+                    *running = Some(task);
+                    *error = None;
+                }
+                Err(e) => {
+                    *error = Some(e);
+                }
+            }
+        }
+    } else {
+        if ui.add(Button::new("Stop")).clicked() {
+            drop(running.take());
+        }
+    }
+}
+
+/// Like `MenuButton` but actually a `Modal` positioned like a `Popup`, because
+/// egui doesn't support nesting popups for the dropdown suggestions.
+fn popup_modal(button_response: egui::Response, id: egui::Id) -> egui::Modal {
+    let area = Area::new(id)
+        .kind(UiKind::Modal)
+        .sense(Sense::hover())
+        .pivot(Align2::LEFT_TOP)
+        .fixed_pos(button_response.rect.left_bottom())
+        .order(Order::Middle) // Popup is normally `Foreground` but need to make sure that dropdowns inside it are on top
+        .interactable(true);
+
+    let modal = egui::Modal {
+        area,
+        backdrop_color: Color32::TRANSPARENT,
+        frame: None,
+    };
+    modal
+}
+
 fn icon_chevron_down() -> Atom<'static> {
     egui::include_image!("../icons/chevron-down.svg").atom_max_height(16.0)
+}
+
+fn icon_settings() -> Atom<'static> {
+    egui::include_image!("../icons/settings.svg").atom_max_height(16.0)
 }
 
 fn centered_box<R>(ui: &mut Ui, size: Vec2, layout: Layout, child_ui: impl FnOnce(&mut Ui) -> R) -> R {

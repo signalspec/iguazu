@@ -15,6 +15,7 @@ itertools.workspace = true
 ecow.workspace = true
 async-executor.workspace = true
 log.workspace = true
+futures-lite.workspace = true
 
 nusb = "0.2.7"
 fx2la = "0.1.0"

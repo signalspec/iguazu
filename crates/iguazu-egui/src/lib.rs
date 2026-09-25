@@ -5,7 +5,7 @@ pub mod egui_util;
 pub mod timeline;
 pub mod table;
 pub mod import;
-mod config;
+pub mod config;
 
 use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
@@ -35,6 +35,7 @@ pub struct ViewerContext {
     /// Waker that requests egui repaint on wake.
     waker: Waker,
 }
+
 impl ViewerContext {
     pub fn new(pool: Arc<Pool>, default_storage: Arc<dyn Storage>, egui_ctx: &egui::Context) -> Self {
         let waker: Waker = Arc::new(RepaintWaker { context: egui_ctx.clone() }).into();
@@ -78,9 +79,13 @@ impl ViewerContext {
         &self.waker
     }
 
-    pub fn poll<T>(&self, f: Pin<&mut impl Future<Output = T>>) -> Poll<T> {
+    pub fn poll_fn<T>(&self, f: impl FnOnce(&mut std::task::Context) -> T) -> T {
         let mut cx = std::task::Context::from_waker(&self.waker);
-        f.poll(&mut cx)
+        f(&mut cx)
+    }
+
+    pub fn poll<T>(&self, f: Pin<&mut impl Future<Output = T>>) -> Poll<T> {
+        self.poll_fn(|cx| f.poll(cx))
     }
 
     pub fn poll_unpin<T>(&self, f: &mut (impl Future<Output = T> + Unpin)) -> Poll<T> {

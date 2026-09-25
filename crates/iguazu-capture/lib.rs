@@ -1,8 +1,9 @@
-use std::{pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc, task::{Context, Poll}};
 use async_executor::Task;
-use iguazu::send::Executor;
+use futures_lite::{FutureExt, StreamExt};
+use nusb::{DeviceInfo, DeviceSelector, hotplug::HotplugEvent};
+use iguazu::{send::Executor, util::future::FutureOutput};
 use iguazu::{send::{BoxFuture, NonWasmSync, NonWasmSend}, config::Configurable, schema::EntityStream, storage::Storage};
-use nusb::{DeviceInfo, DeviceSelector};
 
 pub mod drivers;
 pub use drivers::DRIVERS;
@@ -102,6 +103,14 @@ impl Driver {
             ProbeFunc::Explicit(probe) => probe(id).await,
         }
     }
+
+    fn probe_usb(&self, dev: &DeviceInfo) -> Option<Arc<dyn Device>> {
+        if let ProbeFunc::Usb(sel, probe) = &self.probe && sel.iter().any(|s| dev.matches(s)) {
+            probe(dev)
+        } else {
+            None
+        }
+    }
 }
 
 /// A wrapper around `&[Driver]` that provides methods for finding and using drivers
@@ -118,7 +127,10 @@ impl<'a> Drivers<'a> {
     }
 
     pub async fn list_devices(&self) -> Vec<Arc<dyn Device>> {
-        let usb_list = nusb::list_devices().await.map_or(Vec::new(), |l| l.collect());
+        let usb_list = nusb::list_devices().await
+            .inspect_err(|e| log::error!("Failed to list USB devices: {e}"))
+            .map_or(Vec::new(), |l| l.collect());
+
         let mut devices = Vec::new();
 
         for driver in self.iter() {
@@ -145,4 +157,95 @@ impl<'a> Drivers<'a> {
         let driver = self.by_name(driver).ok_or_else(|| format!("unknown driver `{driver}`"))?;
         driver.device_by_id(id).await
     }
+}
+
+/// A list of matching devices kept updated by USB hotplug events.
+pub struct DeviceWatch {
+    drivers: Drivers<'static>,
+    devices: FutureOutput<Task<Vec<Arc<dyn Device>>>>,
+    watch: Result<nusb::hotplug::HotplugWatch, String>,
+    request_device_fut: Option<BoxFuture<'static, Option<DeviceInfo>>>,
+}
+
+impl DeviceWatch {
+    pub fn new(executor: &Arc<Executor<'static>>, drivers: Drivers<'static>) -> Self {
+        let watch = nusb::watch_devices().map_err(|e| e.to_string());
+        let devices = FutureOutput::Future(executor.spawn(async move { drivers.list_devices().await }));
+        Self { drivers, devices, watch, request_device_fut: None }
+    }
+
+    pub fn poll(&mut self, cx: &mut Context) -> WatchPollResult {
+        self.devices.poll(cx);
+        if let Poll::Ready(devices) = self.devices.get_mut() {
+            if let Ok(watch) = &mut self.watch {
+                match watch.poll_next(cx) {
+                    Poll::Ready(Some(HotplugEvent::Connected(dev))) => {
+                        devices.extend(self.drivers.iter().flat_map(|driver| driver.probe_usb(&dev)));
+                    }
+                    Poll::Ready(Some(HotplugEvent::Disconnected(dev_id))) => {
+                        devices.retain(|dev| dev.usb_device().is_none_or(|d| d.id() != dev_id));
+                    }
+                    Poll::Ready(None) => {
+                        log::error!("Hotplug watch unexpectedly completed!");
+                    }
+                    Poll::Pending => {}
+                }
+            }
+
+            let requested_device = if let Some(f) = &mut self.request_device_fut && let Poll::Ready(res) = f.poll(cx) {
+                self.request_device_fut = None;
+                res.and_then(|dev| {
+                    if let Some(existing) = devices.iter().find(|d| d.usb_device().is_some_and(|d| d.id() == dev.id())) {
+                        Some(existing.clone())
+                    } else {
+                        let new = self.drivers.iter().find_map(|driver| driver.probe_usb(&dev));
+                        devices.extend(new.clone());
+                        new
+                    }
+                })
+            } else { None };
+
+            WatchPollResult { requested_device }
+        } else {
+            WatchPollResult { requested_device: None }
+        }
+    }
+
+    pub fn needs_request_device(&self) -> bool {
+        cfg!(target_arch = "wasm32")
+    }
+
+    pub fn request_device(&mut self) {
+        let selectors = self.drivers.iter().flat_map(|d| {
+            if let ProbeFunc::Usb(selectors, _) = &d.probe {
+                *selectors
+            } else {
+                &[]
+            }
+        }).cloned().collect::<Vec<_>>();
+
+        log::debug!("Requesting device with selectors: {:?}", selectors);
+
+        self.request_device_fut = Some(Box::pin(async move {
+            nusb::request_device(&selectors[..]).await
+                .inspect_err(|e| log::error!("Failed to request device: {e}"))
+                .ok().flatten()
+        }));
+    }
+
+    pub fn devices(&self) -> impl Iterator<Item = &Arc<dyn Device>> + '_ {
+        if let Poll::Ready(devices) = self.devices.get() {
+            devices.iter()
+        } else {
+            [].iter()
+        }
+    }
+
+    pub fn status(&self) -> Result<(), &str> {
+        self.watch.as_ref().map(|_| ()).map_err(|e| e.as_str())
+    }
+}
+
+pub struct WatchPollResult {
+    pub requested_device: Option<Arc<dyn Device>>,
 }

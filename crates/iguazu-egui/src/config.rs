@@ -25,6 +25,10 @@ impl<T: Configurable> ConfigEdit<T> {
         &self.configurable
     }
 
+    pub fn inner_mut(&mut self) -> &mut T {
+        &mut self.configurable
+    }
+
     pub fn into_inner(self) -> T {
         self.configurable
     }

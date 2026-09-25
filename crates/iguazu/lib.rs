@@ -10,7 +10,7 @@ pub mod io;
 pub mod view;
 pub mod summary;
 pub mod time;
-mod util;
+pub mod util;
 mod element;
 pub mod izs;
 pub mod config;
