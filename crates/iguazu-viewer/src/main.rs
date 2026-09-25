@@ -10,7 +10,7 @@ use egui::{Atom, AtomExt, Button, RichText, TextStyle, Vec2};
 use egui::{util::History, Direction, Frame, Layout, Rect, Ui, UiBuilder};
 
 use iguazu::import::{IMPORTERS, ImportError, Importer};
-use iguazu::io::ReadableFile;
+use iguazu::io::{IoError, ReadableFile};
 use iguazu::schema::{EntitySchema, EntityStream};
 use iguazu::storage::{Pool, Storage, MemoryStorage};
 use iguazu_egui::ViewerContext;
@@ -197,12 +197,17 @@ enum Source {
     Demo,
 }
 
+enum PendingSource {
+    Import(ImportUi),
+    Error { filename: String, title: String, message: String },
+}
+
 struct App {
     vctx: ViewerContext,
 
-    file_picker_task: Option<Task<Option<Result<Box<dyn Importer>, String>>>>,
+    file_picker_task: Option<Task<Option<Result<Arc<dyn ReadableFile>, IoError>>>>,
 
-    editing_import_options: Option<ImportUi>,
+    pending_source: Option<PendingSource>,
     source: Option<Source>,
     state: AppState,
 
@@ -230,9 +235,9 @@ impl App {
 
         App {
             state: AppState::Welcome(Welcome::new()),
-            source: None,
             file_picker_task: None,
-            editing_import_options: None,
+            pending_source: None,
+            source: None,
             vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
             enable_debug_ui: std::env::var("IGUAZU_DEBUG_UI").is_ok(),
@@ -245,9 +250,25 @@ impl App {
         self.vctx.waker().wake_by_ref();
     }
 
+    fn set_pending_source(&mut self, source: Option<PendingSource>) {
+        self.pending_source = source;
+        self.vctx.waker().wake_by_ref();
+    }
+
+    fn set_file(&mut self, file: Arc<dyn ReadableFile>) {
+        match IMPORTERS.importer_for_file(file.clone()) {
+            Some(importer) => self.prompt_import_options(importer),
+            None => self.set_pending_source(Some(PendingSource::Error {
+                filename: file.filename().to_string(),
+                title: "Unsupported file".to_string(),
+                message: "No import format matched the file".to_string(),
+            })),
+        }
+    }
+
     fn prompt_import_options(&mut self, importer: Box<dyn Importer>) {
         if importer.should_show_options() {
-            self.editing_import_options = Some(ImportUi::new(importer));
+            self.set_pending_source(Some(PendingSource::Import(ImportUi::new(importer))));
         } else {
             self.import(importer, None);
         }
@@ -279,13 +300,16 @@ impl App {
     fn source_header_ui(&mut self, ui: &mut Ui) {
         menu_style(ui.style_mut());
 
-        let label = if let Some(i) = &self.editing_import_options {
-            i.inner().file().filename()
+        let label = if let Some(pending_source) = &self.pending_source {
+            match pending_source {
+                PendingSource::Import(import_ui) => import_ui.inner().file().filename(),
+                PendingSource::Error { filename, .. } => filename.as_str(),
+            }
         } else {
             match &self.source {
                 Some(Source::File { importer }) => importer.file().filename(),
-                Some(Source::Demo) => "Demo".into(),
-                None => "Choose file or device".into(),
+                Some(Source::Demo) => "Demo",
+                None => "Choose file or device",
             }
         };
 
@@ -305,18 +329,12 @@ impl App {
             let res = send_wrapper::SendWrapper::new(AsyncFileDialog::new().pick_file()).await?;
 
             #[cfg(not(target_arch = "wasm32"))]
-            let file = iguazu::io::FsFile::open(res.inner().to_owned()).await.ok()?;
+            let file = iguazu::io::FsFile::open(res.inner().to_owned()).await;
 
             #[cfg(target_arch = "wasm32")]
-            let file = iguazu::io::WebFile::new(res.inner().clone());
+            let file = Ok(iguazu::io::WebFile::new(res.inner().clone()));
 
-            let file = Arc::new(file) as Arc<dyn ReadableFile>;
-
-            let Some(importer) = IMPORTERS.importer_for_file(file.clone()) else {
-                return Some(Err(format!("No import format matched filename `{}`", file.filename())));
-            };
-
-            Some(Ok(importer))
+            Some(file.map(|f| Arc::new(f) as Arc<dyn ReadableFile>))
         }));
     }
 }
@@ -330,11 +348,15 @@ impl eframe::App for App {
         if let Some(res) = self.vctx.poll_unpin_take(&mut self.file_picker_task) {
             match res {
                 None => { /* file picker cancelled */ }
-                Some(Ok(importer)) => {
-                    self.prompt_import_options(importer)
+                Some(Ok(file)) => {
+                    self.set_file(file);
                 }
                 Some(Err(e)) => {
-                    self.set_import_error("Import failed".into(), e);
+                    self.set_pending_source(Some(PendingSource::Error {
+                        filename: e.file.as_ref().and_then(|n| n.split('/').next_back()).unwrap_or("Unknown file").to_string(),
+                        title: "Failed to open file".to_string(),
+                        message: e.to_string(),
+                    }));
                 }
             }
         }
@@ -381,15 +403,29 @@ impl eframe::App for App {
 
         let central_panel = Frame::central_panel(ui.style()).inner_margin(0.0);
         egui::CentralPanel::default().frame(central_panel).show(ui, |ui| {
-            if let Some(import_ui) = &mut self.editing_import_options {
-                if let Some(response) = import_ui.show(ui) {
-                    match response {
-                        ImportResponse::Accepted => {
-                            let importer = self.editing_import_options.take().unwrap().into_inner();
-                            self.import(importer, None);
+            if let Some(pending_source) = &mut self.pending_source {
+                match pending_source {
+                    PendingSource::Import(import_ui) => {
+                        if let Some(response) = import_ui.show(ui) {
+                            match response {
+                                ImportResponse::Accepted => {
+                                    let Some(PendingSource::Import(import_opts)) = self.pending_source.take() else { unreachable!() };
+                                    self.import(import_opts.into_inner(), None);
+                                }
+                                ImportResponse::Cancelled => {
+                                    self.set_pending_source(None);
+                                }
+                            }
                         }
-                        ImportResponse::Cancelled => {
-                            self.editing_import_options = None;
+                    }
+                    PendingSource::Error { title, message, .. } => {
+                        let close = centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Min), |ui| {
+                            ui.heading(title);
+                            ui.label(message.as_str());
+                            ui.button("OK").clicked()
+                        });
+                        if close {
+                            self.set_pending_source(None);
                         }
                     }
                 }
