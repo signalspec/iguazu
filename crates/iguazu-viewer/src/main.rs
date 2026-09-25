@@ -24,7 +24,18 @@ use crate::viewer::Viewer;
 use crate::welcome::{Welcome, WelcomeResponse};
 
 #[cfg(not(target_arch = "wasm32"))]
-fn main() -> Result<(), eframe::Error> {
+fn main() {
+    match run() {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     use std::sync::Arc;
     use std::future;
 
@@ -59,8 +70,8 @@ fn main() -> Result<(), eframe::Error> {
     let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
 
     let to_import = if let Some(import_opts) = cli.import {
-        let importer = block_on(import_opts.importer(IMPORTERS)).expect("failed to choose importer");
-        let schema = block_on(import_opts.specified_schema()).expect("failed to load schema");
+        let importer = block_on(import_opts.importer(IMPORTERS))?;
+        let schema = block_on(import_opts.specified_schema())?;
         let skip_options_ui = import_opts.format_specified() || schema.is_some();
         Some((importer, skip_options_ui, schema))
     } else {
@@ -92,7 +103,8 @@ fn main() -> Result<(), eframe::Error> {
 
             Ok(app)
         })
-    )
+    )?;
+    Ok(())
 }
 
 // When compiling to web using trunk:

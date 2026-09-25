@@ -4,7 +4,7 @@ use std::{path::{Path, PathBuf}, sync::Arc};
 use async_executor::{Executor, Task};
 use clap::Args;
 
-use crate::{export::ExportFormat, import::{ImportError, ImportFormat, ImportFormats, Importer}, io::{FsFile, FsWritableFile, ReadableFile, StdinFile}, schema::{EntitySchema, EntityStream}, storage::Pool};
+use crate::{export::ExportFormat, import::{ImportError, ImportFormat, ImportFormats, Importer}, io::{FsFile, FsWritableFile, IoError, ReadableFile, StdinFile}, schema::{EntitySchema, EntityStream}, storage::Pool};
 
 #[derive(Args, Clone, Debug)]
 #[group(requires = "filename")] // Allow `ImportOpts` to be optional (https://github.com/clap-rs/clap/issues/5092#issuecomment-1703980717)
@@ -63,8 +63,8 @@ impl ImportOpts {
     }
 
     pub async fn importer(&self, importers: ImportFormats<'_>) -> Result<Box<dyn Importer>, String> {
+        let file = self.file().await.map_err(|e| e.to_string())?;
         let format = self.format(importers)?;
-        let file = self.file().await?;
         let mut importer = format.importer(file);
         let mut errors = Vec::new();
 
@@ -86,17 +86,14 @@ impl ImportOpts {
         Ok(importer)
     }
 
-    /// Get the source file.
+    /// Open the source file.
     ///
     /// This is either the file specified by `filename`, or stdin if `filename` is `-`.
-    pub async fn file(&self) -> Result<Arc<dyn ReadableFile>, String> {
+    pub async fn file(&self) -> Result<Arc<dyn ReadableFile>, IoError> {
         Ok(if self.filename == Path::new("-") {
             Arc::new(StdinFile::new()) as Arc<dyn ReadableFile>
         } else {
-            Arc::new(FsFile::open(self.filename.clone())
-                .await
-                .map_err(|e| format!("Failed to open file {}: {}", self.filename.display(), e))?
-            ) as Arc<dyn ReadableFile>
+            Arc::new(FsFile::open(self.filename.clone()).await?) as Arc<dyn ReadableFile>
         })
     }
 
