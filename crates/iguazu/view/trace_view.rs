@@ -61,7 +61,7 @@ impl<'a> TraceView<'a> {
 
         let scan_end = range.max.min(base_end);
 
-        if min_width_level >= summary.max_level() + 4 && (scan_end - pos) >> summary.max_level() > 2048 {
+        if min_width_level >= summary.max_level() + 4 && scan_end.saturating_sub(pos) >> summary.max_level() > 2048 {
             // Not enough summary levels to avoid scanning too much, so wait for summary or give up
             if !base_state.streaming {
                 emit(pos, TraceElement::Loading);

@@ -138,7 +138,8 @@ impl DeviceSession for Fx2lafwSession {
             (name.clone(), field)
         }).collect();
         let field = Field::new(FieldKind::BitStruct { children: fields })
-            .with_attribute(attribute::core::TIME_RATE, self.rate.as_hz() as f64);
+            .with_attribute(attribute::core::TIME_RATE, self.rate.as_hz() as f64)
+            .with_attribute_opt(attribute::core::CAPTURE_LENGTH, self.time);
         let entity = Entity::Data { data, field, summaries: Default::default() };
 
         let rate = self.rate;

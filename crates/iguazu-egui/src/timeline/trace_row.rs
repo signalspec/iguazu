@@ -54,11 +54,7 @@ impl<'a> TraceRow<'a> {
         let stroke_width = 1.0;
         let stroke = Stroke::new(stroke_width, color);
 
-        let state = self.view.state();
-        let range = IdxRange {
-            min: idx_scale.visible.min,
-            max: idx_scale.visible.max.min(state.end),
-        };
+        let range = idx_scale.visible;
 
         let mut last = TraceElement::Loading;
 
@@ -151,12 +147,7 @@ impl<'a> LogicRow<'a> {
         let rect = stream_rect(ui, scale);
         let idx_scale = scale.idx_scale(self.sample_rate);
 
-        let state = self.view.state();
-
-        let range = IdxRange {
-            min: idx_scale.visible.min,
-            max: idx_scale.visible.max.min(state.end),
-        };
+        let range = idx_scale.visible;
         let min_width = idx_scale.min_visible_width(ui.pixels_per_point());
 
         let font_id = egui::TextStyle::Body.resolve(ui.style());

@@ -21,6 +21,10 @@ impl Time {
     pub const HOUR: Time = Time(3_600_000_000_000_000_000_000);
     pub const DAY: Time = Time(86_400_000_000_000_000_000_000);
 
+    pub fn from_seconds(sec: f64) -> Time {
+        Time((sec * Self::SECOND.0 as f64).round() as i128)
+    }
+
     /// Get the period for a frequency expressed as a ratio
     pub fn period_ratio(num: u64, denom: u64) -> Time {
         (denom as i128) * Self::SECOND / (num as i128)

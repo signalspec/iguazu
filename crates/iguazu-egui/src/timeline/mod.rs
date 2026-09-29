@@ -11,7 +11,7 @@ use analog_row::YAxisRow;
 use ecow::EcoString;
 use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
-use iguazu::{schema::{Entity, EntityStream, FieldRef, attribute::display::{AccentColor, TimelineRow}}, time::{Time, TimeRange}, view::Timebase};
+use iguazu::{schema::{Entity, EntityStream, FieldRef, attribute::{self, display::{AccentColor, TimelineRow}}}, time::{Time, TimeRange}, view::Timebase};
 use trace_row::{LogicRow, TraceRow};
 use crate::{ egui_util:: shadow_line::draw_shadow_line, ViewerContext };
 
@@ -77,10 +77,13 @@ impl TimelineView {
         };
 
         let rows = timeline_rows(vcx, entity);
-        let time_range = rows.iter()
+
+        let capture_len = entity.attribute(attribute::core::CAPTURE_LENGTH).map_or(Time::ZERO, Time::from_seconds);
+        let mut time_range = rows.iter()
             .filter_map(|row| row.time_range())
             .reduce(|a, b| TimeRange::union(&a, &b))
             .unwrap_or(TimeRange::ZERO);
+        time_range.max = time_range.max.max(time_range.min + capture_len);
 
         let scale = Scale::new(
             time_x_range,

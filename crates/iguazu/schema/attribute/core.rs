@@ -20,6 +20,9 @@ pub const NUMBER_MAX: Attribute<f64> = Attribute::named("number:max");
 pub const NUMBER_SCALE: Attribute<f64> = Attribute::named("number:scale");
 pub const NUMBER_OFFSET: Attribute<f64> = Attribute::named("number:offset");
 
+/// Expected / requested capture length in seconds
+pub const CAPTURE_LENGTH: Attribute<f64> = Attribute::named("capture:length");
+
 #[derive(Clone, Copy, Debug, IntoStaticStr, EnumString, PartialEq, Eq)]
 #[strum(serialize_all = "snake_case")]
 pub enum Role {
