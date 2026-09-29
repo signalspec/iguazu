@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use crate::{Idx, IdxRange, schema::FieldRef, stream::{BlockDesc, StreamState}, summary::StoredSummary, view::ViewManager};
+use crate::{Idx, IdxRange, schema::FieldRef, stream::{BlockDesc, StreamState}, summary::{StoredSummary, SummaryLevel}, view::ViewManager};
 
 use super::IntView;
 
@@ -127,6 +127,15 @@ impl<'a> TraceView<'a> {
                 }
                 pos += 1;
             }
+        }
+
+        if pos < range.max {
+            // If data in visible range is not available, make a request to subscribe to updates
+            let _ = match summary.get(min_width_level) {
+                SummaryLevel::Base => self.base.get_u64(pos),
+                SummaryLevel::Level(s) => s.get_u64(pos >> min_width_level),
+                SummaryLevel::Above { last_level, last_view, .. } => last_view.get_u64(pos >> last_level),
+            };
         }
 
         if let Some(last_state) = last_state {
