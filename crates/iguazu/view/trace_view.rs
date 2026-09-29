@@ -38,7 +38,8 @@ impl<'a> TraceView<'a> {
         min_width: NonZeroU64,
         mut f: impl FnMut(IdxRange, TraceElement)
     ) {
-        let base_end = self.base.state().end;
+        let base_state = self.base.state();
+        let base_end = base_state.end;
         let mut pos = range.min;
 
         // Round down to the next-lower power of two
@@ -62,7 +63,9 @@ impl<'a> TraceView<'a> {
 
         if min_width_level >= summary.max_level() + 4 {
             // Not enough summary levels to avoid scanning too much, so wait for summary or give up
-            emit(pos, TraceElement::Loading);
+            if !base_state.streaming {
+                emit(pos, TraceElement::Loading);
+            }
             pos = scan_end;
         }
 
@@ -87,7 +90,9 @@ impl<'a> TraceView<'a> {
                         continue;
                     } else {
                         // This would require scanning too much, so wait for summary to be built
-                        emit(pos, TraceElement::Loading);
+                        if !base_state.streaming {
+                            emit(pos, TraceElement::Loading);
+                        }
                         pos = scan_end;
                         break 'scan;
                     }
