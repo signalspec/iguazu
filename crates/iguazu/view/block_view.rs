@@ -26,8 +26,9 @@ impl BlockView {
         self.waker.clone_from(waker);
     }
 
-    pub fn end(&mut self) {
+    pub fn end(&mut self) -> bool {
         self.blocks.get_mut().retain(|_, block| replace(&mut block.used, false));
+        !self.blocks.get_mut().is_empty()
     }
 
     pub fn get_block<'a>(&'a self, block_i: u64) -> &'a [u8] {

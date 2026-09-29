@@ -50,10 +50,7 @@ impl ViewManager {
     }
 
     pub fn end(&mut self) {
-        for (_, stream) in self.streams.as_mut().iter_mut() {
-            stream.end();
-        }
-        // TODO: clear stale streams
+        self.streams.as_mut().retain(|_, stream| stream.end());
     }
 }
 
