@@ -13,7 +13,6 @@ readme = "../../README.md"
 [dependencies]
 once-array.workspace = true
 num-traits.workspace = true
-num-complex.workspace = true
 log.workspace = true
 indexmap = { workspace = true, features = ["serde"] }
 hashbrown.workspace = true
@@ -23,7 +22,7 @@ bytemuck.workspace = true
 thiserror = "2.0.12"
 elsa = "1.11.2"
 async-executor.workspace = true
-futures-lite = "2.6.0"
+futures-lite.workspace = true
 async-trait = "0.1.88"
 lexical-core = { version = "1.0.5", optional = true }
 csv-core = { version = "0.1.12", optional = true }
@@ -31,7 +30,6 @@ clap = { workspace = true, optional = true, features = ["derive"] }
 strum = { version = "0.28", features = ["derive"] }
 ecow.workspace = true
 arrayvec = "0.7.6"
-atomic-waker = "1.1.2"
 slab = "0.4.11"
 url = "2.5.7"
 async-lock = "3.4.1"

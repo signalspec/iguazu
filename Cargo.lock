@@ -1524,7 +1524,6 @@ dependencies = [
  "async-executor",
  "async-lock",
  "async-trait",
- "atomic-waker",
  "blocking",
  "bytemuck",
  "clap",
@@ -1540,7 +1539,6 @@ dependencies = [
  "jiff",
  "lexical-core",
  "log",
- "num-complex",
  "num-traits",
  "once-array",
  "piper",
@@ -2116,15 +2114,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "num-complex"
-version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73f88a1307638156682bada9d7604135552957b7818057dcef22705b4d509495"
-dependencies = [
- "num-traits",
 ]
 
 [[package]]

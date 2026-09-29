@@ -15,7 +15,7 @@ async-executor.workspace = true
 clap = { workspace = true, features = ["derive"] }
 eframe = { workspace = true, default-features = false, features = ["default_fonts", "wgpu", "wayland"] }
 egui.workspace = true
-futures-lite = "2.6.0"
+futures-lite.workspace = true
 rfd = { version = "0.17.2", features = ["file-handle-inner"] }
 url = "2.5.7"
 wgpu = { workspace = true, features = ["webgl"] }
