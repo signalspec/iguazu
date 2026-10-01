@@ -10,7 +10,7 @@ pub mod config;
 use std::{any::{Any, TypeId}, cell::RefCell, collections::HashMap, future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
 use egui::{Id, Ui};
-use iguazu::{send::{Executor, NonWasmSend, SendFuture}, schema::{attribute::display::Layout, EntityStream}, storage::{Pool, Storage}, view::ViewManager};
+use iguazu::{io::IoError, schema::{EntityStream, attribute::display::Layout}, send::{Executor, NonWasmSend, SendFuture}, storage::{Pool, Storage}, view::{LoadingState, ViewManager}};
 use iguazu_egui_heatmap::HeatmapRenderer;
 pub use timeline::TimelineView;
 
@@ -71,6 +71,14 @@ impl ViewerContext {
     pub fn end(&mut self) {
         self.view_manager.end();
         self.frame_textures.get_mut().end();
+    }
+
+    pub fn loading_state(&mut self) -> LoadingState {
+        self.view_manager.loading_state()
+    }
+
+    pub fn view_errors(&mut self) -> Vec<Arc<IoError>> {
+        self.view_manager.errors()
     }
 
     pub fn pool(&self) -> &Arc<Pool> {

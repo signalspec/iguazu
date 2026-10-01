@@ -1,6 +1,6 @@
-use std::{cell::RefCell, collections::{BTreeMap, btree_map::Entry}, mem::{replace, transmute}, task::Waker};
+use std::{cell::RefCell, collections::{BTreeMap, btree_map::Entry}, mem::{replace, transmute}, sync::Arc, task::Waker};
 
-use crate::{storage::block::BlockState, stream::ArcStream};
+use crate::{io::IoError, storage::block::BlockState, stream::ArcStream};
 
 struct Block {
     state: BlockState,
@@ -29,6 +29,23 @@ impl BlockView {
     pub fn end(&mut self) -> bool {
         self.blocks.get_mut().retain(|_, block| replace(&mut block.used, false));
         !self.blocks.get_mut().is_empty()
+    }
+
+    pub fn loading_state(&self) -> LoadingState {
+        self.blocks.borrow().values().map(|block| match block.state {
+            BlockState::Error(_) => LoadingState::Error,
+            BlockState::Pending | BlockState::Partial(_) => LoadingState::Loading,
+            BlockState::Complete(_) | BlockState::End => LoadingState::Ready,
+        }).max().unwrap_or(LoadingState::Ready)
+    }
+
+    pub fn error(&self) -> Option<Arc<IoError>> {
+        self.blocks.borrow().values().find_map(|block| {
+            match &block.state {
+                BlockState::Error(err) => Some(err.clone()),
+                _ => None,
+            }
+        })
     }
 
     pub fn get_block<'a>(&'a self, block_i: u64) -> &'a [u8] {
@@ -63,4 +80,11 @@ impl BlockView {
         //   items in the map.
         unsafe { transmute::<&[u8], &'a [u8]>(bytes) }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
+pub enum LoadingState {
+    Ready,
+    Loading,
+    Error,
 }

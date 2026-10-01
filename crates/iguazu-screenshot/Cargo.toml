@@ -1,0 +1,23 @@
+[package]
+name = "iguazu-screenshot"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+homepage.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+iguazu = { workspace = true, features = ["clap"] }
+iguazu-egui.workspace = true
+async-executor.workspace = true
+clap = { workspace = true, features = ["derive"] }
+eframe = { workspace = true, default-features = false, features = ["default_fonts", "wgpu", "wayland"] }
+egui.workspace = true
+futures-lite.workspace = true
+wgpu = { workspace = true, features = ["webgl"] }
+tracing-subscriber = "0.3.16"
+image = "0.25.10"
+parking = "2.2.1"
+log.workspace = true

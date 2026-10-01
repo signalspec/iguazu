@@ -3,10 +3,10 @@ use std::{ sync::Arc, task::Waker};
 
 use elsa::sync::FrozenMap;
 
-use crate::{schema::{Entity, EntityStream}, stream::ArcStream, summary::{LiveSummaryMap, StoredSummary}};
+use crate::{io::IoError, schema::{Entity, EntityStream}, stream::ArcStream, summary::{LiveSummaryMap, StoredSummary}};
 
 mod block_view;
-pub use block_view::BlockView;
+pub use block_view::{BlockView, LoadingState};
 
 mod int_view;
 pub use int_view:: { IntView, LoadedChunkIter };
@@ -56,6 +56,14 @@ impl ViewManager {
 
     pub fn end(&mut self) {
         self.streams.as_mut().retain(|_, stream| stream.end());
+    }
+
+    pub fn loading_state(&mut self) -> LoadingState {
+        self.streams.as_mut().values().map(|stream| stream.loading_state()).max().unwrap_or(LoadingState::Ready)
+    }
+
+    pub fn errors(&mut self) -> Vec<Arc<IoError>> {
+        self.streams.as_mut().values_mut().filter_map(|stream| stream.error()).collect()
     }
 }
 

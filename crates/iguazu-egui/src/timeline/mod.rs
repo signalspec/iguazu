@@ -19,20 +19,11 @@ mod paint_ticks;
 mod scale;
 use scale::Scale;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TimelineState {
     /// Width of the entity name columns previous frame.
-    pub col_width: f32,
+    pub col_width: Option<f32>,
     pub visible_range: Option<TimeRange>,
-}
-
-impl Default for TimelineState {
-    fn default() -> Self {
-        Self {
-            col_width: 0.0,
-            visible_range: None,
-        }
-    }
 }
 
 impl TimelineState {
@@ -62,8 +53,13 @@ impl TimelineView {
 
         let rect = ui.max_rect();
 
+        let col_width = if let Some(col_width) = state.col_width { col_width } else {
+            ui.request_discard("timeline col_width");
+            0.0
+        };
+
         // x position of split between sidebar and data
-        let time_x_left = rect.left() + state.col_width;
+        let time_x_left = rect.left() + col_width;
 
         let x_margin = 20.0;
         let scrollbar_width = ui.spacing_mut().scroll.bar_outer_margin + ui.spacing_mut().scroll.bar_width;
@@ -158,11 +154,11 @@ impl TimelineView {
                     }
 
                     // measure sidebar width for next frame
-                    state.col_width = ui.min_rect().width();
+                    state.col_width = Some(ui.min_rect().width());
                     res
                 }).inner;
 
-            if state.col_width > 0.0 {
+            if state.col_width.is_some_and(|w| w > 0.0) {
                 // Paint a shadow between the names on the left
                 // and the data on the right:
                 let shadow_width = 30.0;
