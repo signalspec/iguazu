@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 use ecow::{EcoString, eco_format};
 use async_executor::Task;
 
@@ -7,7 +7,7 @@ use crate::ElementSize;
 use crate::schema::{Entity, EntityStream, Field, FieldKind, Ignored, attribute};
 use crate::storage::srzip::SrZipStream;
 use crate::stream::Stream;
-use crate::{io::{ReadableFile, zip::{load_zip_file, ZipEntry}}, schema::EntitySchema, storage::Pool};
+use crate::{io::{ReadableFile, zip::{load_zip_file, ZipEntry}}, schema::EntitySchema, storage::Pool, send::BoxFuture};
 
 use crate::config::Configurable;
 use super::{ImportError, Importer};
@@ -26,7 +26,7 @@ impl SrZipImporter {
 impl Configurable for SrZipImporter {}
 
 impl Importer for SrZipImporter {
-    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {
+    fn load_schema(&self) -> BoxFuture<'static, Result<EntitySchema, ImportError>> {
         let file = self.file.clone();
         Box::pin(async move {
             let (_, metadata) = load_metadata(file).await?;
@@ -34,7 +34,7 @@ impl Importer for SrZipImporter {
         })
     }
 
-    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>> {
+    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> BoxFuture<'static, Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> {
         let file = self.file.clone();
         Box::pin(async move {
             let (mut zip_entries, metadata) = load_metadata(file).await?;
@@ -256,7 +256,7 @@ fn find_chunks(zip_entries: &mut BTreeMap<EcoString, ZipEntry>, prefix: &str) ->
     }
 }
 
-#[cfg(all(test, feature = "fs"))]
+#[cfg(all(test, feature = "fs", not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use std::sync::Arc;
@@ -294,7 +294,7 @@ mod tests {
         }
 
         // Test `import`
-        let executor = Arc::new(async_executor::Executor::new());
+        let executor = Arc::new(crate::send::Executor::new());
         let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
         let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
         block_on(executor.run(completion)).expect("import completion failed");
@@ -327,7 +327,7 @@ mod tests {
 
         let importer = SrZipImporter::new(file);
 
-        let executor = Arc::new(async_executor::Executor::new());
+        let executor = Arc::new(crate::send::Executor::new());
         let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
         let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
         block_on(executor.run(completion)).expect("import completion failed");
@@ -362,7 +362,7 @@ mod tests {
         let importer = SrZipImporter::new(file);
         let _schema = block_on(importer.load_schema()).expect("failed to load schema");
 
-        let executor = Arc::new(async_executor::Executor::new());
+        let executor = Arc::new(crate::send::Executor::new());
         let pool = Arc::new(Pool::new(executor.clone(), 8 * 1024 * 1024));
         let (entity, completion) = block_on(importer.import(None, pool)).expect("failed to import");
         block_on(executor.run(completion)).expect("import completion failed");

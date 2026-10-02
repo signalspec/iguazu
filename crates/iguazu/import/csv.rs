@@ -2,14 +2,14 @@ use std::iter;
 use std::{pin::Pin, sync::Arc};
 use csv_core::{ReadRecordResult, ReaderBuilder};
 use ecow::{EcoString, EcoVec, eco_format};
-use futures_lite::{AsyncBufRead, AsyncBufReadExt};
+use futures_lite::AsyncBufReadExt;
 use indexmap::IndexMap;
 use async_executor::Task;
 
 use crate::io::IoError;
 use crate::schema::{Entity, EntityStream, attribute};
 use crate::storage::Pool;
-use crate::{io::ReadableFile, schema::EntitySchema};
+use crate::{io::ReadableFile, schema::EntitySchema, send::{BoxFuture, SendAsyncBufRead}};
 use crate::config::{Configurable, OptionDescription};
 use super::{ImportError, Importer, column_parser::{ ColumnParser, TypeInfer }};
 
@@ -286,14 +286,15 @@ impl Configurable for CsvImporter {
 }
 
 impl Importer for CsvImporter {
-    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, super::ImportError>> + Send + '_>> {
+    fn load_schema(&self) -> BoxFuture<'static, Result<EntitySchema, ImportError>> {
+        let importer = self.clone();
         Box::pin(async move {
-            let columns = self.infer_types().await?;
+            let columns = importer.infer_types().await?;
             Ok(columns.schema())
         })
     }
 
-    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>> {
+    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> BoxFuture<'static, Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> {
         let importer = self.clone();
         Box::pin(async move{
             let schema = if let Some(schema) = schema {
@@ -364,14 +365,14 @@ impl CsvHandler for ColumnsHandler<'_> {
 
 struct CsvParser {
     file: EcoString,
-    source: Pin<Box<dyn AsyncBufRead + Send>>,
+    source: Pin<Box<dyn SendAsyncBufRead>>,
     reader: csv_core::Reader,
     out: Vec<u8>,
     ends: Vec<usize>,
 }
 
 impl CsvParser {
-    fn new(file: EcoString, source: Pin<Box<dyn AsyncBufRead + Send>>, reader: csv_core::Reader) -> Self {
+    fn new(file: EcoString, source: Pin<Box<dyn SendAsyncBufRead>>, reader: csv_core::Reader) -> Self {
         CsvParser {
             file,
             source,

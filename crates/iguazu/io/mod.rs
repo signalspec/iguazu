@@ -2,7 +2,9 @@
 use std::{fmt::{Display, Debug}, io, pin::Pin, sync::Arc};
 
 use ecow::{EcoString, eco_format};
-use futures_lite::{AsyncBufRead, AsyncReadExt, AsyncWrite};
+use futures_lite::AsyncReadExt;
+
+use crate::send::{BoxFuture, NonWasmSend, NonWasmSync, SendAsyncBufRead, SendAsyncWrite};
 
 mod mem;
 
@@ -23,7 +25,7 @@ pub use url::{RelativePath, BadRelativePath};
 #[cfg(feature = "srzip")]
 pub(crate) mod zip;
 
-pub trait ReadableFile: Send + Sync + 'static {
+pub trait ReadableFile: NonWasmSend + NonWasmSync + 'static {
     /// Description of the file. This will be a URL, a filename, or a `<placeholder>`.
     fn describe(&self) -> EcoString {
         self.url().map(|u| u.as_str().into()).unwrap_or_else(|| self.filename().into())
@@ -36,7 +38,7 @@ pub trait ReadableFile: Send + Sync + 'static {
     fn url(&self) -> Option<Url>;
 
     /// Open a file adjacent to this one
-    fn relative(&self, _path: &RelativePath) -> Pin<Box<dyn Future<Output = Result<Arc<dyn ReadableFile>, IoError>> + Send + Sync>> {
+    fn relative(&self, _path: &RelativePath) -> BoxFuture<'_, Result<Arc<dyn ReadableFile>, IoError>> {
         let describe = self.describe();
         Box::pin(async move {
             Err(IoError::new(eco_format!("could not open file by relative path"), Some(describe), Some(io::ErrorKind::Unsupported)))
@@ -44,15 +46,15 @@ pub trait ReadableFile: Send + Sync + 'static {
     }
 
     /// Get the length of the file
-    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>>;
+    fn get_len(self: Arc<Self>) -> BoxFuture<'static, Result<u64, IoError>>;
 
     /// Read a chunk of the file
-    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>>;
+    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> BoxFuture<'static, Result<Vec<u8>, IoError>>;
 
     /// Read a chunk at the end of the file, also returning the total size
     ///
     /// Some backends, such as HTTP, can do this in a single request.
-    fn read_at_end(self: Arc<Self>, len: usize) -> Pin<Box<dyn Future<Output = Result<(Vec<u8>, u64), IoError>> + Send + Sync>> {
+    fn read_at_end(self: Arc<Self>, len: usize) -> BoxFuture<'static, Result<(Vec<u8>, u64), IoError>> {
         Box::pin(async move {
             let total_len = self.clone().get_len().await?;
             let offset = total_len.saturating_sub(len as u64);
@@ -62,7 +64,7 @@ pub trait ReadableFile: Send + Sync + 'static {
     }
 
     /// Read the entire file into a `Vec<u8>`
-    fn read_all(self: Arc<Self>, limit: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+    fn read_all(self: Arc<Self>, limit: usize) -> BoxFuture<'static, Result<Vec<u8>, IoError>> {
         Box::pin(async move {
             let mut take = self.clone().stream(0, None).await?.take(limit as u64);
             let mut buf = Vec::new();
@@ -77,17 +79,17 @@ pub trait ReadableFile: Send + Sync + 'static {
     }
 
     /// Create a stream for reading the file
-    fn stream(self: Arc<Self>, offset: u64, size: Option<u64>) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>>;
+    fn stream(self: Arc<Self>, offset: u64, size: Option<u64>) -> BoxFuture<'static, Result<Pin<Box<dyn SendAsyncBufRead>>, IoError>>;
 }
 
-pub trait WritableFile: Send + Sync + 'static {
+pub trait WritableFile: NonWasmSend + NonWasmSync + 'static {
     fn url(&self) -> Option<Url>;
 
     /// Get a `WritableFile` adjacent to this one
     fn relative(&self, path: &RelativePath) -> Arc<dyn WritableFile>;
 
     /// Create the file and get an `AsyncWrite`
-    fn writer(&self) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncWrite + Send>>, io::Error>> + Send + Sync>>;
+    fn writer(&self) -> BoxFuture<'_, Result<Pin<Box<dyn SendAsyncWrite>>, io::Error>>;
 }
 
 #[derive(Debug, Clone)]

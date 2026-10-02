@@ -2,9 +2,9 @@
 use std::{any::Any, fmt::Debug, future::poll_fn, sync::Arc, task::{Context, Poll, Waker, ready}};
 use once_array::OnceArrayWriter;
 
-use crate::{ElementSize, Idx, io::IoError, storage::block::BlockState};
+use crate::{ElementSize, Idx, io::IoError, storage::block::BlockState, send::{NonWasmSend, NonWasmSync}};
 
-pub trait Stream: Send + Sync + Debug + Any {
+pub trait Stream: NonWasmSend + NonWasmSync + Debug + Any {
     fn desc(&self) -> BlockDesc;
 
     fn state(&self) -> StreamState;
@@ -49,7 +49,7 @@ impl<'a> IterState<'a> {
     }
 }
 
-pub trait StreamIter: Send {
+pub trait StreamIter: NonWasmSend {
     fn desc(&self) -> BlockDesc;
 
     fn poll_next(&mut self, cx: &mut Context) -> IterState<'_>;

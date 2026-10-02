@@ -16,10 +16,10 @@ pub mod fmt;
 
 pub mod json_virtual;
 
-use crate::{ElementSize, schema::attribute::Attribute, stream::ArcStream, summary::{LiveSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap}};
+use crate::{ElementSize, schema::attribute::Attribute, send::{NonWasmSend, NonWasmSync}, stream::ArcStream, summary::{LiveSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap}};
 
 /// Types that can be used as the data of an `Entity`.
-pub trait EntityData: Sized + Clone + Send + Sync + 'static {
+pub trait EntityData: Sized + Clone + NonWasmSend + NonWasmSync + 'static {
     fn skip_serialize(&self) -> bool { false }
 }
 
@@ -469,17 +469,17 @@ impl<D, S> Entity<D, S> {
 impl<D: EntityData> Entity<D, StoredSummaryMap<D>> {
     pub async fn try_map_data_async<E, F, R>(&self, f: &F) -> Result<EntityStream, E>
     where
-        D: Send + Sync + 'static,
+        D: NonWasmSend + NonWasmSync + 'static,
         E: Send + 'static,
-        F: Fn(&D) -> R + Send + Sync + Clone,
-        R: Future<Output = Result<ArcStream, E>> + Send,
+        F: Fn(&D) -> R + NonWasmSend + NonWasmSync + Clone,
+        R: Future<Output = Result<ArcStream, E>> + NonWasmSend,
     {
         async fn map_summaries<D, E, F, R>(summaries: &StoredSummaryMap<D>, f: &F) -> Result<LiveSummaryMap, E>
         where
-            D: Send + Sync + 'static,
+            D: NonWasmSend + NonWasmSync + 'static,
             E: Send + 'static,
-            F: Fn(&D) -> R + Send + Sync + Clone,
-            R: Future<Output = Result<ArcStream, E>> + Send
+            F: Fn(&D) -> R + NonWasmSend + NonWasmSync + Clone,
+            R: Future<Output = Result<ArcStream, E>> + NonWasmSend
         {
             let summaries = futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async move {
                 let levels = futures_util::future::try_join_all(v.levels.iter().map(f)).await?;
@@ -621,17 +621,17 @@ impl EntityStream {
 
     pub async fn try_map_data_async<D, E, F, R>(&self, f: &F) -> Result<Entity<D, StoredSummaryMap<D>>, E>
     where
-        D: Send + Sync + 'static,
-        E: Send + 'static,
-        F: Fn(ArcStream) -> R + Send + Sync + Clone,
-        R: Future<Output = Result<D, E>> + Send,
+        D: NonWasmSend + NonWasmSync + 'static,
+        E: NonWasmSend + 'static,
+        F: Fn(ArcStream) -> R + NonWasmSend + NonWasmSync + Clone,
+        R: Future<Output = Result<D, E>> + NonWasmSend,
     {
         async fn map_summaries<D, E, F, R>(summaries: &LiveSummaryMap, f: &F) -> Result<StoredSummaryMap<D>, E>
         where
-            D: Send + Sync + 'static,
-            E: Send + 'static,
-            F: Fn(ArcStream) -> R + Send + Sync + Clone,
-            R: Future<Output = Result<D, E>> + Send
+            D: NonWasmSend + NonWasmSync + 'static,
+            E: NonWasmSend + 'static,
+            F: Fn(ArcStream) -> R + NonWasmSend + NonWasmSync + Clone,
+            R: Future<Output = Result<D, E>> + NonWasmSend
         {
             let summaries = futures_util::future::try_join_all(summaries.iter().map(|(k, v)| async move {
                 let level_futures = v.async_iter().map(|s| f(s)).collect::<Vec<_>>().await;

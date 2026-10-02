@@ -1,11 +1,10 @@
 use std::{future::poll_fn, ops::{BitAnd, BitOr}, sync::Arc, task::Poll};
 
-use async_executor::Executor;
 use ecow::EcoString;
 use futures_lite::ready;
 use indexmap::map::Entry;
 use num_traits::Float;
-use crate::{Element, ElementSize, schema::{Entity, EntityStream, Field, FieldKind}, storage::Storage, stream::{ArcStream, StreamIter, StreamWriter}, summary::{LiveSummary, LiveSummaryMap, LiveSummaryWriter}, util::task_set::{TaskSet, TaskSetBuilder}};
+use crate::{Element, ElementSize, schema::{Entity, EntityStream, Field, FieldKind}, send::{Executor, NonWasmSend, NonWasmSync}, storage::Storage, stream::{ArcStream, StreamIter, StreamWriter}, summary::{LiveSummary, LiveSummaryMap, LiveSummaryWriter}, util::task_set::{TaskSet, TaskSetBuilder}};
 
 impl EntityStream {
     pub fn build_summaries(&mut self, executor: &Arc<Executor<'static>>, storage: &Arc<dyn Storage>) -> TaskSet<String> {
@@ -165,8 +164,8 @@ fn make_next_summary_level<T: Element + Default, const N: usize, const R: usize>
     key: &'static str,
     level: u8,
     mut levels: SummaryLevelWriter,
-    f: impl FnMut([T; N]) -> [T; R] + Copy + Send + Sync + 'static
-) -> impl Future<Output = Result<(), String>> + Send + 'static { async move {
+    f: impl FnMut([T; N]) -> [T; R] + Copy + NonWasmSend + NonWasmSync + 'static
+) -> impl Future<Output = Result<(), String>> + NonWasmSend + 'static { async move {
     let mut src_iter = src.iter();
 
     let mut output = levels.create(T::ELEMENT_SIZE);
@@ -202,7 +201,7 @@ fn poll_process_summary<T: Element + Default, T2: Element + Default, const N: us
     cx: &mut std::task::Context<'_>,
     src_iter: &mut Box<dyn StreamIter>,
     output: &mut Box<dyn StreamWriter>,
-    mut f: impl FnMut([T; N]) -> [T2; R] + Copy + Send + Sync + 'static,
+    mut f: impl FnMut([T; N]) -> [T2; R] + Copy + NonWasmSend + NonWasmSync + 'static,
 ) -> Poll<Result<(), String>> {
     loop {
         let r = ready!(src_iter.poll_next(cx).at_least(N * size_of::<T>()));

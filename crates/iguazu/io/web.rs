@@ -16,6 +16,7 @@ use web_sys::{
 
 use super::ReadableFile;
 use crate::io::IoError;
+use crate::send::{BoxFuture, SendAsyncBufRead};
 
 pub struct WebFile {
     file: SendWrapper<web_sys::File>,
@@ -42,13 +43,13 @@ impl ReadableFile for WebFile {
         None
     }
 
-    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>> {
+    fn get_len(self: Arc<Self>) -> BoxFuture<'static, Result<u64, IoError>> {
         Box::pin(async move {
             Ok(self.file.size() as u64)
         })
     }
 
-    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> BoxFuture<'static, Result<Vec<u8>, IoError>> {
         Box::pin(async move {
             let slice_blob = SendWrapper::new(
                 self.file.slice_with_f64_and_f64(offset as f64, (offset + len as u64) as f64).unwrap()
@@ -63,14 +64,14 @@ impl ReadableFile for WebFile {
         })
     }
 
-    fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>> {
+    fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> BoxFuture<'static, Result<Pin<Box<dyn SendAsyncBufRead>>, IoError>> {
         Box::pin(async move {
             let stream = match (start, len) {
                 (0, None) => self.file.stream(),
                 (start, None) => self.file.slice_with_f64(start as f64).unwrap().stream(),
                 (start, Some(len)) => self.file.slice_with_f64_and_f64(start as f64, (start + len) as f64).unwrap().stream(),
             };
-            Ok(Box::pin(ReadableStreamReader::new(stream)) as Pin<Box<dyn AsyncBufRead + Send + Sync>>)
+            Ok(Box::pin(ReadableStreamReader::new(stream)) as Pin<Box<dyn SendAsyncBufRead>>)
         })
     }
 }
@@ -129,14 +130,14 @@ impl ReadableFile for WebFetchFile {
         Some(self.url.clone())
     }
 
-    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>> {
+    fn get_len(self: Arc<Self>) -> BoxFuture<'static, Result<u64, IoError>> {
         Box::pin(async move {
             let response = self.fetch("HEAD", None).await?;
             Ok(response.headers().get("Content-Length").ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0))
         })
     }
 
-    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> BoxFuture<'static, Result<Vec<u8>, IoError>> {
         Box::pin(async move {
             let array_buffer_promise = {
                 let response = self.fetch_range(offset, Some(len as u64)).await?;
@@ -154,7 +155,7 @@ impl ReadableFile for WebFetchFile {
         })
     }
 
-    fn read_at_end(self: Arc<Self>, size: usize) -> Pin<Box<dyn Future<Output = Result<(Vec<u8>, u64), IoError>> + Send + Sync>> {
+    fn read_at_end(self: Arc<Self>, size: usize) -> BoxFuture<'static, Result<(Vec<u8>, u64), IoError>> {
         Box::pin(async move {
             let (array_buffer_promise, total_size) = {
                 let response = self.fetch("GET", Some(&format!("bytes=-{}", size))).await?;
@@ -181,11 +182,11 @@ impl ReadableFile for WebFetchFile {
         })
     }
 
-    fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>> {
+    fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> BoxFuture<'static, Result<Pin<Box<dyn SendAsyncBufRead>>, IoError>> {
         Box::pin(async move {
             let response = self.fetch_range(start, len).await?;
             let stream = response.body().ok_or_else(|| IoError::new(eco_format!("response has no body"), Some(self.describe()), None))?;
-            Ok(Box::pin(ReadableStreamReader::new(stream)) as Pin<Box<dyn AsyncBufRead + Send + Sync>>)
+            Ok(Box::pin(ReadableStreamReader::new(stream)) as Pin<Box<dyn SendAsyncBufRead>>)
         })
     }
 }

@@ -1,10 +1,9 @@
 //! Data export
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
-use async_executor::Executor;
 use thiserror::Error;
 
-use crate::{io::{IoError, WritableFile}, schema::EntityStream};
+use crate::{io::{IoError, WritableFile}, schema::EntityStream, send::{BoxFuture, Executor}};
 
 mod json_virtual;
 mod flat_file;
@@ -36,11 +35,11 @@ pub struct ExportFormat {
     pub name: &'static str,
     pub description: &'static str,
     pub extension: &'static str,
-    pub export: fn (executor: Arc<Executor<'static>>, EntityStream, Box<dyn WritableFile>) -> Pin<Box<dyn Future<Output=Result<(), ExportError>> + Send>>,
+    pub export: fn (executor: Arc<Executor<'static>>, EntityStream, Box<dyn WritableFile>) -> BoxFuture<'static, Result<(), ExportError>>,
 }
 
 impl ExportFormat {
-    pub fn export(&self, file: Box<dyn WritableFile>, executor: Arc<Executor<'static>>, entity: EntityStream) -> Pin<Box<dyn Future<Output=Result<(), ExportError>> + Send>> {
+    pub fn export(&self, file: Box<dyn WritableFile>, executor: Arc<Executor<'static>>, entity: EntityStream) -> BoxFuture<'static, Result<(), ExportError>> {
         (self.export)(executor, entity, file)
     }
 }

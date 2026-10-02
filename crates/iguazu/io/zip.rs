@@ -1,9 +1,10 @@
 use std::{collections::BTreeMap, io::ErrorKind, mem::size_of, pin::Pin, sync::Arc};
 use async_compression::futures::bufread::DeflateDecoder;
 use ecow::EcoString;
-use futures_lite::{AsyncBufRead, AsyncRead, AsyncReadExt as _};
+use futures_lite::{AsyncRead, AsyncReadExt};
 
 use crate::io::{IoError, ReadableFile, ResultExt};
+use crate::send::{NonWasmSend, SendAsyncBufRead};
 
 pub struct EndOfCentralDirectoryRecord([u8; 22]);
 
@@ -69,8 +70,8 @@ pub struct ZipEntry {
 }
 
 pub enum UnzipReader {
-    Stored(Pin<Box<dyn AsyncBufRead + Send + Sync + 'static>>),
-    Deflate(DeflateDecoder<Pin<Box<dyn AsyncBufRead + Send + Sync + 'static>>>),
+    Stored(Pin<Box<dyn SendAsyncBufRead>>),
+    Deflate(DeflateDecoder<Pin<Box<dyn SendAsyncBufRead>>>),
 }
 
 impl AsyncRead for UnzipReader {
@@ -91,7 +92,7 @@ impl ZipEntry {
     pub fn name(&self) -> &EcoString { &self.name }
     pub fn uncompressed_size(&self) -> u64 { self.uncompressed_size }
 
-    pub fn reader(&self) -> impl Future<Output = Result<UnzipReader, IoError>> + Send + 'static {
+    pub fn reader(&self) -> impl Future<Output = Result<UnzipReader, IoError>> + NonWasmSend + 'static {
         let compression  = self.compression;
         let name_len = self.name.len();
         let compressed_size = self.compressed_size;

@@ -1,10 +1,10 @@
 //! Data import
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 use async_executor::Task;
 use thiserror::Error;
 
-use crate::{config::Configurable, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, storage::Pool};
+use crate::{config::Configurable, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, storage::Pool, send::{NonWasmSend, BoxFuture}};
 
 mod column_parser;
 
@@ -44,14 +44,14 @@ pub enum ImportError {
 /// An object that holds the import options and can perform the import.
 ///
 /// This is essentially a builder type for the import format, designed to be used behind `Box<dyn Importer>`.
-pub trait Importer: Configurable + Send {
+pub trait Importer: Configurable + NonWasmSend {
     /// Should we prompt for options?
     fn should_show_options(&self) -> bool {
         !self.options().is_empty()
     }
 
     /// Load or infer the schema from a file.
-    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>>;
+    fn load_schema(&self) -> BoxFuture<'static, Result<EntitySchema, ImportError>>;
 
     /// Import a file.
     ///
@@ -59,7 +59,7 @@ pub trait Importer: Configurable + Send {
     /// providing the [`EntityStream`] and a second future that resolves once
     /// the entire import is complete. Depending on the format, that may be
     /// immediately ready or may require reading and parsing the file.
-    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>>;
+    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> BoxFuture<'static, Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>>;
 
     /// The wrapped file
     fn file(&self) -> &Arc<dyn ReadableFile>;

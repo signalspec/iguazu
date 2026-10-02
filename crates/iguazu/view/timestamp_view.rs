@@ -231,12 +231,13 @@ impl Iterator for TimestampViewIter<'_, '_> {
 
 #[test]
 fn test_timestamp_view() {
-    use crate::storage::{MemoryStream, MemoryStorage};
-    use crate::schema::FieldKind;
     use std::sync::Arc;
-    use crate::storage::Storage;
-    use async_executor::Executor;
     use futures_lite::future::block_on;
+    use crate::{
+        storage::{Storage, MemoryStream, MemoryStorage},
+        schema::FieldKind,
+        send::Executor
+    };
 
     let executor = Arc::new(Executor::new());
     let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;

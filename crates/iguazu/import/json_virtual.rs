@@ -1,7 +1,7 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 use async_executor::Task;
 
-use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::{InlineData, StreamRef}}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream, Pool }, stream::ArcStream, summary::StoredSummaryMap};
+use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::{InlineData, StreamRef}}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream, Pool }, stream::ArcStream, summary::StoredSummaryMap, send::BoxFuture};
 
 use crate::config::Configurable;
 use super::{ImportError, Importer};
@@ -20,14 +20,14 @@ impl VirtualImporter {
 impl Configurable for VirtualImporter {}
 
 impl Importer for VirtualImporter {
-    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send + '_>> {
+    fn load_schema(&self) -> BoxFuture<'static, Result<EntitySchema, ImportError>> {
         let file = self.file.clone();
         Box::pin(async move {
             load(file).await.map(|schema| schema.schema())
         })
     }
 
-    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>> {
+    fn import(&self, _schema: Option<EntitySchema>, pool: Arc<Pool>) -> BoxFuture<'static, Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> {
         let file = self.file.clone();
         Box::pin(async move {
             let schema = load(file.clone()).await?;

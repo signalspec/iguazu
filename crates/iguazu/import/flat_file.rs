@@ -1,11 +1,11 @@
-use std::{pin::Pin, sync::Arc};
+use std::sync::Arc;
 use std::future;
 use async_executor::Task;
 
 use crate::ElementSize;
 use crate::config::{Configurable, OptionDescription};
 use crate::schema::{EntityStream, Field};
-use crate::{io::ReadableFile, schema::{EntitySchema, attribute}, storage::{Pool, FlatFileOpts, FlatFileStream}};
+use crate::{io::ReadableFile, schema::{EntitySchema, attribute}, storage::{Pool, FlatFileOpts, FlatFileStream}, send::BoxFuture};
 
 use super::{ImportError, Importer};
 
@@ -189,11 +189,11 @@ impl Configurable for FlatFileImporter {
 }
 
 impl Importer for FlatFileImporter {
-    fn load_schema(&self) -> Pin<Box<dyn Future<Output = Result<EntitySchema, ImportError>> + Send>> {
+    fn load_schema(&self) -> BoxFuture<'static, Result<EntitySchema, ImportError>> {
         Box::pin(future::ready(self.schema()))
     }
 
-    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> Pin<Box<dyn Future<Output = Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> + Send>> {
+    fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> BoxFuture<'static, Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> {
         let file = self.file.clone();
         let element = self.element;
         let opts = self.opts.clone();

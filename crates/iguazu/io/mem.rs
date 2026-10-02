@@ -4,8 +4,8 @@ use std::{
 
 use futures_lite::{AsyncBufRead, AsyncRead};
 
-use crate::io::IoError;
-use super::ReadableFile;
+use crate::io::{IoError, ReadableFile};
+use crate::send::{BoxFuture, SendAsyncBufRead};
 
 impl ReadableFile for Vec<u8> {
     fn filename(&self) -> &str {
@@ -16,13 +16,13 @@ impl ReadableFile for Vec<u8> {
         None
     }
 
-    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>> {
+    fn get_len(self: Arc<Self>) -> BoxFuture<'static, Result<u64, IoError>> {
         Box::pin(async move {
             Ok(self.len() as u64)
         })
     }
 
-    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> BoxFuture<'static, Result<Vec<u8>, IoError>> {
         Box::pin(async move {
             let Ok(offset) = usize::try_from(offset) else {
                 return Ok(Vec::new());
@@ -36,7 +36,7 @@ impl ReadableFile for Vec<u8> {
         self: Arc<Self>,
         offset: u64,
         size: Option<u64>,
-    ) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>> {
+    ) -> BoxFuture<'static, Result<Pin<Box<dyn SendAsyncBufRead>>, IoError>> {
         Box::pin(async move {
             let pos = offset.try_into().unwrap_or(usize::MAX);
             let end = pos
@@ -46,7 +46,7 @@ impl ReadableFile for Vec<u8> {
                 data: self,
                 pos,
                 end,
-            }) as Pin<Box<dyn AsyncBufRead + Send + Sync>>)
+            }) as Pin<Box<dyn SendAsyncBufRead>>)
         })
     }
 }

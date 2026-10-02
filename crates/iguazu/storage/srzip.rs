@@ -6,7 +6,7 @@ use itertools::{AllEqualValueError, Itertools};
 use once_array::OnceArray;
 
 use crate::{
-    ElementSize, import::ImportError, io::{IoError, zip::{UnzipReader, ZipEntry}}, storage::{BlockState, Pool, block::BlockCache}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState},
+    ElementSize, import::ImportError, io::{IoError, zip::{UnzipReader, ZipEntry}}, send::BoxFuture, storage::{BlockState, Pool, block::BlockCache}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState},
 };
 
 pub struct SrZipStream {
@@ -90,7 +90,7 @@ struct SrZipIter {
 
 enum SrZipIterState {
     Empty,
-    Loading(Pin<Box<dyn Future<Output = Result<UnzipReader, IoError>> + Send + 'static>>),
+    Loading(BoxFuture<'static, Result<UnzipReader, IoError>>),
     Reading(Pin<Box<UnzipReader>>),
     Error(IoError),
 }

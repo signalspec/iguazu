@@ -1,13 +1,22 @@
 /// Common code for the .izs (Iguazu Signal) file format
 use std::{io, mem, pin::Pin, sync::Arc};
 
-use async_executor::Executor;
-use futures_lite::{AsyncWrite, AsyncWriteExt};
+use futures_lite::AsyncWriteExt;
 use log::debug;
 use serde::{Deserialize, Serialize};
-
-use crate::{ElementSize, export::ExportError, import::ImportError, io::{IoError, ReadableFile}, schema::{Entity, EntityData, EntitySchema, EntityStream}, storage::{Pool, izs::IzsStream}, stream::{ArcStream, Stream}, summary::StoredSummaryMap};
 use async_lock::Mutex as AsyncMutex;
+
+use crate::{
+    ElementSize,
+    export::ExportError,
+    import::ImportError,
+    io::{IoError, ReadableFile},
+    schema::{Entity, EntityData, EntitySchema, EntityStream},
+    storage::{Pool, izs::IzsStream},
+    stream::{ArcStream, Stream},
+    summary::StoredSummaryMap,
+    send::{Executor, SendAsyncWrite},
+};
 
 pub(crate) const HEADER_MAGIC: [u8; 8] = [ 0x00, 0x21, 0x4a, 0xd9, 0xff, 0x90, 0xba, 0xed ];
 pub(crate) const FOOTER_MAGIC: [u8; 8] = [ 0x01, 0x21, 0x4a, 0xd9, 0x01, 0x90, 0xba, 0xed ];
@@ -165,14 +174,14 @@ impl IzsFile {
 }
 
 struct WriteState {
-    file: Pin<Box<dyn AsyncWrite + Send>>,
+    file: Pin<Box<dyn SendAsyncWrite>>,
     pos: u64,
     block_indexes: Vec<u8>,
     error: bool,
 }
 
 impl WriteState {
-    fn new(file: Pin<Box<dyn AsyncWrite + Send>>) -> Self {
+    fn new(file: Pin<Box<dyn SendAsyncWrite>>) -> Self {
         Self {
             file,
             pos: 0,
@@ -290,7 +299,7 @@ impl BlockIndex {
     }
 }
 
-pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<Box<dyn AsyncWrite + Send>>) -> Result<(), ExportError> {
+pub async fn export(ex: Arc<Executor<'static>>, entity: EntityStream, file: Pin<Box<dyn SendAsyncWrite>>) -> Result<(), ExportError> {
     let write = Arc::new(AsyncMutex::new(WriteState::new(file)));
 
     // Write header

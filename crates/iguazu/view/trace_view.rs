@@ -140,13 +140,12 @@ pub enum TraceElement {
 
 #[test]
 fn test_traceview() {
-    env_logger::builder().is_test(true).filter_module("iguazu", log::LevelFilter::Debug).try_init().ok();
-
-    use crate::{ stream::ArcStream, storage::Storage, schema::{Entity, FieldKind, EntityStream, Field}, storage::{MemoryStorage, MemoryStreamWriter} };
     use std::task::Waker;
     use std::sync::Arc;
-    use async_executor::Executor;
     use futures_lite::future::block_on;
+    use crate::{stream::ArcStream, schema::{Entity, FieldKind, EntityStream, Field}, storage::{Storage, MemoryStorage, MemoryStreamWriter}, send::Executor};
+
+    env_logger::builder().is_test(true).filter_module("iguazu", log::LevelFilter::Debug).try_init().ok();
 
     let mut vm = super::ViewManager::new();
     vm.begin(&Waker::noop().clone());
@@ -229,7 +228,7 @@ fn test_traceview_zoom() {
     use crate::{ schema::{Entity, EntityStream, FieldKind, Field}, storage::{MemoryStorage, MemoryStream, Storage} };
     use std::task::Waker;
     use std::sync::Arc;
-    use async_executor::Executor;
+    use crate::send::Executor;
     use futures_lite::future::block_on;
 
     env_logger::builder().is_test(true).filter_module("iguazu", log::LevelFilter::Debug).try_init().ok();

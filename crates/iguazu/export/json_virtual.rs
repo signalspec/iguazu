@@ -1,13 +1,12 @@
-use std::{any::Any, pin::Pin, sync::Arc};
+use std::{any::Any, sync::Arc};
 
-use async_executor::Executor;
 use futures_lite::AsyncWriteExt;
 use url::Url;
 
-use crate::{io::{RelativePath, WritableFile}, schema::{json_virtual::StreamRef, EntityStream}, stream::ArcStream};
+use crate::{io::{RelativePath, WritableFile}, schema::{json_virtual::StreamRef, EntityStream}, send::{BoxFuture, Executor}, stream::ArcStream};
 use super::ExportError;
 
-pub(crate) fn export(_executor: Arc<Executor<'static>>, entity: EntityStream, file: Box<dyn WritableFile>) -> Pin<Box<dyn Future<Output=Result<(), ExportError>> + Send>> {
+pub(crate) fn export(_executor: Arc<Executor<'static>>, entity: EntityStream, file: Box<dyn WritableFile>) -> BoxFuture<'static, Result<(), ExportError>> {
     Box::pin(async move {
         let url = file.url()
             .ok_or_else(|| ExportError::InvalidFile(format!("Cannot get URL of output file")))?;

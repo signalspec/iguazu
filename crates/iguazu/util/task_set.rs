@@ -1,7 +1,9 @@
 use std::{pin::Pin, sync::Arc, task::{Context, Poll}};
 
-use async_executor::{Executor, Task};
+use async_executor::Task;
 use futures_util::{FutureExt};
+
+use crate::send::{Executor, NonWasmSend, SendFuture};
 
 #[must_use]
 pub struct TaskSet<E> {
@@ -68,8 +70,8 @@ impl<E> TaskSetBuilder<E> {
 
     pub fn spawn<F>(&mut self, future: F)
     where
-        F: std::future::Future<Output = Result<(), E>> + Send + 'static,
-        E: Send + 'static,
+        F: std::future::Future<Output = Result<(), E>> + SendFuture + 'static,
+        E: NonWasmSend + 'static,
     {
         let task = self.executor.spawn(future);
         self.task_set.push(task);

@@ -9,8 +9,7 @@ mod config;
 
 use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
-use async_executor::Executor;
-use iguazu::{storage::{Pool, Storage}, view::ViewManager};
+use iguazu::{send::{Executor, NonWasmSend, SendFuture}, storage::{Pool, Storage}, view::ViewManager};
 pub use timeline::TimelineView;
 
 struct RepaintWaker {
@@ -69,8 +68,8 @@ impl ViewerContext {
 
     pub fn spawn<F>(&self, fut: F) -> async_executor::Task<F::Output>
     where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
+        F: SendFuture + 'static,
+        F::Output: NonWasmSend + 'static,
     {
         self.executor().spawn(fut)
     }

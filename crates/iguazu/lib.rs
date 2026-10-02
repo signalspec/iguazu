@@ -17,6 +17,7 @@ pub mod config;
 use std::range::Range;
 
 pub use element::{Element, ElementSize};
+pub use util::send;
 
 #[cfg(all(feature="clap", any(target_family = "unix", target_family = "windows")))]
 pub mod cli;

@@ -85,10 +85,9 @@ fn min_max_iter_min_max(mut iter: impl Iterator<Item = Option<f64>>) -> Option<(
 fn test_range_view() {
     env_logger::builder().is_test(true).filter_module("iguazu", log::LevelFilter::Debug).try_init().ok();
 
-    use crate::{ schema::{EntityStream, Field}, summary::LiveSummaryMap, storage::{MemoryStorage, MemoryStreamWriter, Storage}, stream::ArcStream };
+    use crate::{schema::{EntityStream, Field}, summary::LiveSummaryMap, storage::{MemoryStorage, MemoryStreamWriter, Storage}, stream::ArcStream, send::Executor};
     use std::task::Waker;
     use std::sync::Arc;
-    use async_executor::Executor;
     use futures_lite::future::block_on;
 
     let executor = Arc::new(Executor::new());

@@ -58,7 +58,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
-    let executor = Arc::new(async_executor::Executor::new());
+    let executor = Arc::new(iguazu::send::Executor::new());
     std::thread::spawn({
         let executor = executor.clone();
         move || {
@@ -126,7 +126,7 @@ fn main() {
     let url_params: Vec<_> = url::form_urlencoded::parse(query_string.trim_start_matches("?").as_bytes()).collect();
     let input_url = url_params.iter().find(|(key, _)| key == "url").and_then(|(_, value)| value.to_string().parse().ok());
 
-    let executor = Arc::new(async_executor::Executor::new());
+    let executor = Arc::new(iguazu::send::Executor::new());
     wasm_bindgen_futures::spawn_local({
         let executor = executor.clone();
         async move {

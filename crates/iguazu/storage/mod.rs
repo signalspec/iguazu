@@ -5,7 +5,6 @@ pub mod block;
 use block::{BlockState, BlockTask, CachePool};
 
 use std::{future::Future, sync::{Arc, Mutex, Weak}};
-use async_executor::Executor;
 use once_array::OnceArray;
 
 mod in_memory;
@@ -14,6 +13,7 @@ pub use in_memory::{ MemoryStorage, MemoryStream, MemoryStreamWriter };
 mod flat_file;
 pub use flat_file::{ FlatFileStream, FlatFileOpts };
 
+use crate::send::{Executor, NonWasmSend};
 use crate::{ElementSize, io::IoError, stream::{StreamWriter}};
 
 #[cfg(feature = "izs")]
@@ -45,7 +45,7 @@ impl Pool {
         }
     }
 
-    pub fn spawn_block_fetch(self: Arc<Self>, fut: impl Future<Output = Result<Arc<OnceArray<u8>>, IoError>> + Send + 'static) -> Arc<BlockTask> {
+    pub fn spawn_block_fetch(self: Arc<Self>, fut: impl Future<Output = Result<Arc<OnceArray<u8>>, IoError>> + NonWasmSend + 'static) -> Arc<BlockTask> {
         Arc::new_cyclic(move |t: &Weak<BlockTask>| {
             let t = t.clone();
             BlockTask::new(self.executor.clone().spawn(async move {

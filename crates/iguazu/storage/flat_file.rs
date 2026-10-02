@@ -1,11 +1,11 @@
 use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc, task::{Context, Poll, ready}};
 
 use ecow::{EcoString, eco_format};
-use futures_lite::{AsyncBufRead, AsyncRead, FutureExt};
+use futures_lite::FutureExt;
 use once_array::OnceArray;
 use url::Url;
 
-use crate::{ElementSize, import::ImportError, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState}};
+use crate::{ElementSize, import::ImportError, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, send::{BoxFuture, NonWasmSend, SendAsyncBufRead, SendAsyncRead}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState}};
 use crate::storage::{ Pool, block::BlockCache };
 
 use super::BlockState;
@@ -77,7 +77,7 @@ impl FlatFileStream {
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 
-    fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Arc<OnceArray<u8>>, IoError>> + Send + 'static {
+    fn load_block_uncached(&self, block: u64) -> impl Future<Output = Result<Arc<OnceArray<u8>>, IoError>> + NonWasmSend + 'static {
         log::debug!("Loading block {block} of {}", self.file.filename());
         let offset = block.saturating_mul(self.block_desc.size() as u64);
         let file_offset = self.offset.saturating_add(offset);
@@ -137,12 +137,12 @@ struct FileStreamIter {
 }
 
 enum FutureOutput {
-    Future(Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send>>),
-    Reader(Result<Pin<Box<dyn AsyncRead + Send + Sync>>, IoError>)
+    Future(BoxFuture<'static, Result<Pin<Box<dyn SendAsyncBufRead>>, IoError>>),
+    Reader(Result<Pin<Box<dyn SendAsyncRead>>, IoError>)
 }
 
 impl FutureOutput {
-    pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<&mut Result<Pin<Box<dyn AsyncRead + Send + Sync>>, IoError>> {
+    pub fn poll(&mut self, cx: &mut Context<'_>) -> Poll<&mut Result<Pin<Box<dyn SendAsyncRead>>, IoError>> {
         if let FutureOutput::Future(f) = self {
             let result = ready!(f.poll(cx));
             *self = FutureOutput::Reader(result.map(|r| r as _));
@@ -159,11 +159,11 @@ impl FileStreamIter {
     fn from_file(file: Arc<dyn ReadableFile>, offset: u64, block_desc: BlockDesc, count: Option<u64>) -> FileStreamIter {
         let size = count.map(|c| c * (block_desc.element_size.bytes() as u64));
         let reader_future = file.clone().stream(offset, size);
-        FileStreamIter::new(file.describe(), FutureOutput::Future(reader_future), block_desc)
+        FileStreamIter::new(file.describe(), FutureOutput::Future(Box::pin(reader_future)), block_desc)
     }
 
     #[cfg(test)]
-    fn from_reader(name: EcoString, reader: Pin<Box<dyn AsyncRead + Send + Sync>>, block_desc: BlockDesc) -> FileStreamIter {
+    fn from_reader(name: EcoString, reader: Pin<Box<dyn SendAsyncRead>>, block_desc: BlockDesc) -> FileStreamIter {
         FileStreamIter::new(name, FutureOutput::Reader(Ok(reader)), block_desc)
     }
 

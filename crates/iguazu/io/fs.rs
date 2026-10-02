@@ -11,10 +11,11 @@ use std::os::windows::fs::FileExt;
 
 use blocking::Task;
 use ecow::eco_format;
-use futures_lite::{AsyncBufRead, AsyncRead, AsyncWrite, FutureExt};
+use futures_lite::{AsyncBufRead, AsyncRead, FutureExt};
 use url::Url;
 
 use crate::io::{IoError, ResultExt, WritableFile};
+use crate::send::{BoxFuture, SendAsyncBufRead, SendAsyncWrite};
 
 use super::{ReadableFile, url::RelativePath};
 
@@ -62,11 +63,11 @@ impl ReadableFile for FsFile {
         Url::from_file_path(&self.path).ok()
     }
 
-    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>> {
+    fn get_len(self: Arc<Self>) -> BoxFuture<'static, Result<u64, IoError>> {
         Box::pin(blocking::unblock(move || { Ok(self.file.metadata().err_from_file("failed to get file length", &*self)?.len()) }))
     }
 
-    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> BoxFuture<'static, Result<Vec<u8>, IoError>> {
         Box::pin(blocking::unblock(move || {
             let mut buf = vec![0; len];
             let mut pos = 0;
@@ -85,13 +86,13 @@ impl ReadableFile for FsFile {
         }))
     }
 
-    fn stream(self: Arc<Self>, offset: u64, len: Option<u64>) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>> {
+    fn stream(self: Arc<Self>, offset: u64, len: Option<u64>) -> BoxFuture<'static, Result<Pin<Box<dyn SendAsyncBufRead>>, IoError>> {
         Box::pin(async move {
-            Ok(Box::pin(FsFileStream::new(self, offset, len)) as Pin<Box<dyn AsyncBufRead + Send + Sync>>)
+            Ok(Box::pin(FsFileStream::new(self, offset, len)) as Pin<Box<dyn SendAsyncBufRead>>)
         })
     }
 
-    fn relative(&self, path: &RelativePath) -> Pin<Box<dyn Future<Output = Result<Arc<dyn ReadableFile>, IoError>> + Send + Sync>> {
+    fn relative(&self, path: &RelativePath) -> BoxFuture<'_, Result<Arc<dyn ReadableFile>, IoError>> {
         let path = self.path.with_file_name(path);
         Box::pin(async move {
             Ok(Arc::new(Self::open(path).await?) as Arc<dyn ReadableFile>)
@@ -120,7 +121,7 @@ impl ReadableFile for StdinFile {
         None
     }
 
-    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>> {
+    fn get_len(self: Arc<Self>) -> BoxFuture<'static, Result<u64, IoError>> {
         Box::pin(async move {
             Err(IoError::new(
                 "cannot get length of stdin".into(),
@@ -130,7 +131,7 @@ impl ReadableFile for StdinFile {
         })
     }
 
-    fn read_at(self: Arc<Self>, _offset: u64, _len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+    fn read_at(self: Arc<Self>, _offset: u64, _len: usize) -> BoxFuture<'static, Result<Vec<u8>, IoError>> {
         Box::pin(async move {
             Err(IoError::new(
                 "cannot seek stdin to offset".into(),
@@ -140,7 +141,7 @@ impl ReadableFile for StdinFile {
         })
     }
 
-    fn stream(self: Arc<Self>, offset: u64, size: Option<u64>) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>> {
+    fn stream(self: Arc<Self>, offset: u64, size: Option<u64>) -> BoxFuture<'static, Result<Pin<Box<dyn SendAsyncBufRead>>, IoError>> {
         Box::pin(async move {
             if offset != 0 || size.is_some() {
                 return Err(IoError::new(
@@ -152,7 +153,7 @@ impl ReadableFile for StdinFile {
 
             let previously_used = self.used.swap(true, Ordering::Relaxed);
             if !previously_used {
-                Ok(Box::pin(FsFileStream::stdin()) as Pin<Box<dyn AsyncBufRead + Send + Sync>>)
+                Ok(Box::pin(FsFileStream::stdin()) as Pin<Box<dyn SendAsyncBufRead>>)
             } else {
                 Err(IoError::new(
                     "stdin can only be read once".into(),
@@ -163,7 +164,7 @@ impl ReadableFile for StdinFile {
         })
     }
 
-    fn relative(&self, _path: &RelativePath) -> Pin<Box<dyn Future<Output = Result<Arc<dyn ReadableFile>, IoError>> + Send + Sync>> {
+    fn relative(&self, _path: &RelativePath) -> BoxFuture<'_, Result<Arc<dyn ReadableFile>, IoError>> {
         Box::pin(async move {
             Err(IoError::new(
                 "cannot open relative path".into(),
@@ -275,11 +276,11 @@ impl WritableFile for FsWritableFile {
         Arc::new(Self::new_absolute(self.path.with_file_name(path)))
     }
 
-    fn writer(&self) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncWrite + Send>>, io::Error>> + Send + Sync>> {
+    fn writer(&self) -> BoxFuture<'_, Result<Pin<Box<dyn SendAsyncWrite>>, io::Error>> {
         let path = self.path.clone();
         Box::pin(blocking::unblock(move || {
             let file = File::create(&path)?;
-            Ok(Box::pin(blocking::Unblock::new(file)) as Pin<Box<dyn AsyncWrite + Send>>)
+            Ok(Box::pin(blocking::Unblock::new(file)) as Pin<Box<dyn SendAsyncWrite>>)
         }))
     }
 }
