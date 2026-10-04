@@ -7,7 +7,6 @@ use std::{
 
 use ecow::{EcoString, eco_format};
 use futures_lite::{AsyncBufRead, AsyncRead, FutureExt};
-use send_wrapper::SendWrapper;
 use url::Url;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
@@ -19,7 +18,7 @@ use crate::io::IoError;
 use crate::send::{BoxFuture, SendAsyncBufRead};
 
 pub struct WebFile {
-    file: SendWrapper<web_sys::File>,
+    file: web_sys::File,
     name: EcoString,
 }
 
@@ -28,7 +27,7 @@ impl WebFile {
     pub fn new(file: web_sys::File) -> WebFile {
         let name = file.name().into();
         WebFile {
-            file: SendWrapper::new(file),
+            file,
             name,
         }
     }
@@ -51,11 +50,9 @@ impl ReadableFile for WebFile {
 
     fn read_at(self: Arc<Self>, offset: u64, len: usize) -> BoxFuture<'static, Result<Vec<u8>, IoError>> {
         Box::pin(async move {
-            let slice_blob = SendWrapper::new(
-                self.file.slice_with_f64_and_f64(offset as f64, (offset + len as u64) as f64).unwrap()
-            );
+            let slice_blob = self.file.slice_with_f64_and_f64(offset as f64, (offset + len as u64) as f64).unwrap();
 
-            let array_buffer = SendWrapper::new(JsFuture::from(slice_blob.array_buffer()))
+            let array_buffer = JsFuture::from(slice_blob.array_buffer())
                 .await
                 .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.name.clone()), None))?;
 
@@ -98,7 +95,7 @@ impl WebFetchFile {
             web_sys::window().unwrap().fetch_with_request(&req)
         };
 
-        let response = SendWrapper::new(JsFuture::from(fetch_promise))
+        let response = JsFuture::from(fetch_promise)
             .await
             .map_err(|e| IoError::new(js_err(e), Some(self.describe()), None))?
             .unchecked_into::<web_sys::Response>();
@@ -146,7 +143,7 @@ impl ReadableFile for WebFetchFile {
                 })?
             };
 
-            let array_buffer = SendWrapper::new(JsFuture::from(array_buffer_promise))
+            let array_buffer = JsFuture::from(array_buffer_promise)
                 .await
                 .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.describe()), None))?;
 
@@ -172,7 +169,7 @@ impl ReadableFile for WebFetchFile {
                 (p, total_size)
             };
 
-            let array_buffer = SendWrapper::new(JsFuture::from(array_buffer_promise))
+            let array_buffer = JsFuture::from(array_buffer_promise)
                 .await
                 .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.describe()), None))?;
 
@@ -192,10 +189,10 @@ impl ReadableFile for WebFetchFile {
 }
 
 pub struct ReadableStreamReader {
-    reader: SendWrapper<ReadableStreamDefaultReader>,
+    reader: ReadableStreamDefaultReader,
     buf: Vec<u8>,
     buf_offset: usize,
-    future: Option<SendWrapper<JsFuture>>,
+    future: Option<JsFuture>,
     done: bool,
 }
 
@@ -205,7 +202,7 @@ impl ReadableStreamReader {
             .get_reader()
             .unchecked_into::<ReadableStreamDefaultReader>();
         ReadableStreamReader {
-            reader: SendWrapper::new(reader),
+            reader,
             buf: Vec::new(),
             buf_offset: 0,
             future: None,
@@ -238,7 +235,7 @@ impl AsyncBufRead for ReadableStreamReader {
         if this.buf_offset >= this.buf.len() && !this.done {
             let fut = this
                 .future
-                .get_or_insert_with(|| SendWrapper::new(JsFuture::from(this.reader.read())));
+                .get_or_insert_with(|| JsFuture::from(this.reader.read()));
             let read_result = ready!(fut.poll(cx))
                 .map_err(|e| {
                     io::Error::other(format!("Failed to read stream chunk: {}", js_err(e)))

@@ -56,7 +56,6 @@ piper = { version = "0.2.5", optional = true }
 [target.'cfg(target_arch="wasm32")'.dependencies]
 web-sys = { version = "0.3.82", features = ["File", "Blob", "ReadableStream", "ReadableStreamDefaultReader", "ReadableStreamReadResult", "Window", "Request", "RequestInit", "Response", "Headers"], optional = true }
 wasm-bindgen-futures = { version = "0.4.55",  optional = true }
-send_wrapper = { version = "0.6.0", features = ["futures"] }
 
 [dev-dependencies]
 env_logger.workspace = true

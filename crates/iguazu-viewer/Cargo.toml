@@ -28,4 +28,3 @@ tracing-subscriber = "0.3.16"
 wasm-bindgen-futures = "0.4.50"
 web-sys = "0.3.70"
 log = "0.4.27"
-send_wrapper = { version = "0.6.0", features = ["futures"] }

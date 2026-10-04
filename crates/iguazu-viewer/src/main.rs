@@ -326,7 +326,7 @@ impl App {
             let res = AsyncFileDialog::new().pick_file().await?;
 
             #[cfg(target_arch = "wasm32")]
-            let res = send_wrapper::SendWrapper::new(AsyncFileDialog::new().pick_file()).await?;
+            let res = AsyncFileDialog::new().pick_file().await?;
 
             #[cfg(not(target_arch = "wasm32"))]
             let file = iguazu::io::FsFile::open(res.inner().to_owned()).await;
