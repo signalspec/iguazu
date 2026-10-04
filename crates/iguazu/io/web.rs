@@ -5,7 +5,6 @@ use std::{
     task::{Poll, ready},
 };
 
-use async_trait::async_trait;
 use ecow::{EcoString, eco_format};
 use futures_lite::{AsyncBufRead, AsyncRead, FutureExt};
 use send_wrapper::SendWrapper;
@@ -34,7 +33,6 @@ impl WebFile {
     }
 }
 
-#[async_trait]
 impl ReadableFile for WebFile {
     fn filename(&self) -> &str {
         &self.name
@@ -44,30 +42,36 @@ impl ReadableFile for WebFile {
         None
     }
 
-    async fn get_len(self: Arc<Self>) -> Result<u64, IoError> {
-        Ok(self.file.size() as u64)
+    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            Ok(self.file.size() as u64)
+        })
     }
 
-    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, IoError> {
-        let slice_blob = SendWrapper::new(
-            self.file.slice_with_f64_and_f64(offset as f64, (offset + len as u64) as f64).unwrap()
-        );
+    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            let slice_blob = SendWrapper::new(
+                self.file.slice_with_f64_and_f64(offset as f64, (offset + len as u64) as f64).unwrap()
+            );
 
-        let array_buffer = SendWrapper::new(JsFuture::from(slice_blob.array_buffer()))
-            .await
-            .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.name.clone()), None))?;
+            let array_buffer = SendWrapper::new(JsFuture::from(slice_blob.array_buffer()))
+                .await
+                .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.name.clone()), None))?;
 
-        let uint8_array = Uint8Array::new(&array_buffer);
-        Ok(uint8_array.to_vec())
+            let uint8_array = Uint8Array::new(&array_buffer);
+            Ok(uint8_array.to_vec())
+        })
     }
 
-    async fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError> {
-        let stream = match (start, len) {
-            (0, None) => self.file.stream(),
-            (start, None) => self.file.slice_with_f64(start as f64).unwrap().stream(),
-            (start, Some(len)) => self.file.slice_with_f64_and_f64(start as f64, (start + len) as f64).unwrap().stream(),
-        };
-        Ok(Box::pin(ReadableStreamReader::new(stream)))
+    fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            let stream = match (start, len) {
+                (0, None) => self.file.stream(),
+                (start, None) => self.file.slice_with_f64(start as f64).unwrap().stream(),
+                (start, Some(len)) => self.file.slice_with_f64_and_f64(start as f64, (start + len) as f64).unwrap().stream(),
+            };
+            Ok(Box::pin(ReadableStreamReader::new(stream)) as Pin<Box<dyn AsyncBufRead + Send + Sync>>)
+        })
     }
 }
 
@@ -116,7 +120,6 @@ impl WebFetchFile {
     }
 }
 
-#[async_trait]
 impl ReadableFile for WebFetchFile {
     fn filename(&self) -> &str {
         self.url.path_segments().and_then(|segments| segments.last()).unwrap_or("<unnamed>")
@@ -126,56 +129,64 @@ impl ReadableFile for WebFetchFile {
         Some(self.url.clone())
     }
 
-    async fn get_len(self: Arc<Self>) -> Result<u64, IoError> {
-        let response = self.fetch("HEAD", None).await?;
-        Ok(response.headers().get("Content-Length").ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0))
+    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            let response = self.fetch("HEAD", None).await?;
+            Ok(response.headers().get("Content-Length").ok().flatten().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0))
+        })
     }
 
-    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, IoError> {
-        let array_buffer_promise = {
-            let response = self.fetch_range(offset, Some(len as u64)).await?;
-            response.array_buffer().map_err(|e| {
-                IoError::new(eco_format!("failed to get array buffer promise: {}", js_err(e)), Some(self.describe()), None)
-            })?
-        };
+    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            let array_buffer_promise = {
+                let response = self.fetch_range(offset, Some(len as u64)).await?;
+                response.array_buffer().map_err(|e| {
+                    IoError::new(eco_format!("failed to get array buffer promise: {}", js_err(e)), Some(self.describe()), None)
+                })?
+            };
 
-        let array_buffer = SendWrapper::new(JsFuture::from(array_buffer_promise))
-            .await
-            .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.describe()), None))?;
+            let array_buffer = SendWrapper::new(JsFuture::from(array_buffer_promise))
+                .await
+                .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.describe()), None))?;
 
-        let uint8_array = Uint8Array::new(&array_buffer);
-        Ok(uint8_array.to_vec())
+            let uint8_array = Uint8Array::new(&array_buffer);
+            Ok(uint8_array.to_vec())
+        })
     }
 
-    async fn read_at_end(self: Arc<Self>, size: usize) -> Result<(Vec<u8>, u64), IoError> {
-        let (array_buffer_promise, total_size) = {
-            let response = self.fetch("GET", Some(&format!("bytes=-{}", size))).await?;
-            let content_range = response.headers().get("Content-Range").ok().flatten()
-                .ok_or_else(|| IoError::new(eco_format!("no Content-Range in response"), Some(self.describe()), None))?;
+    fn read_at_end(self: Arc<Self>, size: usize) -> Pin<Box<dyn Future<Output = Result<(Vec<u8>, u64), IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            let (array_buffer_promise, total_size) = {
+                let response = self.fetch("GET", Some(&format!("bytes=-{}", size))).await?;
+                let content_range = response.headers().get("Content-Range").ok().flatten()
+                    .ok_or_else(|| IoError::new(eco_format!("no Content-Range in response"), Some(self.describe()), None))?;
 
-            let total_size = parse_content_range_total(&content_range)
-                .ok_or_else(|| IoError::new(eco_format!("invalid Content-Range header: `{content_range}`"), Some(self.describe()), None))?;
+                let total_size = parse_content_range_total(&content_range)
+                    .ok_or_else(|| IoError::new(eco_format!("invalid Content-Range header: `{content_range}`"), Some(self.describe()), None))?;
 
-            let p = response.array_buffer().map_err(|e| {
-                IoError::new(eco_format!("failed to get array buffer promise: {}", js_err(e)), Some(self.describe()), None)
-            })?;
+                let p = response.array_buffer().map_err(|e| {
+                    IoError::new(eco_format!("failed to get array buffer promise: {}", js_err(e)), Some(self.describe()), None)
+                })?;
 
-            (p, total_size)
-        };
+                (p, total_size)
+            };
 
-        let array_buffer = SendWrapper::new(JsFuture::from(array_buffer_promise))
-            .await
-            .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.describe()), None))?;
+            let array_buffer = SendWrapper::new(JsFuture::from(array_buffer_promise))
+                .await
+                .map_err(|e| IoError::new(eco_format!("failed to get array buffer: {}", js_err(e)), Some(self.describe()), None))?;
 
-        let uint8_array = Uint8Array::new(&array_buffer);
+            let uint8_array = Uint8Array::new(&array_buffer);
 
-        Ok((uint8_array.to_vec(), total_size))
+            Ok((uint8_array.to_vec(), total_size))
+        })
     }
 
-    async fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError> {
-        let response = self.fetch_range(start, len).await?;
-        let stream = response.body().ok_or_else(|| IoError::new(eco_format!("response has no body"), Some(self.describe()), None))?;
-        Ok(Box::pin(ReadableStreamReader::new(stream)))
+    fn stream(self: Arc<Self>, start: u64, len: Option<u64>) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            let response = self.fetch_range(start, len).await?;
+            let stream = response.body().ok_or_else(|| IoError::new(eco_format!("response has no body"), Some(self.describe()), None))?;
+            Ok(Box::pin(ReadableStreamReader::new(stream)) as Pin<Box<dyn AsyncBufRead + Send + Sync>>)
+        })
     }
 }
 

@@ -2,14 +2,11 @@ use std::{
     io, pin::Pin, sync::Arc, task::{Context, Poll}
 };
 
-use async_trait::async_trait;
 use futures_lite::{AsyncBufRead, AsyncRead};
 
 use crate::io::IoError;
-
 use super::ReadableFile;
 
-#[async_trait]
 impl ReadableFile for Vec<u8> {
     fn filename(&self) -> &str {
         "<memory>"
@@ -19,32 +16,38 @@ impl ReadableFile for Vec<u8> {
         None
     }
 
-    async fn get_len(self: Arc<Self>) -> Result<u64, IoError> {
-        Ok(self.len() as u64)
+    fn get_len(self: Arc<Self>) -> Pin<Box<dyn Future<Output = Result<u64, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            Ok(self.len() as u64)
+        })
     }
 
-    async fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Result<Vec<u8>, IoError> {
-        let Ok(offset) = usize::try_from(offset) else {
-            return Ok(Vec::new());
-        };
-        let end = offset.saturating_add(len).min(self.len());
-        Ok(self.get(offset..end).unwrap_or(&[]).to_vec())
+    fn read_at(self: Arc<Self>, offset: u64, len: usize) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            let Ok(offset) = usize::try_from(offset) else {
+                return Ok(Vec::new());
+            };
+            let end = offset.saturating_add(len).min(self.len());
+            Ok(self.get(offset..end).unwrap_or(&[]).to_vec())
+        })
     }
 
-    async fn stream(
+    fn stream(
         self: Arc<Self>,
         offset: u64,
         size: Option<u64>,
-    ) -> Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError> {
-        let pos = offset.try_into().unwrap_or(usize::MAX);
-        let end = pos
-            .saturating_add(size.unwrap_or(u64::MAX).try_into().unwrap_or(usize::MAX))
-            .min(self.len());
-        Ok(Box::pin(Cursor {
-            data: self,
-            pos,
-            end,
-        }))
+    ) -> Pin<Box<dyn Future<Output = Result<Pin<Box<dyn AsyncBufRead + Send + Sync>>, IoError>> + Send + Sync>> {
+        Box::pin(async move {
+            let pos = offset.try_into().unwrap_or(usize::MAX);
+            let end = pos
+                .saturating_add(size.unwrap_or(u64::MAX).try_into().unwrap_or(usize::MAX))
+                .min(self.len());
+            Ok(Box::pin(Cursor {
+                data: self,
+                pos,
+                end,
+            }) as Pin<Box<dyn AsyncBufRead + Send + Sync>>)
+        })
     }
 }
 

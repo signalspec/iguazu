@@ -23,7 +23,6 @@ thiserror = "2.0.12"
 elsa = "1.11.2"
 async-executor.workspace = true
 futures-lite.workspace = true
-async-trait = "0.1.88"
 lexical-core = { version = "1.0.5", optional = true }
 csv-core = { version = "0.1.12", optional = true }
 clap = { workspace = true, optional = true, features = ["derive"] }
