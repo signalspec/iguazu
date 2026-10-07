@@ -118,10 +118,11 @@ impl Scale {
     pub fn zoom_at(&self, x: f32, zoom_factor: f32) -> TimeRange {
         let zoom_factor = zoom_factor
             .at_least(1.0/((self.view_range.length() / MIN_TIME) as f32));
-        let t = self.t_from_x(x);
+        let t = self.t_from_x(x).clamp(self.view_range.min, self.view_range.max);
         let min = ((self.view_range.min - t).scale(zoom_factor) + t)
             .max(self.bounds.min);
         let max = ((self.view_range.max - t).scale(zoom_factor) + t)
+            .max(min + MIN_TIME)
             .min(self.bounds.max);
         TimeRange { min, max }
     }
