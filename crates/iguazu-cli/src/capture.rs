@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use futures_util::future;
-use futures_lite::future::block_on;
+use futures_lite::{FutureExt, StreamExt, future::block_on};
 use iguazu::{cli::ExportOpts, export::EXPORTERS, storage::{MemoryStorage, Storage}};
 use owo_colors::OwoColorize;
 use clap::{CommandFactory, Parser};
@@ -133,12 +133,28 @@ async fn capture(session: Box<dyn DeviceSession>, output: &ExportOpts) -> Result
     let storage = Arc::new(MemoryStorage) as Arc<dyn Storage>;
 
     executor.run(async {
-        let (mut entity, capture_task) = session.start_capture(&executor, &storage).map_err(|e| format!("Failed to start capture: {}", e))?;
+        eprintln!("Starting capture...");
+        let (mut entity, capture_task) = session.start_capture(&executor, &storage).map_err(|e| format!("Failed to start capture: {e}"))?;
         let summary_task = entity.build_summaries(&executor, &storage);
         let export_task = output.export(EXPORTERS, executor.clone(), entity);
 
+        let mut ctrlc = async_signal::Signals::new(&[async_signal::Signal::Int])
+            .map_err(|e| format!("Failed to register signal handler: {e}"))?;
+
         future::try_join3(
-            async { capture_task.await.map_err(|e| format!("Failed to complete capture: {}", e)) },
+            async {
+                let result = async { capture_task.await.map(|()| true) }.or(async { ctrlc.next().await; Ok(false) }).await;
+
+                let status = match result {
+                    Ok(true) => "completed",
+                    Ok(false) => "interrupted",
+                    Err(_) => "failed",
+                };
+
+                eprintln!("Capture {status}, flushing output file...");
+
+                result.map_err(|e| format!("Failed to complete capture: {}", e))
+            },
             async { summary_task.await.map_err(|e| format!("Failed to build summaries: {}", e)) },
             async { export_task.await.map_err(|e| format!("Failed to write output: {}", e)) },
         ).await?;
