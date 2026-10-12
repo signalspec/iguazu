@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::iter;
 use std::{pin::Pin, sync::Arc};
 use csv_core::{ReadRecordResult, ReaderBuilder};
@@ -6,6 +7,7 @@ use futures_lite::AsyncBufReadExt;
 use indexmap::IndexMap;
 use async_executor::Task;
 
+use crate::cow_strs;
 use crate::io::IoError;
 use crate::schema::{Entity, EntityStream, attribute};
 use crate::storage::Pool;
@@ -281,6 +283,15 @@ impl Configurable for CsvImporter {
             "skip" => Some(self.skip.to_string()),
             "columns" => Some(self.columns.as_ref().map(|cols| cols.join(",")).unwrap_or_else(|| "".into())),
             _ => None,
+        }
+    }
+
+    fn get_suggestions(&self, option: &str) -> Cow<'_, [std::borrow::Cow<'_, str>]> {
+        match option {
+            "delimiter" => cow_strs![",", "\\t", "|"],
+            "terminator" => cow_strs!["default", "\\n"],
+            "double_quote" => cow_strs!["yes", "no"],
+            _ => (&[]).into(),
         }
     }
 }

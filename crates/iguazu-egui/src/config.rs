@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
-use egui::{Grid, Label, RichText};
+use egui::{Align, Button, Grid, Key, Label, Layout, Modifiers, PopupKind, RichText, ScrollArea, Sense, TextEdit, text::{CCursor, CCursorRange}, text_edit::TextEditOutput};
 use iguazu::config::Configurable;
 
 pub struct ConfigEdit<T> {
@@ -68,10 +68,16 @@ impl<T: Configurable> ConfigEdit<T> {
                         widgets.open.bg_stroke.width = 1.0;
                     }
 
-                    let edit_response = ui.text_edit_singleline(&mut state.value)
-                        .on_hover_text(opt.description);
+                    let edit = TextEdit::singleline(&mut state.value).id_salt(opt.name).show(ui);
 
-                    if edit_response.lost_focus() {
+                    if edit.response.has_focus() || edit.response.lost_focus() {
+                        let suggestions = self.configurable.get_suggestions(opt.name);
+                        if !suggestions.is_empty() {
+                            suggestions_dropdown(ui, state, &edit, suggestions);
+                        }
+                    }
+
+                    if edit.response.lost_focus() {
                         state.error = self.configurable.set(opt.name, &state.value).err();
 
                         if state.error.is_none() {
@@ -93,4 +99,50 @@ impl<T: Configurable> ConfigEdit<T> {
             }
         });
     }
+}
+
+fn select_all(ui: &mut egui::Ui, edit: &TextEditOutput) {
+    let mut state = edit.state.clone();
+    state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(0), CCursor::new(usize::MAX))));
+    state.store(ui.ctx(), edit.response.id)
+}
+
+fn suggestions_dropdown(ui: &mut egui::Ui, state: &mut FieldState, edit: &TextEditOutput, suggestions: Cow<'_, [std::borrow::Cow<'_, str>]>) {
+    let (up, down) = ui.input_mut(|input| (
+        input.count_and_consume_key(Modifiers::NONE, Key::ArrowUp),
+        input.count_and_consume_key(Modifiers::NONE, Key::ArrowDown),
+    ));
+
+    if up > 0 || down > 0 {
+        let selected_i = suggestions.iter().position(|v| v[..] == state.value);
+        let new_i = selected_i
+            .and_then(|i| i.checked_sub(up))
+            .and_then(|i| i.checked_add(down))
+            .or((down > 0).then_some(0));
+
+        if let Some(i) = new_i && let Some(v) = suggestions.get(i) {
+            state.value = v.to_string();
+        }
+
+        select_all(ui, edit);
+    }
+
+    egui::Popup::from_response(&edit.response)
+        .id(edit.response.id.with("suggestions"))
+        .width(edit.response.rect.width())
+        .kind(PopupKind::Menu)
+        .sense(Sense::empty())
+        .layout(Layout::top_down_justified(Align::Min))
+        .show(|ui| {
+            ui.set_min_width(ui.available_width());
+            ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                for suggestion in suggestions.iter() {
+                    let item = Button::selectable(state.value == &suggestion[..], &suggestion[..])
+                        .sense(Sense::CLICK); // Not focusable so that tab goes to next field.
+                    if ui.add(item).clicked() {
+                        state.value = suggestion.to_string();
+                    }
+                }
+            });
+        });
 }

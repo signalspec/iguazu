@@ -1,8 +1,9 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::future;
 use async_executor::Task;
 
-use crate::ElementSize;
+use crate::{ElementSize, cow_strs};
 use crate::config::{Configurable, OptionDescription, format_rate, parse_optional, parse_rate};
 use crate::schema::{EntityStream, Field};
 use crate::{io::ReadableFile, schema::{EntitySchema, attribute}, storage::{Pool, FlatFileOpts, FlatFileStream}, send::BoxFuture};
@@ -185,6 +186,14 @@ impl Configurable for FlatFileImporter {
             "sample_rate" => format_rate(self.sample_rate?),
             _ => return None,
         })
+    }
+
+    fn get_suggestions(&self, option: &str) -> Cow<'_, [std::borrow::Cow<'_, str>]> {
+        match option {
+            "bits" => cow_strs!["8", "16", "32", "64"],
+            "dtype" => cow_strs!["binary", "logic", "unsigned", "signed", "float", "complex_unsigned", "complex_signed", "complex_float"],
+            _ => (&[]).into()
+        }
     }
 }
 

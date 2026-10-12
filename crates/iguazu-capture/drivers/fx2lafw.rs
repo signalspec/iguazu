@@ -1,4 +1,4 @@
-use std::{fmt::{Display, Write}, hash::{DefaultHasher, Hash, Hasher}, sync::Arc};
+use std::{borrow::Cow, fmt::{Display, Write}, hash::{DefaultHasher, Hash, Hasher}, sync::Arc};
 use async_executor::Task;
 use iguazu::send::Executor;
 use ecow::{EcoString, eco_format};
@@ -7,6 +7,7 @@ use nusb::DeviceInfo;
 use fx2la::SampleRate;
 use iguazu::{
     send::BoxFuture,
+    cow_strs,
     ElementSize,
     config::{Configurable, OptionDescription, format_rate, format_time, parse_optional, parse_rate, parse_time},
     schema::{Entity, EntityStream, Field, FieldKind, attribute},
@@ -206,6 +207,13 @@ impl Configurable for Fx2lafwSession {
             "time" => Some(self.time.map_or("".to_string(), format_time)),
             "channels" => Some(self.channel_names.join(",")),
             _ => None,
+        }
+    }
+
+    fn get_suggestions(&self, option: &str) -> Cow<'_, [Cow<'_, str>]> {
+        match option {
+            "rate" => cow_strs!["100 kHz", "500 kHz", "1 MHz", "2 MHz", "4 MHz", "8 MHz", "12 MHz", "16 MHz", "24 MHz", "30 MHz"],
+            _ => (&[]).into(),
         }
     }
 }

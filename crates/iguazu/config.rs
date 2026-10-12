@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 /// An option for [`Configurable`].
 pub struct OptionDescription {
     /// The name of the option passed to `set` and `get`.
@@ -26,6 +28,11 @@ pub trait Configurable {
         let _ = option;
         None
     }
+
+    /// Get suggested values for an option.
+    fn get_suggestions(&self, _option: &str) -> Cow<'_, [Cow<'_, str>]> {
+        (&[]).into()
+    }
 }
 
 impl<T: Configurable + ?Sized> Configurable for Box<T> {
@@ -40,6 +47,22 @@ impl<T: Configurable + ?Sized> Configurable for Box<T> {
     fn get(&self, option: &str) -> Option<String> {
         self.as_ref().get(option)
     }
+
+    fn get_suggestions(&self, option: &str) -> Cow<'_, [Cow<'_, str>]> {
+        self.as_ref().get_suggestions(option)
+    }
+}
+
+/// Build a [`Cow`] slice of [`Cow`] strings, for [`Configurable::get_suggestions`].
+/// ```
+/// # use iguazu::cow_strs;
+/// let _ = cow_strs!["a", "b"];
+/// ```
+#[macro_export]
+macro_rules! cow_strs {
+    [$($s:expr),* $(,)?] => {
+        ::std::borrow::Cow::Borrowed(&[$(::std::borrow::Cow::Borrowed($s)),*])
+    };
 }
 
 pub fn parse_char_byte(value: &str) -> Result<u8, String> {
@@ -57,7 +80,7 @@ pub fn parse_char_byte(value: &str) -> Result<u8, String> {
 
 pub fn parse_optional<T>(f: impl FnOnce(&str) -> Result<T, String>, value: &str) -> Result<Option<T>, String> {
     match value {
-        "" | "no" | "off" | "none" => Ok(None),
+        "" | "no" | "off" | "none" | "default" => Ok(None),
         _ => f(value).map(Some),
     }
 }
@@ -95,13 +118,13 @@ pub fn parse_rate(value: &str) -> Result<f64, String> {
 
 pub fn format_rate(value: f64) -> String {
     if value >= 1e9 {
-        format!("{}GHz", value / 1e9)
+        format!("{} GHz", value / 1e9)
     } else if value >= 1e6 {
-        format!("{}MHz", value / 1e6)
+        format!("{} MHz", value / 1e6)
     } else if value >= 1e3 {
-        format!("{}kHz", value / 1e3)
+        format!("{} kHz", value / 1e3)
     } else {
-        format!("{}Hz", value)
+        format!("{} Hz", value)
     }
 }
 
