@@ -6,7 +6,7 @@ use std::task::Poll;
 use async_executor::Task;
 use eframe::{egui, CreationContext};
 use egui::{
-    Align2, Area, Button, Color32, Direction, Frame, Image, ImageSource, Layout, Order, Rect, RichText, Sense, TextStyle, Ui, UiBuilder, UiKind, Vec2, Widget, menu::{MenuButton, menu_style}, util::History
+    Align2, Area, Button, Color32, Context, Direction, Frame, Image, ImageSource, Layout, Modal, ModalResponse, Order, Rect, RichText, Sense, TextStyle, Ui, UiBuilder, UiKind, Vec2, Widget, menu::{MenuButton, menu_style}, util::History
 };
 
 use iguazu::import::{IMPORTERS, ImportError, Importer};
@@ -199,7 +199,7 @@ enum Source {
         session: iguazu_egui::config::ConfigEdit<Box<dyn iguazu_capture::DeviceSession>>,
         config_modal_open: bool,
         running: Option<Task<Result<(), iguazu_capture::CaptureError>>>,
-        error: Option<iguazu_capture::CaptureError>,
+        error: Option<String>,
     },
     Demo,
 }
@@ -359,10 +359,10 @@ impl App {
                 Some(Source::Capture { session, config_modal_open, running, error }) => {
                     capture_config_button(ui, session, config_modal_open);
                     capture_start_stop_button(ui, session, running, error, &self.vctx, &mut self.state);
-                    if let Some(error) = error.as_ref() {
-                        ui.label("Error").on_hover_ui(|ui| {
-                            ui.label(error.to_string());
-                        });
+                    if let Some(e) = error.as_ref() {
+                        if error_modal(ui.ctx(), "Capture error", e).should_close() {
+                            *error = None;
+                        }
                     }
                 }
             }
@@ -414,7 +414,7 @@ impl eframe::App for App {
         [0.0; 4]
     }
 
-    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, _ctx: &Context, _frame: &mut eframe::Frame) {
         #[cfg(feature = "capture")] {
             let res = self.vctx.poll_fn(|c| self.device_watch.poll(c));
             if let Some(dev) = res.requested_device {
@@ -463,7 +463,7 @@ impl eframe::App for App {
             Some(Source::Capture { running, error, .. }) => {
                 match self.vctx.poll_unpin_take(running) {
                     Some(Err(e)) => {
-                        *error = Some(e);
+                        *error = Some(e.to_string());
                     }
                     Some(Ok(())) | None => {}
                 }
@@ -608,7 +608,7 @@ impl App {
         );
     }
 
-    fn update_frame_time(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update_frame_time(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         let now = ctx.input(|i| i.time);
         let previous_frame_time = frame.info().cpu_usage;
 
@@ -696,7 +696,7 @@ fn capture_start_stop_button(
     ui: &mut Ui,
     session: &mut iguazu_egui::config::ConfigEdit<Box<dyn iguazu_capture::DeviceSession + 'static>>,
     running: &mut Option<Task<Result<(), iguazu_capture::CaptureError>>>,
-    error: &mut Option<iguazu_capture::CaptureError>,
+    error: &mut Option<String>,
     vctx: &ViewerContext,
     entity_state: &mut AppState
 ) {
@@ -710,7 +710,7 @@ fn capture_start_stop_button(
                     *error = None;
                 }
                 Err(e) => {
-                    *error = Some(e);
+                    *error = Some(e.to_string());
                 }
             }
         }
@@ -721,9 +721,26 @@ fn capture_start_stop_button(
     }
 }
 
+fn error_modal(ctx: &Context, heading: &str, message: &str) -> ModalResponse<()> {
+    Modal::new(egui::Id::new("capture-error")).show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.add(icon_alert_triangle().tint(Color32::GOLD).fit_to_exact_size(Vec2::splat(32.0)));
+            ui.heading(heading);
+        });
+        ui.add_space(8.0);
+        ui.label(message);
+        ui.add_space(8.0);
+        egui::Sides::new().show(ui, |_| {}, |ui| {
+            if ui.button("Ok").clicked() {
+                ui.close();
+            }
+        });
+    })
+}
+
 /// Like `MenuButton` but actually a `Modal` positioned like a `Popup`, because
 /// egui doesn't support nesting popups for the dropdown suggestions.
-fn popup_modal(button_response: egui::Response, id: egui::Id) -> egui::Modal {
+fn popup_modal(button_response: egui::Response, id: egui::Id) -> Modal {
     let area = Area::new(id)
         .kind(UiKind::Modal)
         .sense(Sense::hover())
@@ -732,7 +749,7 @@ fn popup_modal(button_response: egui::Response, id: egui::Id) -> egui::Modal {
         .order(Order::Middle) // Popup is normally `Foreground` but need to make sure that dropdowns inside it are on top
         .interactable(true);
 
-    let modal = egui::Modal {
+    let modal = Modal {
         area,
         backdrop_color: Color32::TRANSPARENT,
         frame: None,
@@ -758,6 +775,10 @@ fn icon_play() -> Image<'static> {
 
 fn icon_stop() -> Image<'static> {
     icon(egui::include_image!("../icons/stop.svg"))
+}
+
+fn icon_alert_triangle() -> Image<'static> {
+    icon(egui::include_image!("../icons/alert-triangle.svg"))
 }
 
 fn centered_box<R>(ui: &mut Ui, size: Vec2, layout: Layout, child_ui: impl FnOnce(&mut Ui) -> R) -> R {
