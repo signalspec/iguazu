@@ -1,7 +1,7 @@
 // Based on egui-desktop under MIT license
 // https://github.com/PxlSyl/egui-desktop/tree/42f93944ba91ce871524e3d0e3a818320564023c
 
-use egui::{Align, Color32, Context, Frame, Id, Layout, Margin, Painter, Panel, PointerButton, PointerState, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, ViewportCommand, WidgetType};
+use egui::{Align, Color32, Context, Frame, Id, Layout, Margin, Painter, Panel, PointerButton, PointerState, Rect, Response, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2, ViewportCommand, WidgetType};
 
 pub trait ViewportBuilderExt {
     fn with_custom_title_bar(self) -> Self;
@@ -36,6 +36,9 @@ pub struct TitleBar {
     pub height: f32,
 }
 
+#[cfg(not(target_os ="macos"))]
+const BUTTON_WIDTH: f32 = 46.0;
+
 impl TitleBar {
     pub fn new() -> Self {
         TitleBar {
@@ -60,15 +63,19 @@ impl TitleBar {
                 #[cfg(not(target_os ="macos"))]
                 self.interact(ui);
 
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                let rect = cfg_select! {
                     // Reserve the space where the traffic light buttons are overlayed
-                    #[cfg(target_os ="macos")]
-                    ui.allocate_space(Vec2::new(60.0 / ui.pixels_per_point(), 0.0));
+                    target_os = "macos" => { ui.max_rect().with_min_x(60.0 / ui.pixels_per_point()) }
+                    _ => {{
+                        let (area, buttons) = ui.max_rect().split_left_right_at_x((ui.max_rect().right() - (BUTTON_WIDTH * 3.0)).max(0.0));
+                        ui.scope_builder(UiBuilder::new().max_rect(buttons), |ui| self.render_buttons(ui));
+                        area
+                    }}
+                };
 
+                ui.scope_builder(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)), |ui| {
+                    ui.set_clip_rect(rect);
                     inner(ui);
-
-                    #[cfg(not(target_os ="macos"))]
-                    self.render_buttons(ui);
                 });
             });
     }
@@ -185,7 +192,7 @@ impl TitleBar {
 
     #[cfg(not(target_os ="macos"))]
     fn render_button(&self, label: &str, ui: &mut Ui, draw_icon: impl FnOnce(&Painter, Rect)) -> Response {
-        let desired_size = Vec2::new(46.0, 32.0);
+        let desired_size = Vec2::new(BUTTON_WIDTH, 32.0);
         let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
 
         response.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), label));
