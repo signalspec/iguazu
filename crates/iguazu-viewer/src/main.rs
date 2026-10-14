@@ -6,10 +6,7 @@ use std::task::Poll;
 use async_executor::Task;
 use eframe::{egui, CreationContext};
 use egui::{
-    Align2, Area, Atom, AtomExt, Button, Color32, Direction, Frame, Layout, Order, Rect, RichText,
-    Sense, TextStyle, Ui, UiBuilder, UiKind, Vec2, Widget,
-    menu::{MenuButton, menu_style},
-    util::History
+    Align2, Area, Button, Color32, Direction, Frame, Image, ImageSource, Layout, Order, Rect, RichText, Sense, TextStyle, Ui, UiBuilder, UiKind, Vec2, Widget, menu::{MenuButton, menu_style}, util::History
 };
 
 use iguazu::import::{IMPORTERS, ImportError, Importer};
@@ -704,7 +701,7 @@ fn capture_start_stop_button(
     entity_state: &mut AppState
 ) {
     if !running.is_some() {
-        if ui.add(Button::new("Start")).clicked() {
+        if ui.add(Button::new((icon_play().tint(Color32::GREEN), "Start"))).clicked() {
             match session.inner().start_capture(vctx.executor(), vctx.default_storage()) {
                 Ok((mut entity, task)) => {
                     entity.build_summaries(&vctx.executor(), vctx.default_storage()).detach();
@@ -718,7 +715,7 @@ fn capture_start_stop_button(
             }
         }
     } else {
-        if ui.add(Button::new("Stop")).clicked() {
+        if ui.add(Button::new((icon_stop().tint(Color32::RED), "Stop"))).clicked() {
             drop(running.take());
         }
     }
@@ -743,12 +740,24 @@ fn popup_modal(button_response: egui::Response, id: egui::Id) -> egui::Modal {
     modal
 }
 
-fn icon_chevron_down() -> Atom<'static> {
-    egui::include_image!("../icons/chevron-down.svg").atom_max_height(16.0)
+fn icon(i: ImageSource<'static>) -> Image<'static> {
+    Image::new(i).fit_to_exact_size(Vec2::splat(16.0))
 }
 
-fn icon_settings() -> Atom<'static> {
-    egui::include_image!("../icons/settings.svg").atom_max_height(16.0)
+fn icon_chevron_down() -> Image<'static> {
+    icon(egui::include_image!("../icons/chevron-down.svg"))
+}
+
+fn icon_settings() -> Image<'static> {
+    icon(egui::include_image!("../icons/settings.svg"))
+}
+
+fn icon_play() -> Image<'static> {
+    icon(egui::include_image!("../icons/play.svg"))
+}
+
+fn icon_stop() -> Image<'static> {
+    icon(egui::include_image!("../icons/stop.svg"))
 }
 
 fn centered_box<R>(ui: &mut Ui, size: Vec2, layout: Layout, child_ui: impl FnOnce(&mut Ui) -> R) -> R {
