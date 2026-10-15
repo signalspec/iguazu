@@ -214,6 +214,9 @@ enum PendingSource {
 struct App {
     vctx: ViewerContext,
 
+    #[cfg(not(target_arch = "wasm32"))]
+    window: Option<Arc<winit::window::Window>>,
+
     file_picker_task: Option<Task<Option<Result<Arc<dyn ReadableFile>, IoError>>>>,
 
     #[cfg(feature = "capture")]
@@ -257,6 +260,9 @@ impl App {
             vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
             enable_debug_ui: std::env::var("IGUAZU_DEBUG_UI").is_ok(),
+
+            #[cfg(not(target_arch = "wasm32"))]
+            window: cc.winit_window().cloned(),
         }
     }
 
@@ -391,12 +397,16 @@ impl App {
     }
 
     fn pick_file(&mut self) {
-        self.file_picker_task = Some(self.vctx.spawn(async move {
-            #[cfg(not(target_arch = "wasm32"))]
-            let res = AsyncFileDialog::new().pick_file().await?;
+        #[allow(unused_mut)]
+        let mut dialog = AsyncFileDialog::new();
 
-            #[cfg(target_arch = "wasm32")]
-            let res = AsyncFileDialog::new().pick_file().await?;
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(window) = &self.window {
+            dialog = dialog.set_parent(&window);
+        }
+
+        self.file_picker_task = Some(self.vctx.spawn(async move {
+            let res = dialog.pick_file().await?;
 
             #[cfg(not(target_arch = "wasm32"))]
             let file = iguazu::io::FsFile::open(res.inner().to_owned()).await;
