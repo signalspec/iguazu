@@ -119,12 +119,10 @@ impl Scale {
         let zoom_factor = zoom_factor
             .at_least(1.0/((self.view_range.length() / MIN_TIME) as f32));
         let t = self.t_from_x(x).clamp(self.view_range.min, self.view_range.max);
-        let min = ((self.view_range.min - t).scale(zoom_factor) + t)
-            .max(self.bounds.min);
-        let max = ((self.view_range.max - t).scale(zoom_factor) + t)
-            .max(min + MIN_TIME)
-            .min(self.bounds.max);
-        TimeRange { min, max }
+        TimeRange {
+            min: (self.view_range.min - t).scale(zoom_factor) + t,
+            max: (self.view_range.max - t).scale(zoom_factor) + t,
+        }
     }
 }
 
@@ -289,7 +287,7 @@ fn test_pan_zoom() {
     assert_approx_eq!(zoom_in_left.min, 2250 * Time::MILLISECOND, 1/1_000_000);
     assert_approx_eq!(zoom_in_left.max, 101250 * Time::MILLISECOND, 1/1_000_000);
 
-    let zoom_out_limit_left = scale.zoom_at(1500., 1.1);
+    let zoom_out_limit_left = scale.zoom_at(1500., 1.1).clamp(scale.bounds).unwrap();
     assert_approx_eq!(zoom_out_limit_left.min, 0 * Time::SECOND, 1/1_000_000);
     assert_approx_eq!(zoom_out_limit_left.max, 107 * Time::SECOND, 1/1_000_000);
 }

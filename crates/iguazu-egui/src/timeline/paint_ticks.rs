@@ -43,6 +43,9 @@ fn paint_ticks(
     clip_rect: &Rect,
 ) -> Vec<egui::Shape> {
     let min_tick_size = Time::NANOSECOND; // TODO: set from max sample rate
+    if scale.view_range.length() < min_tick_size {
+        return Vec::new() // or we'd infinite loop
+    }
     let visible = scale.clamped_visible();
 
     let color_from_alpha = |alpha: f32| -> Color32 {

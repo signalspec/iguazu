@@ -204,10 +204,21 @@ impl TimeRange {
         self.max - self.min
     }
 
-    pub fn union(&self, other: &TimeRange) -> TimeRange {
+    pub fn union(self, other: TimeRange) -> TimeRange {
         TimeRange {
             min: self.min.min(other.min),
             max: self.max.max(other.max),
+        }
+    }
+
+    pub fn clamp(&self, bounds: TimeRange) -> Option<TimeRange> {
+        if self.max <= self.min || self.max < bounds.min || self.min > bounds.max {
+            None
+        } else {
+            Some(TimeRange {
+                min: self.min.max(bounds.min),
+                max: self.max.min(bounds.max),
+            })
         }
     }
 }

@@ -81,13 +81,17 @@ impl TimelineView {
         let capture_len = entity.attribute(attribute::core::CAPTURE_LENGTH).map_or(Time::ZERO, Time::from_seconds);
         let mut time_range = rows.iter()
             .filter_map(|row| row.time_range())
-            .reduce(|a, b| TimeRange::union(&a, &b))
+            .reduce(|a, b| TimeRange::union(a, b))
             .unwrap_or(TimeRange::ZERO);
         time_range.max = time_range.max.max(time_range.min + capture_len);
 
+        let visible_range = state.visible_range
+            .and_then(|r| r.clamp(time_range))
+            .unwrap_or(time_range);
+
         let scale = Scale::new(
             time_x_range,
-            state.visible_range.unwrap_or(time_range),
+            visible_range,
             time_range,
             x_margin,
             x_margin + scrollbar_width,
