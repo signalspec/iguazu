@@ -15,12 +15,11 @@ use iguazu::schema::{EntitySchema, EntityStream};
 use iguazu::storage::{Pool, Storage, MemoryStorage};
 use iguazu_egui::ViewerContext;
 use iguazu_egui::import::{ImportResponse, ImportUi};
+use iguazu_egui::show_entity;
 use rfd::AsyncFileDialog;
 
 mod welcome;
-mod viewer;
 
-use crate::viewer::Viewer;
 use crate::welcome::{Welcome, WelcomeResponse};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -185,9 +184,10 @@ fn main() {
 
 enum AppState {
     Welcome(welcome::Welcome),
-    Loading(Task<Result<EntityStream, ImportError>>),
-    Error(String, String),
-    Viewer(viewer::Viewer),
+    Viewer {
+        source: Source,
+        entity: EntityStream,
+    },
 }
 
 enum Source {
@@ -206,6 +206,10 @@ enum Source {
 
 enum PendingSource {
     Import(ImportUi),
+    Loading {
+        importer: Box<dyn Importer>,
+        task: Task<Result<EntityStream, ImportError>>,
+    },
     #[cfg(feature = "capture")]
     CaptureDevice(String, Task<Result<Box<dyn iguazu_capture::DeviceSession>, iguazu_capture::CaptureError>>),
     Error { name: String, title: String, message: String },
@@ -223,7 +227,6 @@ struct App {
     device_watch: iguazu_capture::DeviceWatch,
 
     pending_source: Option<PendingSource>,
-    source: Option<Source>,
     state: AppState,
 
     frame_time_history: History<f32>,
@@ -256,7 +259,6 @@ impl App {
             device_watch: iguazu_capture::DeviceWatch::new(&pool.executor, iguazu_capture::DRIVERS),
 
             pending_source: None,
-            source: None,
             vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
             frame_time_history: History::new(0..max_len, max_age),
             enable_debug_ui: std::env::var("IGUAZU_DEBUG_UI").is_ok(),
@@ -266,31 +268,29 @@ impl App {
         }
     }
 
-    fn set_state(&mut self, source: Source, state: AppState) {
-        self.state = state;
-        self.source = Some(source);
-        self.vctx.waker().wake_by_ref();
-    }
-
-    fn set_pending_source(&mut self, source: Option<PendingSource>) {
-        self.pending_source = source;
-        self.vctx.waker().wake_by_ref();
+    fn set_viewer(&mut self, source: Source, entity: EntityStream) {
+        self.state = AppState::Viewer {
+            source,
+            entity,
+        };
     }
 
     fn set_file(&mut self, file: Arc<dyn ReadableFile>) {
         match IMPORTERS.importer_for_file(file.clone()) {
             Some(importer) => self.prompt_import_options(importer),
-            None => self.set_pending_source(Some(PendingSource::Error {
-                name: file.filename().to_string(),
-                title: "Unsupported file".to_string(),
-                message: "No import format matched the file".to_string(),
-            })),
+            None => {
+                self.pending_source = Some(PendingSource::Error {
+                    name: file.filename().to_string(),
+                    title: "Unsupported file".to_string(),
+                    message: "No import format matched the file".to_string(),
+                });
+            },
         }
     }
 
     fn prompt_import_options(&mut self, importer: Box<dyn Importer>) {
         if importer.should_show_options() {
-            self.set_pending_source(Some(PendingSource::Import(ImportUi::new(importer))));
+            self.pending_source = Some(PendingSource::Import(ImportUi::new(importer)));
         } else {
             self.import(importer, None);
         }
@@ -306,17 +306,7 @@ impl App {
             entity.build_summaries(&pool.executor, &storage).detach();
             Ok(entity)
         });
-        self.set_state(Source::File { importer }, AppState::Loading(task));
-    }
-
-    fn set_import_error(&mut self, title: String, message: String) {
-        self.state = AppState::Error(title, message);
-        self.vctx.waker().wake_by_ref();
-    }
-
-    fn set_entity(&mut self, entity: EntityStream) {
-        self.state = AppState::Viewer(Viewer::new(entity));
-        self.vctx.waker().wake_by_ref();
+        self.pending_source = Some(PendingSource::Loading { importer, task });
     }
 
     fn source_header_ui(&mut self, ui: &mut Ui) {
@@ -325,17 +315,20 @@ impl App {
         let label = if let Some(pending_source) = &self.pending_source {
             match pending_source {
                 PendingSource::Import(import_ui) => import_ui.inner().file().filename(),
+                PendingSource::Loading { importer, .. } => importer.file().filename(),
                 PendingSource::Error { name: filename, .. } => filename.as_str(),
                 #[cfg(feature = "capture")]
                 PendingSource::CaptureDevice(name, _) => name.as_str(),
             }
         } else {
-            match &self.source {
-                Some(Source::File { importer }) => importer.file().filename(),
-                Some(Source::Demo) => "Demo",
-                #[cfg(feature = "capture")]
-                Some(Source::Capture { session, .. }) => session.inner().device().description(),
-                None => "Choose file or device",
+            match &self.state {
+                AppState::Welcome(_) => "Choose file or device",
+                AppState::Viewer { source, .. } => match source {
+                    Source::File { importer } => importer.file().filename(),
+                    Source::Demo => "Demo",
+                    #[cfg(feature = "capture")]
+                    Source::Capture { session, .. } => session.inner().device().description(),
+                },
             }
         };
 
@@ -358,19 +351,18 @@ impl App {
         });
 
         if self.pending_source.is_none() {
-            match &mut self.source {
-                None | Some(Source::Demo) => {}
-                Some(Source::File { .. }) => {}
+            match &mut self.state {
                 #[cfg(feature = "capture")]
-                Some(Source::Capture { session, config_modal_open, running, error }) => {
+                AppState::Viewer { source: Source::Capture { session, config_modal_open, running, error }, entity } => {
                     capture_config_button(ui, session, config_modal_open);
-                    capture_start_stop_button(ui, session, running, error, &self.vctx, &mut self.state);
+                    capture_start_stop_button(ui, session, running, error, &self.vctx, entity);
                     if let Some(e) = error.as_ref() {
                         if error_modal(ui.ctx(), "Capture error", e).should_close() {
                             *error = None;
                         }
                     }
                 }
+                _ => {}
             }
         }
     }
@@ -379,21 +371,20 @@ impl App {
     fn select_device(&mut self, device: Arc<dyn iguazu_capture::Device>) {
         let name = device.description().to_owned();
         let task = self.vctx.spawn(device.open());
-        self.set_pending_source(Some(PendingSource::CaptureDevice(name, task)));
+        self.pending_source = Some(PendingSource::CaptureDevice(name, task));
     }
 
     #[cfg(feature = "capture")]
     fn set_capture_session(&mut self, session: Box<dyn iguazu_capture::DeviceSession>) {
-        self.set_pending_source(None);
         let empty = EntityStream::group()
             .with_attribute(iguazu::schema::attribute::core::ROLE, iguazu::schema::attribute::core::Role::Capture);
         let session = iguazu_egui::config::ConfigEdit::new(session);
-        self.set_state(Source::Capture {
+        self.set_viewer(Source::Capture {
             session,
             config_modal_open: false,
             running: None,
             error: None
-        }, AppState::Viewer(Viewer::new(empty)));
+        }, empty);
     }
 
     fn pick_file(&mut self) {
@@ -439,38 +430,62 @@ impl eframe::App for App {
                     self.set_file(file);
                 }
                 Some(Err(e)) => {
-                    self.set_pending_source(Some(PendingSource::Error {
+                    self.pending_source = Some(PendingSource::Error {
                         name: e.file.as_ref().and_then(|n| n.split('/').next_back()).unwrap_or("Unknown file").to_string(),
                         title: "Failed to open file".to_string(),
                         message: e.to_string(),
-                    }));
+                    });
                 }
             }
         }
 
-        match &mut self.pending_source {
-            #[cfg(feature = "capture")]
-            Some(PendingSource::CaptureDevice(name, task)) => {
-                if let Poll::Ready(res) = self.vctx.poll_unpin(task) {
-                    match res {
-                        Ok(session) => self.set_capture_session(session),
+        self.pending_source = match self.pending_source.take() {
+            Some(PendingSource::Loading { importer, mut task }) => {
+                if let Poll::Ready(result) = self.vctx.poll_unpin(&mut task) {
+                    match result {
+                        Ok(entity) => {
+                            self.set_viewer(Source::File { importer }, entity);
+                            None
+                        }
                         Err(e) => {
-                            let name = std::mem::take(name);
-                            self.set_pending_source(Some(PendingSource::Error {
+                            let name = importer.file().filename().to_owned();
+                            Some(PendingSource::Error {
+                                name,
+                                title: "Import failed".to_string(),
+                                message: e.to_string(),
+                            })
+                        }
+                    }
+                } else {
+                    Some(PendingSource::Loading { importer, task })
+                }
+            }
+            #[cfg(feature = "capture")]
+            Some(PendingSource::CaptureDevice(name, mut task)) => {
+                if let Poll::Ready(res) = self.vctx.poll_unpin(&mut task) {
+                    match res {
+                        Ok(session) => {
+                            self.set_capture_session(session);
+                            None
+                        }
+                        Err(e) => {
+                            Some(PendingSource::Error {
                                 name,
                                 title: "Failed to open device".to_string(),
                                 message: e.to_string(),
-                            }));
+                            })
                         }
                     }
+                } else {
+                    Some(PendingSource::CaptureDevice(name, task))
                 }
             }
-            _ => {}
-        }
+            other => other
+        };
 
-        match &mut self.source {
+        match &mut self.state {
             #[cfg(feature = "capture")]
-            Some(Source::Capture { running, error, .. }) => {
+            AppState::Viewer { source: Source::Capture { running, error, .. }, .. } => {
                 match self.vctx.poll_unpin_take(running) {
                     Some(Err(e)) => {
                         *error = Some(e.to_string());
@@ -479,18 +494,6 @@ impl eframe::App for App {
                 }
             }
             _ => {}
-        }
-
-        match &mut self.state {
-            AppState::Welcome(..) | AppState::Viewer(..) | AppState::Error(..) => {},
-            AppState::Loading(task) => {
-                if let Poll::Ready(result) = self.vctx.poll_unpin(task) {
-                    match result {
-                        Ok(entity) => self.set_entity(entity),
-                        Err(e) => self.set_import_error("Import failed".into(), e.to_string()),
-                    }
-                }
-            }
         }
     }
 
@@ -533,10 +536,19 @@ impl eframe::App for App {
                                     self.import(import_opts.into_inner(), None);
                                 }
                                 ImportResponse::Cancelled => {
-                                    self.set_pending_source(None);
+                                    self.pending_source = None;
                                 }
                             }
                         }
+                    }
+                    PendingSource::Loading { .. } => {
+                        centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Center), |ui| {
+                            ui.spinner();
+                            ui.add_space(10.0);
+                            ui.label(RichText::new(
+                                format!("Importing...")
+                            ).size(20.0));
+                        });
                     }
                     #[cfg(feature = "capture")]
                     PendingSource::CaptureDevice(_, _) => {
@@ -555,7 +567,7 @@ impl eframe::App for App {
                             ui.button("OK").clicked()
                         });
                         if close {
-                            self.set_pending_source(None);
+                            self.pending_source = None;
                         }
                     }
                 }
@@ -565,29 +577,13 @@ impl eframe::App for App {
                         match welcome.show(&mut self.vctx, ui) {
                             Some(WelcomeResponse::PickFile) => self.pick_file(),
                             Some(WelcomeResponse::Entity(entity)) => {
-                                self.source = Some(Source::Demo);
-                                self.set_entity(entity)
+                                self.set_viewer(Source::Demo, entity)
                             }
                             None => {}
                         }
                     }
-                    AppState::Loading(_) => {
-                        centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Center), |ui| {
-                            ui.spinner();
-                            ui.add_space(10.0);
-                            ui.label(RichText::new(
-                                format!("Importing...")
-                            ).size(20.0));
-                        });
-                    }
-                    AppState::Error(title, message) => {
-                        centered_box(ui, Vec2::new(300.0, 100.0), Layout::top_down(egui::Align::Min), |ui| {
-                            ui.heading(title);
-                            ui.label(message.as_str());
-                        });
-                    }
-                    AppState::Viewer(viewer) => {
-                        viewer.show(&mut self.vctx, ui);
+                    AppState::Viewer { entity, .. } => {
+                        show_entity(&mut self.vctx, ui, entity);
                     }
                 }
             }
@@ -708,14 +704,14 @@ fn capture_start_stop_button(
     running: &mut Option<Task<Result<(), iguazu_capture::CaptureError>>>,
     error: &mut Option<String>,
     vctx: &ViewerContext,
-    entity_state: &mut AppState
+    entity: &mut EntityStream
 ) {
     if !running.is_some() {
         if ui.add(Button::new((icon_play().tint(Color32::GREEN), "Start"))).clicked() {
             match session.inner().start_capture(vctx.executor(), vctx.default_storage()) {
-                Ok((mut entity, task)) => {
-                    entity.build_summaries(&vctx.executor(), vctx.default_storage()).detach();
-                    *entity_state = AppState::Viewer(Viewer::new(entity));
+                Ok((mut new_entity, task)) => {
+                    new_entity.build_summaries(&vctx.executor(), vctx.default_storage()).detach();
+                    *entity = new_entity;
                     *running = Some(task);
                     *error = None;
                 }

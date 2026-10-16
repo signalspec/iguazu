@@ -9,8 +9,19 @@ pub mod config;
 
 use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
-use iguazu::{send::{Executor, NonWasmSend, SendFuture}, storage::{Pool, Storage}, view::ViewManager};
+use egui::Ui;
+use iguazu::{send::{Executor, NonWasmSend, SendFuture}, schema::{attribute::display::Layout, EntityStream}, storage::{Pool, Storage}, view::ViewManager};
 pub use timeline::TimelineView;
+
+pub fn show_entity(vctx: &mut ViewerContext, ui: &mut Ui, entity: &mut EntityStream) {
+    match entity.display_default() {
+        Some(Layout::Table) => table::TableView::new().show(vctx, ui, entity),
+        Some(Layout::Timeline) => TimelineView::new().show(vctx, ui, entity),
+        None => {
+            ui.label("unknown view");
+        }
+    }
+}
 
 struct RepaintWaker {
     context: egui::Context,
