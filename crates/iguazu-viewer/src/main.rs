@@ -6,7 +6,7 @@ use std::task::Poll;
 use async_executor::Task;
 use eframe::{egui, CreationContext};
 use egui::{
-    Align2, Area, Button, Color32, Context, Direction, Frame, Image, ImageSource, Layout, Modal, ModalResponse, Order, Rect, RichText, Sense, TextStyle, Ui, UiBuilder, UiKind, Vec2, Widget, menu::{MenuButton, menu_style}, util::History
+    Align2, Area, Button, Color32, Context, Direction, Frame, Id, Image, ImageSource, Layout, Modal, ModalResponse, Order, Rect, RichText, Sense, TextStyle, Ui, UiBuilder, UiKind, Vec2, Widget, menu::{MenuButton, menu_style}, util::History
 };
 
 use iguazu::import::{IMPORTERS, ImportError, Importer};
@@ -202,6 +202,23 @@ enum Source {
         error: Option<String>,
     },
     Demo,
+}
+
+impl Source {
+    fn id(&self) -> Id {
+        match self {
+            Source::Demo => Id::new("demo"),
+            Source::File { importer } => {
+                if let Some(url) = importer.file().url() {
+                    Id::new(url.as_str())
+                } else {
+                    Id::new(importer.file().filename())
+                }
+            }
+            #[cfg(feature = "capture")]
+            Source::Capture { session, .. } => Id::new(session.inner().device().identifier()),
+        }
+    }
 }
 
 enum PendingSource {
@@ -582,8 +599,10 @@ impl eframe::App for App {
                             None => {}
                         }
                     }
-                    AppState::Viewer { entity, .. } => {
-                        show_entity(&mut self.vctx, ui, entity);
+                    AppState::Viewer { entity, source } => {
+                        ui.push_id(source.id(), |ui| {
+                            show_entity(&mut self.vctx, ui, entity);
+                        });
                     }
                 }
             }
