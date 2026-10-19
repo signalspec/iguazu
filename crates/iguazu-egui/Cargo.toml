@@ -12,8 +12,8 @@ version.workspace = true
 [dependencies]
 iguazu.workspace = true
 egui.workspace = true
+egui_table.workspace = true
 log.workspace = true
 ecow.workspace = true
 async-executor.workspace = true
 itertools.workspace = true
-egui_table = "0.10.0"

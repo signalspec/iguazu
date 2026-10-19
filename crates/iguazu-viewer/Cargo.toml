@@ -16,11 +16,11 @@ async-executor.workspace = true
 clap = { workspace = true, features = ["derive"] }
 eframe = { workspace = true, default-features = false, features = ["default_fonts", "wgpu", "wayland"] }
 egui.workspace = true
+egui_extras.workspace = true
 futures-lite.workspace = true
 rfd = { version = "0.17.2", features = ["file-handle-inner"] }
 url = "2.5.7"
 wgpu = { workspace = true, features = ["webgl"] }
-egui_extras = { version = "0.36.2", features = ["svg"] }
 winit.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

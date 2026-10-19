@@ -1,7 +1,7 @@
 // Based on egui-desktop under MIT license
 // https://github.com/PxlSyl/egui-desktop/tree/42f93944ba91ce871524e3d0e3a818320564023c
 
-use egui::{Align, Color32, Context, Frame, Id, Layout, Margin, Painter, Panel, PointerButton, PointerState, Rect, Response, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2, ViewportCommand, WidgetType};
+use egui::{Align, Color32, Context, Frame, Id, Layout, Margin, Painter, Panel, PointerButton, PointerState, Rect, Response, Sense, Stroke, StrokeKind, Ui, UiBuilder, Vec2, ViewportCommand, Role};
 
 pub trait ViewportBuilderExt {
     fn with_custom_title_bar(self) -> Self;
@@ -42,7 +42,7 @@ const BUTTON_WIDTH: f32 = 46.0;
 impl TitleBar {
     pub fn new() -> Self {
         TitleBar {
-            id: Id::new("title_bar"),
+            id: Id::unique("title_bar"),
             height: if cfg!(target_os = "macos") { 28.0 } else { 32.0 },
         }
     }
@@ -195,7 +195,7 @@ impl TitleBar {
         let desired_size = Vec2::new(BUTTON_WIDTH, 32.0);
         let (rect, response) = ui.allocate_exact_size(desired_size, Sense::click());
 
-        response.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, ui.is_enabled(), label));
+        response.widget_info(|| egui::WidgetInfo::labeled(Role::Button, ui.is_enabled(), label));
 
         if response.hovered() {
             ui.painter().rect_filled(rect, 2.0, ui.style().visuals.faint_bg_color);

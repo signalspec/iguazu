@@ -56,7 +56,7 @@ impl TimelineView {
         ui: &mut egui::Ui,
         entity: &mut EntityStream,
     ) {
-        let mut state: TimelineState = ui.data_mut(|d| d.get_temp(ui.id())).unwrap_or_default();
+        let mut state: TimelineState = ui.data_mut(|d| d.get_temp(ui.scope_id())).unwrap_or_default();
 
         let rect = ui.max_rect();
 
@@ -189,7 +189,7 @@ impl TimelineView {
 
         });
 
-        ui.data_mut(|d| d.insert_temp(ui.id(), state));
+        ui.data_mut(|d| d.insert_temp(ui.scope_id(), state));
     }
 
     /// Handle zoom / pan interactions
@@ -207,7 +207,7 @@ impl TimelineView {
 
         let response = ui.interact(
             *streams_rect,
-            ui.id().with("time_area_interact"),
+            ui.scope_id().with("time_area_interact"),
             egui::Sense::click_and_drag(),
         );
 

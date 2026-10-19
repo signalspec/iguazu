@@ -207,16 +207,16 @@ enum Source {
 impl Source {
     fn id(&self) -> Id {
         match self {
-            Source::Demo => Id::new("demo"),
+            Source::Demo => Id::unique("demo"),
             Source::File { importer } => {
                 if let Some(url) = importer.file().url() {
-                    Id::new(url.as_str())
+                    Id::unique(url.as_str())
                 } else {
-                    Id::new(importer.file().filename())
+                    Id::unique(importer.file().filename())
                 }
             }
             #[cfg(feature = "capture")]
-            Source::Capture { session, .. } => Id::new(session.inner().device().identifier()),
+            Source::Capture { session, .. } => Id::unique(session.inner().device().identifier()),
         }
     }
 }
@@ -523,7 +523,7 @@ impl eframe::App for App {
 
         cfg_select! {
             target_arch = "wasm32" => {
-                egui::Panel::top(egui::Id::new("top_bar"))
+                egui::Panel::top("top_bar")
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             self.source_header_ui(ui);
@@ -703,7 +703,7 @@ fn capture_config_button(
     }
 
     if *config_modal_open {
-        let modal = popup_modal(button_response, egui::Id::new("capture-session-config"));
+        let modal = popup_modal(button_response, egui::Id::unique("capture-session-config"));
 
         let modal_response = modal.show(ui.ctx(), |ui| {
             ui.allocate_space(Vec2::new(380.0, 12.0));
@@ -747,7 +747,7 @@ fn capture_start_stop_button(
 }
 
 fn error_modal(ctx: &Context, heading: &str, message: &str) -> ModalResponse<()> {
-    Modal::new(egui::Id::new("capture-error")).show(ctx, |ui| {
+    Modal::new(egui::Id::unique("capture-error")).show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.add(icon_alert_triangle().tint(Color32::GOLD).fit_to_exact_size(Vec2::splat(32.0)));
             ui.heading(heading);
