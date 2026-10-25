@@ -127,7 +127,7 @@ impl ImportOpts {
         };
 
         if let Some(ref entity_path) = self.entity {
-            schema = schema.select_owned(entity_path)
+            schema = schema.select_owned(entity_path.split('.'))
                 .ok_or_else(|| format!("Entity not found: `{}`", entity_path))?;
         }
 
@@ -145,7 +145,7 @@ impl ImportOpts {
             .map_err(|e| format!("Failed to import {}: {}", self.filename.display(), e))?;
 
         if let Some(ref entity_path) = self.entity {
-            entity = entity.select_owned(entity_path)
+            entity = entity.select_owned(entity_path.split('.'))
                 .ok_or_else(|| format!("Entity not found: `{}`", entity_path))?;
         }
 

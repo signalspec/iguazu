@@ -374,7 +374,7 @@ impl<D, S> Entity<D, S> {
         }
     }
 
-    pub fn child_mut(&mut self, child: &str) -> Option<&mut Entity<D, S>> {
+    pub fn child_mut<'a>(&'a mut self, child: &str) -> Option<&'a mut Entity<D, S>> {
         match *self {
             Entity::Group { ref mut children, .. } => {
                 children.get_mut(child)
@@ -412,26 +412,26 @@ impl<D, S> Entity<D, S> {
         self
     }
 
-    pub fn select(&self, path: &str) -> Option<&Entity<D, S>> {
+    pub fn select<'a>(&self, path: impl IntoIterator<Item = impl AsRef<str>>) -> Option<&Entity<D, S>> {
         let mut current = self;
-        for part in path.split('.') {
-            current = current.child(part)?;
+        for part in path {
+            current = current.child(part.as_ref())?;
         }
         Some(current)
     }
 
-    pub fn select_mut(&mut self, path: &str) -> Option<&mut Entity<D, S>> {
+    pub fn select_mut<'a>(&mut self, path: impl IntoIterator<Item = impl AsRef<str>>) -> Option<&mut Entity<D, S>> {
         let mut current = self;
-        for part in path.split('.') {
-            current = current.child_mut(part)?;
+        for part in path {
+            current = current.child_mut(part.as_ref())?;
         }
         Some(current)
     }
 
-    pub fn select_owned(self, path: &str) -> Option<Self> {
+    pub fn select_owned<'a>(self, path: impl IntoIterator<Item = impl AsRef<str>>) -> Option<Self> {
         let mut current = self;
-        for part in path.split('.') {
-            current = current.child_owned(part)?;
+        for part in path {
+            current = current.child_owned(part.as_ref())?;
         }
         Some(current)
     }
