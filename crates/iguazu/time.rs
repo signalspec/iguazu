@@ -409,9 +409,7 @@ pub fn next_time_step(spacing: Time) -> Time {
     } else if spacing == 10 * Time::MINUTE {
         6 * spacing // to an hour
     } else if spacing == Time::HOUR {
-        12 * spacing // to 12 h
-    } else if spacing == 12 * Time::HOUR {
-        2 * spacing // to a day
+        24 * spacing // to a day
     } else {
         10 * spacing
     }
