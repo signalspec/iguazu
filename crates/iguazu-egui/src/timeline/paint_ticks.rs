@@ -99,12 +99,13 @@ fn paint_ticks(
     let medium_text_color = text_color_from_spacing(medium_spacing_time);
     let small_text_color = text_color_from_spacing(small_spacing_time);
 
-    let mut current_time = visible.min / small_spacing_time * small_spacing_time;
+    let mut current_time = visible.min / big_spacing_time * big_spacing_time;
+    let clip_x = clip_rect.x_range().expand(expected_text_width);
 
     while current_time <= visible.max {
         let line_x = scale.x_from_t(current_time);
 
-        if clip_rect.x_range().contains(line_x) {
+        if clip_x.contains(line_x) {
             let medium_line = current_time % medium_spacing_time == Time::ZERO;
             let big_line = current_time % big_spacing_time == Time::ZERO;
 
