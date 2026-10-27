@@ -94,6 +94,8 @@ impl TimelineView {
             x_margin + scrollbar_width,
         );
 
+        let epoch = entity.time_epoch();
+
         ui.with_layout(Layout::top_down_justified(egui::Align::Min), |ui| {
             let (_, top_rect) = ui.allocate_space(Vec2::new(0.0, 36.0));
 
@@ -109,6 +111,7 @@ impl TimelineView {
                 ui,
                 &scale,
                 timeline_rect.y_range(),
+                epoch,
             );
 
             let streams_rect = Rect::from_x_y_ranges(

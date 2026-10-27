@@ -34,7 +34,7 @@ url = "2.5.7"
 async-lock = "3.4.1"
 zstd = { version = "0.14.3", optional = true }
 async-compression = { version = "0.4.41", features = ["futures-io", "deflate"], optional = true }
-jiff = "0.2.16"
+jiff.workspace = true
 futures-util.workspace = true
 itertools.workspace = true
 

@@ -68,6 +68,18 @@ impl<D, S> Entity<D, S> {
         self.attribute(TIME_SPAN)
     }
 
+    pub fn time_epoch(&self) -> Option<Zoned> {
+        if let Some(epoch) = self.attribute(TIME_EPOCH) {
+            Some(epoch)
+        } else if let Some(field) = self.time_point() {
+            self.child(&field)?.time_epoch()
+        } else if let Some(field) = self.time_span() {
+            self.child(&field)?.time_epoch()
+        } else {
+            None
+        }
+    }
+
     pub fn text(&self) -> Option<EcoString> {
         self.attribute(TEXT)
     }

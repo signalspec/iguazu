@@ -1,7 +1,8 @@
 // Based on rerun.io: © 2023 Rerun Technologies AB under MIT OR Apache-2.0
 use egui::{lerp, pos2, remap_clamp, Align2, Color32, Rect, Rgba, Stroke, Rangef};
 
-use iguazu::time::{Time, TimeRange, next_time_step};
+use iguazu::time::{DateStep, Time, TimeRange, next_time_step};
+use jiff::{SignedDuration, Zoned};
 
 use super::Scale;
 
@@ -60,11 +61,68 @@ fn relative_ticks(minimum_small_line_time: Time, range: TimeRange) -> Ticks {
     Ticks { small_spacing_time, medium_spacing_time, big_spacing_time, ticks }
 }
 
+fn date_ticks(minimum_small_line_time: Time, range: TimeRange, epoch: Zoned) -> Option<Ticks> {
+    let mut small_step = DateStep::smallest();
+    while small_step.approx_time() < minimum_small_line_time {
+        small_step = small_step.next();
+    }
+    let medium_step = small_step.next();
+    let big_step = medium_step.next();
+
+    let mut ticks = Vec::new();
+    let start = epoch.checked_add(SignedDuration::try_from(range.min).ok()?).ok()?;
+    let mut t = big_step.floor_date(&start).inspect_err(|e| { dbg!(e); }).ok()?;
+
+    let small_span = small_step.as_span();
+    let medium_span = medium_step.as_span();
+    let big_span = big_step.as_span();
+
+    let mut next_medium = t.clone();
+    let mut next_big = t.clone();
+
+    loop {
+        t = t.checked_add(small_span).ok()?;
+        let kind = if t >= next_big {
+            t = next_big;
+            next_medium = t.checked_add(medium_span).ok()?;
+            next_big = t.checked_add(big_span).ok()?;
+            TickKind::Big
+        } else if t >= next_medium {
+            t = next_medium;
+            next_medium = t.checked_add(medium_span).ok()?;
+            TickKind::Medium
+        } else {
+            TickKind::Small
+        };
+
+        let time = Time::from(t.duration_since(&epoch));
+
+        if time > range.max {
+            break;
+        }
+
+        let text = match kind {
+            TickKind::Small => String::new(),
+            TickKind::Medium => medium_step.format(&t),
+            TickKind::Big => big_step.format(&t),
+        };
+
+        ticks.push(Tick { kind, time, text })
+    }
+
+    Some(Ticks {
+        small_spacing_time: small_step.approx_time(),
+        medium_spacing_time: medium_step.approx_time(),
+        big_spacing_time: big_step.approx_time(),
+        ticks
+    })
+}
 
 pub fn paint_time_ticks(
     ui: &mut egui::Ui,
     scale: &Scale,
     line_y_range: Rangef,
+    epoch: Option<Zoned>,
 ) {
     let clip_rect = Rect::from_x_y_ranges(scale.x_range, line_y_range);
     let font_id = egui::TextStyle::Body.resolve(ui.style());
@@ -106,7 +164,13 @@ pub fn paint_time_ticks(
         color_from_alpha(alpha)
     };
 
-    let ticks = relative_ticks(minimum_small_line_time, visible);
+    let ticks = if let Some(epoch) = epoch {
+        date_ticks(minimum_small_line_time, visible, epoch)
+    } else {
+        Some(relative_ticks(minimum_small_line_time, visible))
+    };
+
+    let Some(ticks) = ticks else { return };
 
     // We fade in lines as we zoom in:
     let medium_line_strength = line_strength_from_spacing(ticks.medium_spacing_time, ticks.big_spacing_time);
