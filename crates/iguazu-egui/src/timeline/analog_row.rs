@@ -4,7 +4,7 @@ use iguazu::{IdxRange, schema::{FieldRef, attribute::display::AccentColor}, time
 
 use crate::{color::named_color, ViewerContext};
 
-use super::{TimelineResponse, label_frame, scale::Scale, stream_rect};
+use super::{TimelineResponse, row_label, scale::Scale, stream_rect};
 
 struct YScale {
     scale: f64,
@@ -69,9 +69,7 @@ impl<'a> YAxisRow<'a> {
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &Scale) -> TimelineResponse{
-        label_frame(ui, |ui| {
-            ui.label(self.label.as_str());
-        });
+        row_label(ui, &self.label);
         let rect = stream_rect(ui, scale);
 
         let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0 + STROKE_WIDTH * 2.0));

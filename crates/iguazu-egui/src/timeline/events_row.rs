@@ -6,7 +6,7 @@ use iguazu::{schema::{attribute::display::AccentColor, EntityStream}, view::{Eve
 
 use crate::{color::named_color, ViewerContext};
 
-use super::{label_frame, stream_rect, TimelineResponse};
+use super::{row_label, stream_rect, TimelineResponse};
 
 pub struct EventsRow<'a> {
     event_view: EventView<'a>,
@@ -34,9 +34,7 @@ impl<'a> EventsRow<'a> {
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
-        label_frame(ui, |ui| {
-            ui.label(self.label.as_str());
-        });
+        row_label(ui, &self.label);
 
         let rect = stream_rect(ui, scale);
         let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0))

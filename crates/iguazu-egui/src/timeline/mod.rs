@@ -9,7 +9,7 @@ use std::iter::Sum;
 
 use analog_row::YAxisRow;
 use ecow::EcoString;
-use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Layout, Margin, NumExt, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
+use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Label, Layout, Margin, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
 use events_row::EventsRow;
 use iguazu::{schema::{Entity, EntityStream, FieldRef, attribute::{self, display::{AccentColor, TimelineRow}}}, time::{Time, TimeRange}, view::Timebase};
 use trace_row::{LogicRow, TraceRow};
@@ -61,10 +61,7 @@ impl TimelineView {
         let rect = ui.max_rect();
 
         // x position of split between sidebar and data
-        let time_x_left =
-            (rect.left() + state.col_width + ui.spacing().item_spacing.x)
-                .at_least(50.0)
-                .at_most(ui.max_rect().right() - 100.0);
+        let time_x_left = rect.left() + state.col_width;
 
         let x_margin = 20.0;
         let scrollbar_width = ui.spacing_mut().scroll.bar_outer_margin + ui.spacing_mut().scroll.bar_width;
@@ -370,12 +367,16 @@ impl<'a> TimelineRowKind<'a> {
     }
 }
 
-fn label_frame<T>(ui: &mut egui::Ui, inner: impl FnOnce(&mut egui::Ui) -> T) -> T {
-    Frame::new()
-        .inner_margin(Margin::symmetric(6, 6))
-        .show(ui, |ui| {
-            inner(ui)
-        }).inner
+fn row_label(ui: &mut egui::Ui, name: &str) {
+    if !name.is_empty() {
+        Frame::new()
+            .inner_margin(Margin::symmetric(12, 6))
+            .show(ui, |ui| {
+               ui.horizontal(|ui| {
+                    ui.add(Label::new(name).selectable(false))
+               });
+           });
+    }
 }
 
 fn stream_rect(ui: &egui::Ui, scale: &Scale) -> Rect {

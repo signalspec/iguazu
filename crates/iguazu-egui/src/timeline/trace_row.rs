@@ -4,7 +4,7 @@ use ecow::EcoString;
 
 use crate::{color::named_color, ViewerContext};
 
-use super::{label_frame, stream_rect, TimelineResponse};
+use super::{row_label, stream_rect, TimelineResponse};
 
 pub struct TraceRow<'a> {
     view: TraceView<'a>,
@@ -33,9 +33,8 @@ impl<'a> TraceRow<'a> {
     }
 
     pub fn render(&self, ui: &mut Ui, scale: &super::scale::Scale) -> TimelineResponse {
-        label_frame(ui, |ui| {
-            ui.label(self.label.as_str());
-        });
+        row_label(ui, &self.label);
+
         let rect = stream_rect(ui, scale);
         let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0))
             .round_to_pixel_center(ui.pixels_per_point());
@@ -141,9 +140,8 @@ impl<'a> LogicRow<'a> {
     }
 
     pub fn render(&self, ui: &mut egui::Ui, scale: &super::scale::Scale) -> TimelineResponse {
-        label_frame(ui, |ui| {
-            ui.label(self.label.as_str());
-        });
+        row_label(ui, &self.label);
+
         let rect = stream_rect(ui, scale);
         let idx_scale = scale.idx_scale(self.sample_rate);
 
