@@ -1,53 +1,26 @@
 // Based on rerun.io: © 2023 Rerun Technologies AB under MIT OR Apache-2.0
-use egui::{lerp, pos2, remap_clamp, Align2, Color32, Rect, Rgba, Shape, Stroke, Rangef};
+use egui::{lerp, pos2, remap_clamp, Align2, Color32, Rect, Rgba, Stroke, Rangef};
 
 use iguazu::time::{Time, next_time_step};
 
 use super::Scale;
 
-pub(crate) fn paint_time_ranges_and_ticks(
-    time_ranges_ui: &Scale,
+pub fn paint_time_ticks(
     ui: &mut egui::Ui,
-    time_area_painter: &egui::Painter,
+    scale: &Scale,
     line_y_range: Rangef,
 ) {
-    time_area_painter
-        .extend(paint_time_range_ticks(ui, time_ranges_ui, line_y_range));
-
-}
-
-fn paint_time_range_ticks(
-    ui: &mut egui::Ui,
-    scale: &Scale,
-    line_y_range: Rangef,
-) -> Vec<Shape> {
+    let clip_rect = Rect::from_x_y_ranges(scale.x_range, line_y_range);
     let font_id = egui::TextStyle::Body.resolve(ui.style());
 
-     paint_ticks(
-        ui.ctx(),
-        scale,
-        ui.visuals().dark_mode,
-        &font_id,
-        line_y_range,
-        &ui.clip_rect()
-    )
-}
+    let egui_ctx = ui.ctx();
+    let dark_mode = ui.visuals().dark_mode;
 
-#[allow(clippy::too_many_arguments)]
-fn paint_ticks(
-    egui_ctx: &egui::Context,
-    scale: &Scale,
-    dark_mode: bool,
-    font_id: &egui::FontId,
-    line_y_range: Rangef,
-    clip_rect: &Rect,
-) -> Vec<egui::Shape> {
-    let min_tick_size = Time::NANOSECOND; // TODO: set from max sample rate
+    let min_tick_size = Time::NANOSECOND;
     if scale.view_range.length() < min_tick_size || scale.x_width() <= 0.0 {
-        return Vec::new() // or we'd infinite loop
+        return; // or we'd infinite loop
     }
     let visible = scale.clamped_visible();
-
     let color_from_alpha = |alpha: f32| -> Color32 {
         if dark_mode {
             Rgba::from_white_alpha(alpha).into()
@@ -56,9 +29,8 @@ fn paint_ticks(
         }
     };
 
-    let mut shapes = vec![];
-
     let minimum_small_line_spacing = 4.0;
+    let minimum_small_line_time = scale.points_to_time(minimum_small_line_spacing);
     let expected_text_width = 60.0;
 
     let line_strength_from_spacing = |spacing_time: Time| -> f32 {
@@ -80,7 +52,7 @@ fn paint_ticks(
     };
 
     let mut small_spacing_time = min_tick_size;
-    while scale.points_from_time(small_spacing_time) < minimum_small_line_spacing {
+    while small_spacing_time < minimum_small_line_time {
         small_spacing_time = next_time_step(small_spacing_time);
     }
     let medium_spacing_time = next_time_step(small_spacing_time);
@@ -101,6 +73,8 @@ fn paint_ticks(
 
     let mut current_time = visible.min / big_spacing_time * big_spacing_time;
     let clip_x = clip_rect.x_range().expand(expected_text_width);
+
+    let mut shapes = vec![];
 
     while current_time <= visible.max {
         let line_x = scale.x_from_t(current_time);
@@ -145,5 +119,5 @@ fn paint_ticks(
         current_time += small_spacing_time;
     }
 
-    shapes
+    ui.painter_at(clip_rect).extend(shapes);
 }

@@ -105,10 +105,9 @@ impl TimelineView {
                 ui.visuals().widgets.noninteractive.bg_stroke,
             );
 
-            paint_ticks::paint_time_ranges_and_ticks(
-                &scale,
+            paint_ticks::paint_time_ticks(
                 ui,
-                &ui.painter_at(timeline_rect),
+                &scale,
                 timeline_rect.y_range(),
             );
 
