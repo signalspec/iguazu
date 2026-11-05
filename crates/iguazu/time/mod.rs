@@ -1,7 +1,9 @@
 //! High precision time types
 use std::{fmt::Display, time::Duration};
-use jiff::{SignedDuration, Zoned};
+use jiff::SignedDuration;
 use num_traits::Float;
+
+pub mod ticks;
 
 /// A duration represented in 128-bit attoseconds
 #[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Debug)]
@@ -412,131 +414,4 @@ fn test_format_freq() {
     assert_eq!(&format!("{}", (Time::MICROSECOND).format_period_as_freq()), "1 MHz");
     assert_eq!(&format!("{}", (Time::NANOSECOND).format_period_as_freq()), "1 GHz");
     assert_eq!(&format!("{}", (408 * Time::PICOSECOND).format_period_as_freq()), "2.450 GHz");
-}
-
-// Based on rerun.io: © 2023 Rerun Technologies AB under MIT OR Apache-2.0
-/// Generate grid tick spacing for a time axis.
-///
-/// Given some spacing (e.g. 10s), return the next spacing (60s).
-pub fn next_time_step(spacing: Time) -> Time {
-    if spacing <= Time::SECOND {
-        10 * spacing // up to 10 second ticks
-    } else if spacing == 10 * Time::SECOND {
-        6 * spacing // to the whole minute
-    } else if spacing == Time::MINUTE {
-        10 * spacing // to ten minutes
-    } else if spacing == 10 * Time::MINUTE {
-        6 * spacing // to an hour
-    } else if spacing == Time::HOUR {
-        24 * spacing // to a day
-    } else {
-        10 * spacing
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum DateStep {
-    Nanosecond(u64), // 1ns - 10s by factors of 10
-    Day,
-    Month,
-    Year(i16),
-}
-
-impl DateStep {
-    pub fn smallest() -> DateStep {
-        DateStep::Nanosecond(1)
-    }
-
-    pub fn next(self) -> DateStep {
-        match self {
-            DateStep::Nanosecond(ns) if ns <= 1_000_000_000 => DateStep::Nanosecond(ns * 10),
-            DateStep::Nanosecond(ns) if ns <= 10_000_000_000 => DateStep::Nanosecond(ns * 6),
-            DateStep::Nanosecond(ns) if ns <= 60_000_000_000 => DateStep::Nanosecond(ns * 10),
-            DateStep::Nanosecond(ns) if ns <= 600_000_000_000 => DateStep::Nanosecond(ns * 6),
-            DateStep::Nanosecond(_) => DateStep::Day,
-            DateStep::Day => DateStep::Month,
-            DateStep::Month => DateStep::Year(1),
-            DateStep::Year(years) => DateStep::Year(years*10),
-        }
-    }
-
-    pub fn approx_time(self) -> Time {
-        match self {
-            DateStep::Nanosecond(ns) => (ns as i128) * Time::NANOSECOND,
-            DateStep::Day => Time::DAY,
-            DateStep::Month => 30 * Time::DAY,
-            DateStep::Year(years) => years as i128 * (365 * Time::DAY + 6 * Time::HOUR),
-        }
-    }
-
-    pub fn floor_date(self, date: &Zoned) -> Result<Zoned, jiff::Error> {
-        use jiff::{ZonedRound, RoundMode, Unit};
-
-        fn trunc(date: &Zoned, unit: Unit, increment: i64) -> Result<Zoned, jiff::Error> {
-            date.round(ZonedRound::new().smallest(unit).increment(increment).mode(RoundMode::Trunc))
-        }
-
-        match self {
-            DateStep::Nanosecond(ns) if ns < 1_000 => trunc(date, Unit::Nanosecond, ns as i64),
-            DateStep::Nanosecond(ns) if ns < 1_000_000 => trunc(date, Unit::Microsecond, (ns / 1_000) as i64),
-            DateStep::Nanosecond(ns) if ns < 1_000_000_000 => trunc(date, Unit::Millisecond, (ns / 1_000_000) as i64),
-            DateStep::Nanosecond(ns) if ns < 60_000_000_000 => trunc(date, Unit::Second, (ns / 1_000_000_000) as i64),
-            DateStep::Nanosecond(ns) if ns < 3_600_000_000_000 => trunc(date, Unit::Minute, (ns / 60_000_000_000) as i64),
-            DateStep::Nanosecond(ns) => trunc(date, Unit::Hour, (ns / 3_600_000_000_000) as i64),
-            DateStep::Day => date.start_of_day(),
-            DateStep::Month => date.start_of_day()?.first_of_month(),
-            DateStep::Year(n) => jiff::civil::Date::new((date.year() / n) * n, 1, 1)?.to_zoned(date.time_zone().clone()),
-        }
-    }
-
-    pub fn as_span(self) -> jiff::Span {
-        use jiff::Span;
-        match self {
-            DateStep::Nanosecond(ns) => Span::new().nanoseconds(ns as i64),
-            DateStep::Day => Span::new().days(1),
-            DateStep::Month => Span::new().months(1),
-            DateStep::Year(n) => Span::new().years(n),
-        }
-    }
-
-    pub fn format(self, time: &Zoned) -> String {
-        match self {
-            DateStep::Nanosecond(_) => time.time().to_string(),
-            DateStep::Day | DateStep::Month | DateStep::Year(_) => time.date().to_string(),
-        }
-    }
-}
-
-#[test]
-fn test_floor_date() {
-    let date: Zoned = "2026-11-15T12:34:56.123456789[UTC]".parse().unwrap();
-    let expected = [
-        "2026-11-15T12:34:56.123456789[UTC]", // Nanosecond(1)
-        "2026-11-15T12:34:56.12345678[UTC]", // Nanosecond(10)
-        "2026-11-15T12:34:56.1234567[UTC]", // Nanosecond(100)
-        "2026-11-15T12:34:56.123456[UTC]", // Nanosecond(1_000)
-        "2026-11-15T12:34:56.12345[UTC]", // Nanosecond(10_000)
-        "2026-11-15T12:34:56.1234[UTC]", // Nanosecond(100_000)
-        "2026-11-15T12:34:56.123[UTC]", // Nanosecond(1_000_000)
-        "2026-11-15T12:34:56.12[UTC]", // Nanosecond(10_000_000)
-        "2026-11-15T12:34:56.1[UTC]", // Nanosecond(100_000_000)
-        "2026-11-15T12:34:56[UTC]", // Nanosecond(1_000_000_000)
-        "2026-11-15T12:34:50[UTC]", // Nanosecond(10_000_000_000)
-        "2026-11-15T12:34:00[UTC]", // Minute
-        "2026-11-15T12:30:00[UTC]", // TenMinute
-        "2026-11-15T12:00:00[UTC]", // Hour
-        "2026-11-15T00:00:00[UTC]", // Day
-        "2026-11-01T00:00:00[UTC]", // Month
-        "2026-01-01T00:00:00[UTC]", // Year(1)
-        "2020-01-01T00:00:00[UTC]", // Year(10)
-        "2000-01-01T00:00:00[UTC]", // Year(100)
-    ];
-    let mut step = DateStep::smallest();
-    for expected in expected {
-        match step.floor_date(&date) {
-            Ok(floored) => assert_eq!(floored, expected.parse().unwrap(), "step {step:?}"),
-            Err(e) =>  panic!("{step:?}.floor_date() = {e:?}"),
-        }
-        step = step.next();
-    }
 }

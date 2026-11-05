@@ -1,12 +1,10 @@
 // Based on rerun.io: © 2023 Rerun Technologies AB under MIT OR Apache-2.0
 use egui::{lerp, pos2, remap_clamp, Align2, Color32, Rect, Rgba, Stroke, Rangef};
 
-use iguazu::time::{DateStep, Time, TimeRange, next_time_step};
+use iguazu::time::{ticks::{TickStep, DateTickStep}, Time, TimeRange};
 use jiff::{SignedDuration, Zoned};
 
 use super::Scale;
-
-const MIN_TICK_SIZE: Time = Time::PICOSECOND;
 
 struct Ticks {
     small_spacing_time: Time,
@@ -28,20 +26,20 @@ enum TickKind {
 }
 
 fn relative_ticks(minimum_small_line_time: Time, range: TimeRange) -> Ticks {
-    let mut small_spacing_time = MIN_TICK_SIZE;
-    while small_spacing_time < minimum_small_line_time {
-        small_spacing_time = next_time_step(small_spacing_time);
+    let mut small_step = TickStep::SMALLEST;
+    while small_step.time() < minimum_small_line_time {
+        small_step = small_step.larger();
     }
-    let medium_spacing_time = next_time_step(small_spacing_time);
-    let big_spacing_time = next_time_step(medium_spacing_time);
+    let medium_step = small_step.larger();
+    let big_step = medium_step.larger();
 
     let mut ticks = Vec::new();
-    let mut time = range.min / big_spacing_time * big_spacing_time;
+    let mut time = big_step.floor(range.min);
 
     while time <= range.max {
-        let kind = if time % big_spacing_time == Time::ZERO {
+        let kind = if time % big_step.time() == Time::ZERO {
             TickKind::Big
-        } else if time % medium_spacing_time == Time::ZERO {
+        } else if time % medium_step.time() == Time::ZERO {
             TickKind::Medium
         } else {
             TickKind::Small
@@ -49,25 +47,30 @@ fn relative_ticks(minimum_small_line_time: Time, range: TimeRange) -> Ticks {
 
         let text = match kind {
             TickKind::Small => String::new(),
-            TickKind::Medium => time.format_relative(medium_spacing_time).to_string(),
-            TickKind::Big => time.format_relative(big_spacing_time).to_string(),
+            TickKind::Medium => time.format_relative(medium_step.time()).to_string(),
+            TickKind::Big => time.format_relative(big_step.time()).to_string(),
         };
 
         ticks.push(Tick { kind, time, text });
 
-        time += small_spacing_time;
+        time += small_step.time();
     }
 
-    Ticks { small_spacing_time, medium_spacing_time, big_spacing_time, ticks }
+    Ticks {
+        small_spacing_time: small_step.time(),
+        medium_spacing_time: medium_step.time(),
+        big_spacing_time: big_step.time(),
+        ticks
+    }
 }
 
 fn date_ticks(minimum_small_line_time: Time, range: TimeRange, epoch: Zoned) -> Option<Ticks> {
-    let mut small_step = DateStep::smallest();
+    let mut small_step = DateTickStep::SMALLEST;
     while small_step.approx_time() < minimum_small_line_time {
-        small_step = small_step.next();
+        small_step = small_step.larger();
     }
-    let medium_step = small_step.next();
-    let big_step = medium_step.next();
+    let medium_step = small_step.larger();
+    let big_step = medium_step.larger();
 
     let mut ticks = Vec::new();
     let start = epoch.checked_add(SignedDuration::try_from(range.min).ok()?).ok()?;
@@ -130,7 +133,7 @@ pub fn paint_time_ticks(
     let egui_ctx = ui.ctx();
     let dark_mode = ui.visuals().dark_mode;
 
-    if scale.view_range.length() < MIN_TICK_SIZE || scale.x_width() <= 0.0 {
+    if scale.view_range.length() < Time::NANOSECOND || scale.x_width() <= 0.0 {
         return; // or we'd infinite loop
     }
     let visible = scale.clamped_visible();
