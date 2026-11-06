@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use egui::{Rangef, Ui};
 
-use iguazu_egui_heatmap::{Heatmap, HeatmapRenderer, SampleOrder};
+use iguazu_egui_heatmap::{Heatmap, DisplayOptions, HeatmapRenderer, SampleOrder};
 
 pub struct App {
     h1: State,
@@ -27,12 +27,12 @@ impl App {
         buf[0] = 254;
         buf[31] = 64;
 
-        let mut h1 = heatmap_renderer.heatmap(32, 32);
+        let h1 = heatmap_renderer.heatmap(32, 32);
         h1.write(&buf);
 
-        let mut h2 = heatmap_renderer.heatmap(32, 32);
+        let h2 = heatmap_renderer.heatmap(32, 32);
         h2.write(&buf);
-        
+
         Self {
             h1: State {
                 heatmap: h1,
@@ -60,14 +60,17 @@ fn heatmap_demo(ui: &mut Ui, state: &mut State) {
                 egui::Sense::hover()
             );
 
-            ui.painter().add(state.heatmap.shape_at(rect, (state.x, state.y, state.order), state.range));
+            ui.painter().add(state.heatmap.shape_at(rect, DisplayOptions {
+                transformation: (state.x, state.y, state.order).into(),
+                value_range: state.range
+            }));
         });
-        
+
         ui.horizontal(|ui| {
             ui.add(egui::Slider::new(&mut state.x.min, -0.1..=1.1).text("xleft"));
             ui.add(egui::Slider::new(&mut state.x.max, -0.1..=1.1).text("xright"));
         });
-    
+
         ui.horizontal(|ui| {
             ui.add(egui::Slider::new(&mut state.y.min, -0.1..=1.1).text("ytop"));
             ui.add(egui::Slider::new(&mut state.y.max, -0.1..=1.1).text("ybottom"));
@@ -90,7 +93,7 @@ fn heatmap_demo(ui: &mut Ui, state: &mut State) {
                 ui.selectable_value(&mut state.order, SampleOrder::DownLeft, "DownLeft");
                 ui.selectable_value(&mut state.order, SampleOrder::UpLeft, "UpLeft");
             })
-            
+
 
     });
 }

@@ -8,22 +8,26 @@ mod transformation;
 pub use transformation::{Transformation,SampleOrder};
 
 pub struct Heatmap {
-    width: u32,
-    height: u32,
-    state: Arc<HeatmapState>,
+    inner: Arc<HeatmapInner>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DisplayOptions {
+    pub transformation: Transformation,
+    pub value_range: Rangef
 }
 
 impl Heatmap {
-    pub fn write(&mut self, data: &[u8]) {
+    pub fn write(&self, data: &[u8]) {
         let texture_size = wgpu::Extent3d {
-            width: self.width,
-            height: self.height,
+            width: self.inner.texture.width(),
+            height: self.inner.texture.height(),
             depth_or_array_layers: 1,
         };
 
-        self.state.resources.queue.write_texture(
+        self.inner.resources.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.state.texture,
+                texture: &self.inner.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -31,29 +35,27 @@ impl Heatmap {
             &data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(self.width),
-                rows_per_image: Some(self.height),
+                bytes_per_row: Some(self.inner.texture.width()),
+                rows_per_image: Some(self.inner.texture.height()),
             },
             texture_size,
         );
     }
 
-    pub fn shape_at(&self, rect: Rect, transformation: impl Into<Transformation>, range: Rangef) -> PaintCallback {
+    pub fn shape_at(&self, rect: Rect, options: DisplayOptions) -> PaintCallback {
         egui_wgpu::Callback::new_paint_callback(
             rect,
             HeatmapCallback {
-                state: self.state.clone(),
-                transformation: transformation.into(), 
-                range
+                inner: self.inner.clone(),
+                options,
             },
         )
     }
 }
 
 struct HeatmapCallback {
-    state: Arc<HeatmapState>,
-    transformation: Transformation,
-    range: Rangef,
+    inner: Arc<HeatmapInner>,
+    options: DisplayOptions,
 }
 
 impl egui_wgpu::CallbackTrait for HeatmapCallback {
@@ -66,16 +68,16 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
         _resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         queue.write_buffer(
-            &self.state.uniform_buffer,
+            &self.inner.uniform_buffer,
             0,
             bytes_of(&Uniforms {
-                matrix: self.transformation.wgpu_matrix(),
-                min: self.range.min,
-                max: self.range.max,
+                matrix: self.options.transformation.wgpu_matrix(),
+                min: self.options.value_range.min,
+                max: self.options.value_range.max,
                 pad: Default::default(),
             }),
         );
-    
+
         Vec::new()
     }
 
@@ -85,13 +87,11 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
         render_pass: &mut wgpu::RenderPass<'static>,
         _resources: &'a egui_wgpu::CallbackResources,
     ) {
-        render_pass.set_pipeline(&self.state.resources.pipeline);
-        render_pass.set_bind_group(0, &self.state.bind_group, &[]);
+        render_pass.set_pipeline(&self.inner.resources.pipeline);
+        render_pass.set_bind_group(0, &self.inner.bind_group, &[]);
         render_pass.draw(0..4, 0..1);
     }
 }
-
-
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
@@ -109,7 +109,7 @@ pub struct HeatmapRenderer {
     pipeline: wgpu::RenderPipeline,
 }
 
-struct HeatmapState {
+struct HeatmapInner {
     resources: Arc<HeatmapRenderer>,
     bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
@@ -237,10 +237,8 @@ impl HeatmapRenderer {
             ],
         });
 
-        let state = Arc::new(HeatmapState { bind_group, uniform_buffer, texture, resources: self.clone() });
-
-        Heatmap { width, height, state }
-
+        let inner = Arc::new(HeatmapInner { bind_group, uniform_buffer, texture, resources: self.clone() });
+        Heatmap { inner }
     }
 
     fn create_texture(&self, width: u32, height: u32) -> wgpu::Texture {
