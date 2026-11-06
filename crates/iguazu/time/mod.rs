@@ -46,6 +46,14 @@ impl Time {
         (*self / t, Time(self.0 % t.0))
     }
 
+    pub fn div_round(&self, p: Time) -> i128 {
+        if self.0 >= 0 {
+            (*self + p/2) / p
+        } else {
+            (*self - p/2) / p
+        }
+    }
+
     pub fn format_relative(&self, precision: Time) -> FormatRelative {
         FormatRelative { time: *self, precision }
     }
@@ -253,23 +261,23 @@ pub struct FormatRelative {
 impl Display for FormatRelative {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.precision >= Time::HOUR {
-            write!(f, "{} h", self.time / Time::HOUR)
+            write!(f, "{} h", self.time.div_round(Time::HOUR))
         } else if self.precision >= Time::MINUTE {
-            write!(f, "{} min", self.time / Time::MINUTE)
+            write!(f, "{} min", self.time.div_round(Time::MINUTE))
         } else if self.precision >= Time::SECOND {
-            write!(f, "{} s", self.time / Time::SECOND)
+            write!(f, "{} s", self.time.div_round(Time::SECOND))
         } else if self.precision >= Time::MILLISECOND {
-            write!(f, "{} ms", self.time / Time::MILLISECOND)
+            write!(f, "{} ms", self.time.div_round(Time::MILLISECOND))
         } else if self.precision >= Time::MICROSECOND {
-            write!(f, "{} μs", self.time / Time::MICROSECOND)
+            write!(f, "{} μs", self.time.div_round(Time::MICROSECOND))
         } else if self.precision >= Time::NANOSECOND {
-            write!(f, "{} ns", self.time / Time::NANOSECOND)
+            write!(f, "{} ns", self.time.div_round(Time::NANOSECOND))
         } else if self.precision >= Time::PICOSECOND {
-            write!(f, "{} ps", self.time / Time::PICOSECOND)
+            write!(f, "{} ps", self.time.div_round(Time::PICOSECOND))
         } else if self.precision >= Time::FEMTOSECOND {
-            write!(f, "{} fs", self.time / Time::FEMTOSECOND)
+            write!(f, "{} fs", self.time.div_round(Time::FEMTOSECOND))
         } else {
-            write!(f, "{} as", self.time / Time::ATTOSECOND)
+            write!(f, "{} as", self.time.div_round(Time::ATTOSECOND))
         }
     }
 }
@@ -282,7 +290,7 @@ fn test_format_relative() {
 
     assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::SECOND)), "42 s");
     assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::MILLISECOND)), "42123 ms");
-    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::MICROSECOND)), "42123456 μs");
+    assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::MICROSECOND)), "42123457 μs");
     assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::NANOSECOND)), "42123456789 ns");
     assert_eq!(&format!("{}", (42_123_456_789 * Time::NANOSECOND).format_relative(Time::PICOSECOND)), "42123456789000 ps");
 
