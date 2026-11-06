@@ -2,7 +2,7 @@ use std::{num::NonZeroU64, sync::Arc};
 
 use bytemuck::{Zeroable, bytes_of};
 use egui_wgpu::{self, wgpu::{self, util::DeviceExt}, ScreenDescriptor};
-use egui::{PaintCallback, Rangef, Rect};
+use egui::{Color32, PaintCallback, Rangef, Rect};
 
 mod transformation;
 pub use transformation::{Transformation,SampleOrder};
@@ -13,8 +13,19 @@ pub struct Heatmap {
     inner: Arc<HeatmapInner>,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum Colormap {
+    Linear(Color32, Color32),
+    Viridis,
+    Plasma,
+    Magma,
+    Inferno,
+}
+
 #[derive(Clone, Debug)]
 pub struct DisplayOptions {
+    pub colormap: Colormap,
+    pub alpha: f32,
     pub transformation: Transformation,
     pub value_range: Rangef
 }
@@ -77,14 +88,26 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         _resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
+
+        let (colormap, color1, color2) = match self.options.colormap {
+            Colormap::Linear(color1, color2) => (1, color1.to_normalized_gamma_f32(), color2.to_normalized_gamma_f32()),
+            Colormap::Viridis => (16, [0.0; 4], [0.0; 4]),
+            Colormap::Plasma => (17, [0.0; 4], [0.0; 4]),
+            Colormap::Magma => (18, [0.0; 4], [0.0; 4]),
+            Colormap::Inferno => (19, [0.0; 4], [0.0; 4]),
+        };
+
         queue.write_buffer(
             &self.inner.uniform_buffer,
             0,
             bytes_of(&Uniforms {
                 matrix: self.options.transformation.wgpu_matrix(),
+                color1,
+                color2,
+                colormap,
+                alpha: self.options.alpha,
                 min: self.options.value_range.min,
                 max: self.options.value_range.max,
-                pad: Default::default(),
             }),
         );
 
@@ -107,9 +130,12 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct Uniforms {
     matrix: [f32; 12], // 3x3 matrix with wgpu padding
+    color1: [f32; 4],
+    color2: [f32; 4],
+    alpha: f32,
+    colormap: u32,
     min: f32,
     max: f32,
-    pad: [f32; 2],
 }
 
 pub struct HeatmapRenderer {
@@ -186,7 +212,11 @@ impl HeatmapRenderer {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu_render_state.target_format.into())],
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu_render_state.target_format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::default(),
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {

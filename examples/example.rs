@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use egui::{Rangef, Ui};
+use egui::{Color32, Rangef, Ui};
 
-use iguazu_egui_heatmap::{DisplayOptions, Heatmap, HeatmapRenderer, SampleOrder, TextureOptions};
+use iguazu_egui_heatmap::{Colormap, DisplayOptions, Heatmap, HeatmapRenderer, SampleOrder, TextureOptions};
 
 pub struct App {
     h1: State,
@@ -13,6 +13,8 @@ pub struct State {
     heatmap: Heatmap,
     x: Rangef,
     y: Rangef,
+    alpha: f32,
+    colormap: Colormap,
     range: Rangef,
     order: SampleOrder,
 }
@@ -36,6 +38,8 @@ impl App {
         Self {
             h1: State {
                 heatmap: h1,
+                alpha: 1.0,
+                colormap: Colormap::Inferno,
                 x: Rangef::new(0., 1.),
                 y: Rangef::new(0., 1.),
                 range: Rangef::new(0., 1.),
@@ -43,6 +47,8 @@ impl App {
             },
             h2: State {
                 heatmap: h2,
+                alpha: 1.0,
+                colormap: Colormap::Viridis,
                 x: Rangef::new(0., 1.),
                 y: Rangef::new(0., 1.),
                 range: Rangef::new(0., 1.),
@@ -61,6 +67,8 @@ fn heatmap_demo(ui: &mut Ui, state: &mut State) {
             );
 
             ui.painter().add(state.heatmap.shape_at(rect, DisplayOptions {
+                alpha: state.alpha,
+                colormap: state.colormap,
                 transformation: (state.x, state.y, state.order).into(),
                 value_range: state.range
             }));
@@ -81,6 +89,8 @@ fn heatmap_demo(ui: &mut Ui, state: &mut State) {
             ui.add(egui::Slider::new(&mut state.range.max, -0.1..=1.1).text("vmax"));
         });
 
+        ui.add(egui::Slider::new(&mut state.alpha, 0.0..=1.0).text("alpha"));
+
         egui::ComboBox::from_label("Sample order")
             .selected_text(format!("{:?}", state.order))
             .show_ui(ui, |ui| {
@@ -92,9 +102,18 @@ fn heatmap_demo(ui: &mut Ui, state: &mut State) {
                 ui.selectable_value(&mut state.order, SampleOrder::UpRight, "UpRight");
                 ui.selectable_value(&mut state.order, SampleOrder::DownLeft, "DownLeft");
                 ui.selectable_value(&mut state.order, SampleOrder::UpLeft, "UpLeft");
-            })
+            });
 
-
+        egui::ComboBox::from_label("Colormap")
+            .selected_text(format!("{:?}", state.colormap))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut state.colormap, Colormap::Viridis, "Viridis");
+                ui.selectable_value(&mut state.colormap, Colormap::Inferno, "Inferno");
+                ui.selectable_value(&mut state.colormap, Colormap::Magma, "Magma");
+                ui.selectable_value(&mut state.colormap, Colormap::Plasma, "Plasma");
+                ui.selectable_value(&mut state.colormap, Colormap::Linear(Color32::BLACK, Color32::WHITE), "Grayscale");
+                ui.selectable_value(&mut state.colormap, Colormap::Linear(Color32::RED, Color32::BLUE), "Red-Blue");
+            });
     });
 }
 
