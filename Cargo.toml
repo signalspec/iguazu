@@ -11,4 +11,3 @@ egui-wgpu = "0.37"
 
 [dev-dependencies]
 eframe = { version = "0.37", default-features=false, features = ["accesskit", "default_fonts", "wgpu", "wayland"] }
-wgpu = "30"

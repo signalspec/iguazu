@@ -7,6 +7,8 @@ use egui::{PaintCallback, Rangef, Rect};
 mod transformation;
 pub use transformation::{Transformation,SampleOrder};
 
+pub use egui_wgpu::wgpu::{AddressMode, FilterMode};
+
 pub struct Heatmap {
     inner: Arc<HeatmapInner>,
 }
@@ -15,6 +17,14 @@ pub struct Heatmap {
 pub struct DisplayOptions {
     pub transformation: Transformation,
     pub value_range: Rangef
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TextureOptions {
+    pub address_mode_u: AddressMode,
+    pub address_mode_v: AddressMode,
+    pub mag_filter: FilterMode,
+    pub min_filter: FilterMode,
 }
 
 impl Heatmap {
@@ -198,7 +208,7 @@ impl HeatmapRenderer {
         }
     }
 
-    pub fn heatmap(self: &Arc<Self>, width: u32, height: u32) -> Heatmap {
+    pub fn heatmap(self: &Arc<Self>, width: u32, height: u32, opts: TextureOptions) -> Heatmap {
         let uniform_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("heatmap"),
             contents: bytes_of(&Uniforms::zeroed()),
@@ -209,11 +219,11 @@ impl HeatmapRenderer {
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_u: opts.address_mode_u,
+            address_mode_v: opts.address_mode_v,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            mag_filter: opts.mag_filter,
+            min_filter: opts.min_filter,
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use egui::{Rangef, Ui};
 
-use iguazu_egui_heatmap::{Heatmap, DisplayOptions, HeatmapRenderer, SampleOrder};
+use iguazu_egui_heatmap::{DisplayOptions, Heatmap, HeatmapRenderer, SampleOrder, TextureOptions};
 
 pub struct App {
     h1: State,
@@ -27,10 +27,10 @@ impl App {
         buf[0] = 254;
         buf[31] = 64;
 
-        let h1 = heatmap_renderer.heatmap(32, 32);
+        let h1 = heatmap_renderer.heatmap(32, 32, TextureOptions::default());
         h1.write(&buf);
 
-        let h2 = heatmap_renderer.heatmap(32, 32);
+        let h2 = heatmap_renderer.heatmap(32, 32, TextureOptions::default());
         h2.write(&buf);
 
         Self {
