@@ -1,7 +1,8 @@
 use std::borrow::Cow;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::future;
 use async_executor::Task;
+use regex::Regex;
 
 use crate::{ElementSize, cow_strs};
 use crate::config::{Configurable, OptionDescription, format_rate, parse_optional, parse_rate};
@@ -17,7 +18,7 @@ pub struct FlatFileImporter {
     pub file: Arc<dyn ReadableFile>,
     pub element: ElementSize,
     pub dtype: DataType,
-    pub sample_rate: Option<f64>,
+    pub attributes: Attributes,
     pub opts: FlatFileOpts,
 }
 
@@ -91,12 +92,12 @@ impl FlatFileImporter {
             file,
             element,
             dtype,
-            sample_rate: None,
+            attributes: Attributes::default(),
             opts: FlatFileOpts::default(),
         }
     }
 
-    pub fn for_file(file: Arc<dyn ReadableFile>,) -> Self {
+    pub fn for_file(file: Arc<dyn ReadableFile>) -> Self {
         let (element, dtype) = match file.filename().rsplit('.').next().unwrap_or("") {
             "logic8" => (ElementSize::U8, DataType::Logic),
             "f32" => (ElementSize::U32, DataType::Real(ScalarType::Float)),
@@ -119,17 +120,18 @@ impl FlatFileImporter {
             "cs64" => (ElementSize::U64, DataType::Complex(ScalarType::Signed)),
             _ => (ElementSize::U8, DataType::Binary),
         };
-        Self::new(file, element, dtype)
+        let attributes = Attributes::from_file_name(file.filename(), jiff::tz::TimeZone::system());
+        Self { file, element, dtype, attributes, opts: FlatFileOpts::default() }
     }
 
     pub fn schema(&self) -> Result<EntitySchema, ImportError> {
-        let mut schema = self.dtype.schema(self.element).ok_or_else(|| ImportError::SchemaMismatch("Unsupported combination of element and dtype".into()))?;
-
-        if let Some(sample_rate) = self.sample_rate {
-            schema = schema.with_attribute(attribute::core::TIME_RATE, sample_rate);
-        }
-
-        Ok(schema)
+        Ok(
+            self.dtype.schema(self.element)
+                .ok_or_else(|| ImportError::SchemaMismatch("Unsupported combination of element and dtype".into()))?
+                .with_attribute_opt(attribute::core::TIME_RATE, self.attributes.sample_rate)
+                .with_attribute_opt(attribute::core::FREQ_CENTER, self.attributes.center_frequency)
+                .with_attribute_opt(attribute::core::TIME_EPOCH, self.attributes.epoch.clone())
+        )
     }
 }
 
@@ -147,6 +149,10 @@ impl Configurable for FlatFileImporter {
             OptionDescription {
                 name: "sample_rate",
                 description: "Sample rate",
+            },
+            OptionDescription {
+                name: "center_freq",
+                description: "Center frequency",
             },
             OptionDescription {
                 name: "offset",
@@ -170,7 +176,8 @@ impl Configurable for FlatFileImporter {
             "offset" => self.opts.offset = value.parse().map_err(|_| "Invalid integer")?,
             "count" => self.opts.count = if value.is_empty() { None } else { Some(value.parse().map_err(|_| "Invalid integer")?) },
             "block_size" => self.opts.block_size = value.parse().map_err(|_| "Invalid integer")?,
-            "sample_rate" => self.sample_rate = parse_optional(parse_rate, value)?,
+            "sample_rate" => self.attributes.sample_rate = parse_optional(parse_rate, value)?,
+            "center_freq" => self.attributes.center_frequency = parse_optional(parse_rate, value)?,
             _ => return Err("Unknown option".into()),
         }
         Ok(())
@@ -183,7 +190,8 @@ impl Configurable for FlatFileImporter {
             "offset" => self.opts.offset.to_string(),
             "count" => self.opts.count.map_or_else(|| "".into(), |c| c.to_string()),
             "block_size" => self.opts.block_size.to_string(),
-            "sample_rate" => format_rate(self.sample_rate?),
+            "sample_rate" => format_rate(self.attributes.sample_rate?),
+            "center_freq" => format_rate(self.attributes.center_frequency?),
             _ => return None,
         })
     }
@@ -219,4 +227,70 @@ impl Importer for FlatFileImporter {
     fn file(&self) -> &Arc<dyn ReadableFile> {
         &self.file
     }
+}
+
+#[derive(Debug, PartialEq, Default, Clone)]
+pub struct Attributes {
+    pub center_frequency: Option<f64>,
+    pub sample_rate: Option<f64>,
+    pub epoch: Option<jiff::Zoned>,
+}
+
+impl Attributes {
+    fn from_file_name(name: &str, default_zone: jiff::tz::TimeZone) -> Attributes {
+        use jiff::{tz::TimeZone, fmt::strtime, civil::DateTime};
+
+        static REGEX: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(concat!(
+                r"(?:-f(?<freq>\d+(?:[.]\d+)?(?:[eE][-+]?\d+)?))?",
+                r"(?:-s(?<rate>\d+(?:[.]\d+)?(?:[eE][-+]?\d+)?))?",
+                r"(?:-t(?<date>\d{14}(?:[.]\d+)?)(?<offset>[+-]\d{4})?)?",
+                r"(?:\.\w+)?$",
+            )).unwrap()
+        });
+
+        REGEX.captures(name).map(|captures| {
+            let center_frequency = captures.name("freq").and_then(|m| m.as_str().parse().ok());
+            let sample_rate = captures.name("rate").and_then(|m| m.as_str().parse().ok());
+            let epoch = captures.name("date").and_then(|m| {
+                let dt = DateTime::strptime("%Y%m%d%H%M%S%.f", m.as_str()).ok()?;
+                let tz = captures.name("offset")
+                    .and_then(|m| strtime::parse("%z", m.as_str()).ok()?.offset())
+                    .map_or(default_zone, |o| TimeZone::fixed(o));
+                dt.to_zoned(tz).ok()
+            });
+
+            Attributes { center_frequency, sample_rate, epoch }
+        }).unwrap_or_default()
+    }
+}
+
+#[test]
+fn test_infer_attributes_from_name() {
+    use jiff::{Timestamp, tz::TimeZone};
+
+    // osmocom_fft, old
+    assert_eq!(Attributes::from_file_name("idle-f2.700000e+07-s1.024000e+06-t20171231164913.cfile", TimeZone::UTC), Attributes {
+        center_frequency: Some(27.0e6),
+        sample_rate: Some(1.024e6),
+        epoch: Some("2017-12-31T16:49:13Z".parse::<Timestamp>().unwrap().to_zoned(TimeZone::UTC))
+    });
+    // osmocom_fft with zone offset
+    assert_eq!(Attributes::from_file_name("xxx-yyy-f433900000-s100000-t20261107143035-0700.cf32", TimeZone::UTC), Attributes {
+        center_frequency: Some(433.9e6),
+        sample_rate: Some(100000.0),
+        epoch: Some("2026-11-07T14:30:35-07:00".parse::<Timestamp>().unwrap().to_zoned(TimeZone::unknown()))
+    });
+    // sample rate only
+    assert_eq!(Attributes::from_file_name("test-s1000000.0.f32", TimeZone::UTC), Attributes {
+        center_frequency: None,
+        sample_rate: Some(1000000.0),
+        epoch: None
+    });
+    // sample rate and epoch only
+    assert_eq!(Attributes::from_file_name("test-s1000000-t20261107143035.456+0100.f32", TimeZone::UTC), Attributes {
+        center_frequency: None,
+        sample_rate: Some(1000000.0),
+        epoch: Some("2026-11-07T14:30:35.456+01:00".parse::<Timestamp>().unwrap().to_zoned(TimeZone::unknown()))
+    });
 }

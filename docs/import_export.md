@@ -15,6 +15,8 @@ A schema is generated from the `dtype` and `sample_rate` options. If a schema is
 Files with the following extensions are detected by this importer, with corresponding default option values:
 `.bin`, `.f32`, `.cf32`, `.cfile`, `.u8`, `.u16`, `.u32`, `.u64`, `.s8`, `.s16`, `.s32`, `.s64`, `.cu8`, `.cu16`, `.cu32`, `.cu64`, `.cs8`, `.cs16`, `.cs32`, `.cs64`, `.logic8`
 
+Filenames following `osmocom_fft`'s template, for example `test-f2.700000e+07-s1.024000e+06-t20171231164913.cfile` are parsed to set the `sample_rate`, `center_freq` options and epoch.
+
 The data is loaded from the file lazily as needed.
 
 ### Import options
@@ -22,6 +24,7 @@ The data is loaded from the file lazily as needed.
   - **`bits`**: Element size in bits (8, 16, 32, 64)
   - **`dtype`**: Data type ("b" | "binary", "l" | "logic", "u" | "unsigned", "s" | "signed", "f" | "float", "cu" | "complex_unsigned", "cs" | "complex_signed", "cf" | "complex_float")
   - **`sample_rate`**: Sample rate.
+  - **`center_freq`**: Center frequency for complex-valued signals.
   - **`offset`**: Byte offset in the file where the data starts. Default 0.
   - **`count`**: Number of elements to read from the file. Empty means to read until the end of the file.
   - **`block_size`**: Number of elements to read in each block.

@@ -1661,6 +1661,7 @@ dependencies = [
  "num-traits",
  "once-array",
  "piper",
+ "regex",
  "serde",
  "serde_json",
  "slab",

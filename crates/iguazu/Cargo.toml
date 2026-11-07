@@ -37,6 +37,7 @@ async-compression = { version = "0.4.41", features = ["futures-io", "deflate"], 
 jiff.workspace = true
 futures-util.workspace = true
 itertools.workspace = true
+regex = "1.13.1"
 
 [features]
 fs = ["dep:blocking", "dep:piper"]
