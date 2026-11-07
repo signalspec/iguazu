@@ -1,20 +1,22 @@
 // Based on rerun.io: © 2023 Rerun Technologies AB under MIT OR Apache-2.0
-mod paint_ticks;
-mod scale;
-mod analog_row;
-mod trace_row;
-mod events_row;
-
 use std::iter::Sum;
 
-use analog_row::YAxisRow;
 use ecow::EcoString;
 use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Label, Layout, Margin, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
-use events_row::EventsRow;
 use iguazu::{schema::{Entity, EntityStream, FieldRef, attribute::{self, display::{AccentColor, TimelineRow}}}, time::{Time, TimeRange}, view::Timebase};
-use trace_row::{LogicRow, TraceRow};
-use crate::{ egui_util:: shadow_line::draw_shadow_line, ViewerContext };
+use crate::{ ViewerContext, egui_util:: shadow_line::draw_shadow_line };
 
+mod analog_row;
+use analog_row::YAxisRow;
+mod trace_row;
+use trace_row::{LogicRow, TraceRow};
+mod events_row;
+use events_row::EventsRow;
+mod spectrogram_row;
+use spectrogram_row::SpectrogramRow;
+
+mod paint_ticks;
+mod scale;
 use scale::Scale;
 
 #[derive(Clone, Debug)]
@@ -258,6 +260,7 @@ enum TimelineRowKind<'a> {
     Trace(TraceRow<'a>),
     Logic(LogicRow<'a>),
     Events(EventsRow<'a>),
+    Spectrogram(SpectrogramRow<'a>),
 }
 
 fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<TimelineRowKind<'a>> {
@@ -289,6 +292,9 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
             TimelineRow::YAxis => {
                 rows.extend(YAxisRow::field(vcx, field, timebase, color, name).map(TimelineRowKind::YAxis));
             }
+            TimelineRow::Spectrogram => {
+                // TODO: real-valued FFT
+            }
             _ => {}
         }
     }
@@ -315,6 +321,9 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
                 }
                 TimelineRow::Events => {
                     rows.extend(EventsRow::new(vcx, name, entity).map(TimelineRowKind::Events));
+                }
+                TimelineRow::Spectrogram if let Some(timebase) = timebase => {
+                    rows.extend(SpectrogramRow::new(vcx, name, entity, timebase).map(TimelineRowKind::Spectrogram))
                 }
                 _ => {}
             }
@@ -347,6 +356,7 @@ impl<'a> TimelineRowKind<'a> {
             TimelineRowKind::Trace(row) => row.render(ui, scale),
             TimelineRowKind::Logic(row) => row.render(ui, scale),
             TimelineRowKind::Events(row) => row.render(ui, scale),
+            TimelineRowKind::Spectrogram(row) => row.render(ui, scale),
         }
     }
 
@@ -356,6 +366,7 @@ impl<'a> TimelineRowKind<'a> {
             TimelineRowKind::Trace(row) => row.time_range(),
             TimelineRowKind::Logic(row) => row.time_range(),
             TimelineRowKind::Events(row) => row.time_range(),
+            TimelineRowKind::Spectrogram(row) => row.time_range(),
         }
     }
 
@@ -365,6 +376,7 @@ impl<'a> TimelineRowKind<'a> {
             TimelineRowKind::Trace(_) => HeightRequest { min_height: 40.0, flex: 0.0 },
             TimelineRowKind::Logic(_) => HeightRequest { min_height: 40.0, flex: 0.0 },
             TimelineRowKind::Events(_) => HeightRequest { min_height: 40.0, flex: 0.0 },
+            TimelineRowKind::Spectrogram(_) => HeightRequest { min_height: 120.0, flex: 1.0 },
         }
     }
 }

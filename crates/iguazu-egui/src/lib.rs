@@ -11,6 +11,7 @@ use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
 use egui::Ui;
 use iguazu::{send::{Executor, NonWasmSend, SendFuture}, schema::{attribute::display::Layout, EntityStream}, storage::{Pool, Storage}, view::ViewManager};
+use iguazu_egui_heatmap::HeatmapRenderer;
 pub use timeline::TimelineView;
 
 pub fn show_entity(vctx: &mut ViewerContext, ui: &mut Ui, entity: &mut EntityStream) {
@@ -41,6 +42,7 @@ pub struct ViewerContext {
     pool: Arc<Pool>,
     default_storage: Arc<dyn Storage>,
 
+    heatmap_renderer: Arc<HeatmapRenderer>,
     view_manager: ViewManager,
 
     /// Waker that requests egui repaint on wake.
@@ -48,11 +50,13 @@ pub struct ViewerContext {
 }
 
 impl ViewerContext {
-    pub fn new(pool: Arc<Pool>, default_storage: Arc<dyn Storage>, egui_ctx: &egui::Context) -> Self {
+    pub fn new(pool: Arc<Pool>, default_storage: Arc<dyn Storage>, egui_ctx: &egui::Context, wgpu: &egui_wgpu::RenderState) -> Self {
         let waker: Waker = Arc::new(RepaintWaker { context: egui_ctx.clone() }).into();
+        let heatmap_renderer = Arc::new(HeatmapRenderer::new(wgpu));
         Self {
             pool,
             default_storage,
+            heatmap_renderer,
             view_manager: ViewManager::new(),
             waker,
         }

@@ -16,7 +16,7 @@ pub mod fmt;
 
 pub mod json_virtual;
 
-use crate::{ElementSize, schema::attribute::Attribute, send::{NonWasmSend, NonWasmSync}, stream::ArcStream, summary::{LiveSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap}};
+use crate::{ElementSize, schema::attribute::{Attribute, core::ROLE}, send::{NonWasmSend, NonWasmSync}, stream::ArcStream, summary::{LiveSummary, LiveSummaryMap, StoredSummary, StoredSummaryMap}};
 
 /// Types that can be used as the data of an `Entity`.
 pub trait EntityData: Sized + Clone + NonWasmSend + NonWasmSync + 'static {
@@ -575,7 +575,7 @@ impl EntitySchema {
             names: vec!["re".into(), "im".into()],
             inner: Box::new(data),
             attributes: Default::default(),
-        }
+        }.with_attribute(ROLE, attribute::core::Role::Complex)
     }
 
     pub fn single_stream(&self) -> Option<(&Field, usize)> {

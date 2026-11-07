@@ -276,7 +276,7 @@ impl App {
             device_watch: iguazu_capture::DeviceWatch::new(&pool.executor, iguazu_capture::DRIVERS),
 
             pending_source: None,
-            vctx: ViewerContext::new(pool, storage, &cc.egui_ctx),
+            vctx: ViewerContext::new(pool, storage, &cc.egui_ctx, cc.wgpu_render_state.as_ref().unwrap()),
             frame_time_history: History::new(0..max_len, max_age),
             enable_debug_ui: std::env::var("IGUAZU_DEBUG_UI").is_ok(),
 

@@ -5,9 +5,9 @@ edition = "2024"
 version = "0.0.0"
 
 [dependencies]
-bytemuck = "1.14.0"
-egui = "0.37"
-egui-wgpu = "0.37"
+bytemuck.workspace = true
+egui-wgpu.workspace = true
+egui.workspace = true
 
 [dev-dependencies]
-eframe = { version = "0.37", default-features=false, features = ["accesskit", "default_fonts", "wgpu", "wayland"] }
+eframe = { version = "0.37", default-features=false, features = ["default_fonts", "wgpu", "wayland"] }

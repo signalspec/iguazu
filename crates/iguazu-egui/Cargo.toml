@@ -11,6 +11,7 @@ version.workspace = true
 
 [dependencies]
 iguazu.workspace = true
+egui-wgpu.workspace = true
 egui.workspace = true
 egui_table.workspace = true
 log.workspace = true
@@ -18,3 +19,4 @@ ecow.workspace = true
 async-executor.workspace = true
 itertools.workspace = true
 jiff.workspace = true
+iguazu-egui-heatmap = { path = "../iguazu-egui-heatmap" }

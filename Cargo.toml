@@ -23,6 +23,7 @@ clap = { version = "4.5.39", features = ["derive"] }
 ecow = { version = "0.3.0", features = ["serde"] }
 eframe =  { version = "0.37.0", default-features = false }
 egui = "0.37.0"
+egui-wgpu = "0.37.0"
 egui_extras = { version = "0.37.0", features = ["svg"] }
 egui_table = "0.11.0"
 env_logger = "0.11.9"
@@ -33,7 +34,7 @@ indexmap = "2"
 itertools = "0.15.0"
 jiff = "0.2.39"
 log = "0.4.22"
-num-complex = "0.4.3"
+num-complex = { version = "0.4.3", features = ["bytemuck"] }
 num-rational = "0.4.1"
 num-traits = "0.2.15"
 once-array = "0.1.0"

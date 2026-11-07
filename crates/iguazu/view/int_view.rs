@@ -42,7 +42,7 @@ impl<'a> IntView<'a> {
         IdxRange { min: 0, max: self.state().end }
     }
 
-    fn block(&self, block: u64) -> &'a [u8] {
+    pub fn block(&self, block: u64) -> &'a [u8] {
         let mut cache = self.cache.borrow_mut();
 
         if cache.0 != block {

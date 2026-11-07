@@ -1,4 +1,7 @@
-use crate::{schema::{Field, FieldKind}, stream::{ArcStream, StreamState}, Idx, IdxRange};
+use bytemuck::Pod;
+use num_traits::AsPrimitive;
+
+use crate::{ElementSize, Idx, IdxRange, schema::{Field, FieldKind}, stream::{ArcStream, StreamState}};
 
 use super::{IntView, ViewManager};
 
@@ -69,6 +72,22 @@ impl<'a> NumberView<'a> {
         self.view.iter_u64(range).map(|elem| elem.map(|elem| self.format.decode(elem)))
     }
 
+    pub fn read_f32_slice(&self, start: Idx, out: &mut [f32]) -> usize {
+        match (self.format, self.view.desc().element_size) {
+            (Format::F32 { scale, offset }, ElementSize::U32) => read_scaled_slice::<f32>(&self.view, start, out, scale, offset),
+            (Format::F64 { scale, offset }, ElementSize::U64) => read_scaled_slice::<f64>(&self.view, start, out, scale, offset),
+            (Format::UInt { scale, offset }, ElementSize::U8) => read_scaled_slice::<u8>(&self.view, start, out, scale, offset),
+            (Format::UInt { scale, offset }, ElementSize::U16) => read_scaled_slice::<u16>(&self.view, start, out, scale, offset),
+            (Format::UInt { scale, offset }, ElementSize::U32) => read_scaled_slice::<u32>(&self.view, start, out, scale, offset),
+            (Format::UInt { scale, offset }, ElementSize::U64) => read_scaled_slice::<u64>(&self.view, start, out, scale, offset),
+            (Format::SInt { scale, offset, shift: 56 }, ElementSize::U8) => read_scaled_slice::<i8>(&self.view, start, out, scale, offset),
+            (Format::SInt { scale, offset, shift: 48 }, ElementSize::U16) => read_scaled_slice::<i16>(&self.view, start, out, scale, offset),
+            (Format::SInt { scale, offset, shift: 32 }, ElementSize::U32) => read_scaled_slice::<i32>(&self.view, start, out, scale, offset),
+            (Format::SInt { scale, offset, shift: 0 }, ElementSize::U64) => read_scaled_slice::<i64>(&self.view, start, out, scale, offset),
+            _ => 0
+        }
+    }
+
     pub fn state(&self) -> StreamState {
         self.view.state()
     }
@@ -76,4 +95,33 @@ impl<'a> NumberView<'a> {
     pub fn len(&self) -> Idx {
         self.view.len()
     }
+}
+
+fn read_scaled_slice<T: Pod + AsPrimitive<f32>>(view: &IntView, start: Idx, out: &mut [f32], scale: f64, offset: f64) -> usize {
+    let scale = scale as f32;
+    let offset = offset as f32;
+
+    let desc = view.desc();
+    let mut block_i = start / desc.count as Idx;
+    let mut src_pos = (start % desc.count as Idx) as usize;
+    let mut dst_pos = 0;
+
+    while dst_pos < out.len() {
+        let block = view.block(block_i);
+        if src_pos >= block.len() / size_of::<T>() {
+            break;
+        }
+        let block = bytemuck::cast_slice::<u8, T>(block);
+
+        while src_pos < block.len() && dst_pos < out.len() {
+            out[dst_pos] = block[src_pos].as_() * scale + offset;
+            dst_pos += 1;
+            src_pos += 1;
+        }
+
+        block_i += 1;
+        src_pos = 0;
+    }
+
+    dst_pos
 }

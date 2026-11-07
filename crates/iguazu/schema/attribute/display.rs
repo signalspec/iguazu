@@ -93,6 +93,9 @@ pub enum TimelineRow {
 
     /// Each value is displayed as a discrete event
     Events,
+
+    /// Spectrogram / Waterfall
+    Spectrogram,
 }
 string_attribute!(TimelineRow);
 
@@ -116,6 +119,7 @@ impl<D, S> Entity<D, S> {
         self.attribute(TIMELINE_ROW).unwrap_or_else(|| match self {
             Entity::Group { .. } if self.role() == Some(Role::Record) && self.time_span().is_some() => TimelineRow::Events,
             Entity::Group { .. } => TimelineRow::Stack,
+            Entity::Tuple { .. } if self.role() == Some(Role::Complex) && self.time_rate().is_some() => TimelineRow::Spectrogram,
             Entity::Data { field, .. } => field.timeline_row(),
             _ => TimelineRow::Hidden,
         })

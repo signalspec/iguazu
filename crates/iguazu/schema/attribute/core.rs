@@ -34,6 +34,9 @@ pub enum Role {
     /// Group where children represent independent series captured
     /// simultaneously, but not necessarily sampled at the same rate
     Capture,
+
+    /// Tuple of (re, im) as a complex number
+    Complex,
 }
 
 string_attribute!(Role);

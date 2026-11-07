@@ -104,3 +104,4 @@ How this entity should be displayed on the timeline.
   * `trace` : A row showing contiguous runs of the same value with the value displayed as text.
   * `logic` : Single-bit value displayed as a logic trace.
   * `events` : Each value is displayed as a discrete event.
+  * `spectrogram`: Frequency-domain heatmap of the power in each frequency bin of a Fourier tranform of the signal.

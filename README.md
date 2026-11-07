@@ -16,7 +16,7 @@ Tools for viewing, storing, and sharing mixed-signal time series data
 
 - Flexible metadata attributes
 
-- Zoomable timeline viewer with analog signal plots, digital logic traces and event spans. *Future: spectrograms*
+- Zoomable timeline viewer with analog signal plots, digital logic traces, event spans, and spectrograms
 
 - Table view
 
