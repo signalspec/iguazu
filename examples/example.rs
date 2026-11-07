@@ -30,10 +30,10 @@ impl App {
         buf[31] = 64;
 
         let h1 = heatmap_renderer.heatmap(32, 32, TextureOptions::default());
-        h1.write(&buf);
+        h1.write_all(&buf);
 
         let h2 = heatmap_renderer.heatmap(32, 32, TextureOptions::default());
-        h2.write(&buf);
+        h2.write_all(&buf);
 
         Self {
             h1: State {

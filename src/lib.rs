@@ -56,8 +56,12 @@ pub struct TextureOptions {
 }
 
 impl<S: Sample> Heatmap<S> {
-    pub fn write(&self, data: &[S]) {
-        self.inner.write(bytemuck::cast_slice(data));
+    pub fn write_all(&self, data: &[S]) {
+        self.write(data, 0, 0, self.inner.texture.width(), self.inner.texture.height());
+    }
+
+    pub fn write(&self, data: &[S], x: u32, y: u32, width: u32, height: u32) {
+        self.inner.write(bytemuck::cast_slice(data), x, y, width, height, size_of::<S>() as u32)
     }
 
     pub fn shape_at(&self, rect: Rect, options: DisplayOptions) -> PaintCallback {
@@ -79,27 +83,25 @@ struct HeatmapInner {
 }
 
 impl HeatmapInner {
-    pub fn write(&self, data: &[u8]) {
-        let texture_size = wgpu::Extent3d {
-            width: self.texture.width(),
-            height: self.texture.height(),
-            depth_or_array_layers: 1,
-        };
-
+    pub fn write(&self, data: &[u8], x: u32, y: u32, width: u32, height: u32, bytes_per_elem: u32) {
         self.resources.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
                 mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
+                origin: wgpu::Origin3d { x, y, z: 0},
                 aspect: wgpu::TextureAspect::All,
             },
             &data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(self.texture.width()),
-                rows_per_image: Some(self.texture.height()),
+                bytes_per_row: Some(width * bytes_per_elem),
+                rows_per_image: Some(height),
             },
-            texture_size,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
     }
 }
