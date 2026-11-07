@@ -10,7 +10,7 @@ pub struct App {
 }
 
 pub struct State {
-    heatmap: Heatmap,
+    heatmap: Heatmap::<u8>,
     x: Rangef,
     y: Rangef,
     alpha: f32,

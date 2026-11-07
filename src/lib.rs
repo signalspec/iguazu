@@ -1,4 +1,4 @@
-use std::{num::NonZeroU64, sync::Arc};
+use std::{marker::PhantomData, num::NonZeroU64, sync::Arc};
 
 use bytemuck::{Zeroable, bytes_of};
 use egui_wgpu::{self, wgpu::{self, util::DeviceExt}, ScreenDescriptor};
@@ -9,8 +9,25 @@ pub use transformation::{Transformation,SampleOrder};
 
 pub use egui_wgpu::wgpu::{AddressMode, FilterMode};
 
-pub struct Heatmap {
+pub trait Sample: bytemuck::Pod {
+    const TEXTURE_FORMAT: wgpu::TextureFormat;
+}
+
+impl Sample for u8 {
+    const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
+}
+
+impl Sample for u16 {
+    const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Unorm;
+}
+
+impl Sample for f32 {
+    const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
+}
+
+pub struct Heatmap<S> {
     inner: Arc<HeatmapInner>,
+    sample: PhantomData<S>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -38,29 +55,9 @@ pub struct TextureOptions {
     pub min_filter: FilterMode,
 }
 
-impl Heatmap {
-    pub fn write(&self, data: &[u8]) {
-        let texture_size = wgpu::Extent3d {
-            width: self.inner.texture.width(),
-            height: self.inner.texture.height(),
-            depth_or_array_layers: 1,
-        };
-
-        self.inner.resources.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.inner.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(self.inner.texture.width()),
-                rows_per_image: Some(self.inner.texture.height()),
-            },
-            texture_size,
-        );
+impl<S: Sample> Heatmap<S> {
+    pub fn write(&self, data: &[S]) {
+        self.inner.write(bytemuck::cast_slice(data));
     }
 
     pub fn shape_at(&self, rect: Rect, options: DisplayOptions) -> PaintCallback {
@@ -71,6 +68,39 @@ impl Heatmap {
                 options,
             },
         )
+    }
+}
+
+struct HeatmapInner {
+    resources: Arc<HeatmapRenderer>,
+    bind_group: wgpu::BindGroup,
+    uniform_buffer: wgpu::Buffer,
+    texture: wgpu::Texture,
+}
+
+impl HeatmapInner {
+    pub fn write(&self, data: &[u8]) {
+        let texture_size = wgpu::Extent3d {
+            width: self.texture.width(),
+            height: self.texture.height(),
+            depth_or_array_layers: 1,
+        };
+
+        self.resources.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(self.texture.width()),
+                rows_per_image: Some(self.texture.height()),
+            },
+            texture_size,
+        );
     }
 }
 
@@ -126,6 +156,7 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
     }
 }
 
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct Uniforms {
@@ -145,12 +176,6 @@ pub struct HeatmapRenderer {
     pipeline: wgpu::RenderPipeline,
 }
 
-struct HeatmapInner {
-    resources: Arc<HeatmapRenderer>,
-    bind_group: wgpu::BindGroup,
-    uniform_buffer: wgpu::Buffer,
-    texture: wgpu::Texture,
-}
 
 impl HeatmapRenderer {
     pub fn new(wgpu_render_state: &egui_wgpu::RenderState) -> HeatmapRenderer {
@@ -238,14 +263,19 @@ impl HeatmapRenderer {
         }
     }
 
-    pub fn heatmap(self: &Arc<Self>, width: u32, height: u32, opts: TextureOptions) -> Heatmap {
+    pub fn heatmap<S: Sample>(self: &Arc<Self>, width: u32, height: u32, opts: TextureOptions) -> Heatmap<S> {
+        let inner = self.create_inner(width, height, opts, S::TEXTURE_FORMAT);
+        Heatmap { inner, sample: PhantomData }
+    }
+
+    fn create_inner(self: &Arc<Self>, width: u32, height: u32, opts: TextureOptions, texture_format: wgpu::TextureFormat) -> Arc<HeatmapInner> {
         let uniform_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("heatmap"),
             contents: bytes_of(&Uniforms::zeroed()),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
 
-        let texture = self.create_texture(width, height);
+        let texture = self.create_texture(width, height, texture_format);
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -277,11 +307,10 @@ impl HeatmapRenderer {
             ],
         });
 
-        let inner = Arc::new(HeatmapInner { bind_group, uniform_buffer, texture, resources: self.clone() });
-        Heatmap { inner }
+        Arc::new(HeatmapInner { bind_group, uniform_buffer, texture, resources: self.clone() })
     }
 
-    fn create_texture(&self, width: u32, height: u32) -> wgpu::Texture {
+    fn create_texture(&self, width: u32, height: u32, texture_format: wgpu::TextureFormat) -> wgpu::Texture {
         let texture_size = wgpu::Extent3d {
             width,
             height,
@@ -293,7 +322,7 @@ impl HeatmapRenderer {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
+                format: texture_format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 label: Some("heatmap_data"),
                 view_formats: &[],
