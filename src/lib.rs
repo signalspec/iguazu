@@ -72,6 +72,14 @@ impl<S: Sample> Heatmap<S> {
         self.inner.write(bytemuck::cast_slice(data), x, y, width, height, size_of::<S>() as u32)
     }
 
+    pub fn width(&self) -> u32 {
+        self.inner.texture.width()
+    }
+
+    pub fn height(&self) -> u32 {
+        self.inner.texture.height()
+    }
+
     pub fn shape_at(&self, rect: Rect, options: DisplayOptions) -> PaintCallback {
         egui_wgpu::Callback::new_paint_callback(
             rect,
