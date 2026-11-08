@@ -70,6 +70,7 @@ impl<S: Sample> Heatmap<S> {
             HeatmapCallback {
                 inner: self.inner.clone(),
                 options,
+                rect,
             },
         )
     }
@@ -109,6 +110,7 @@ impl HeatmapInner {
 struct HeatmapCallback {
     inner: Arc<HeatmapInner>,
     options: DisplayOptions,
+    rect: Rect,
 }
 
 impl egui_wgpu::CallbackTrait for HeatmapCallback {
@@ -116,7 +118,7 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
         &self,
         _device: &wgpu::Device,
         queue: &wgpu::Queue,
-        _screen_descriptor: &ScreenDescriptor,
+        screen_descriptor: &ScreenDescriptor,
         _egui_encoder: &mut wgpu::CommandEncoder,
         _resources: &mut egui_wgpu::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
@@ -129,10 +131,23 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
             Colormap::Inferno => (19, [0.0; 4], [0.0; 4]),
         };
 
+        let rect = {
+            let pixels_per_point = screen_descriptor.pixels_per_point;
+            let screen_size_px = screen_descriptor.size_in_pixels;
+            let screen_w = screen_size_px[0] as f32;
+            let screen_h = screen_size_px[1] as f32;
+            let left = 2.0 * (pixels_per_point * self.rect.min.x) / screen_w - 1.0;
+            let right = 2.0 * (pixels_per_point * self.rect.max.x) / screen_w - 1.0;
+            let top = 1.0 - 2.0 * (pixels_per_point * self.rect.min.y) / screen_h;
+            let bottom = 1.0 - 2.0 * (pixels_per_point * self.rect.max.y) / screen_h;
+            [left, right, top, bottom]
+        };
+
         queue.write_buffer(
             &self.inner.uniform_buffer,
             0,
             bytes_of(&Uniforms {
+                rect,
                 matrix: self.options.transformation.wgpu_matrix(),
                 color1,
                 color2,
@@ -148,10 +163,14 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
 
     fn paint<'a>(
         &'a self,
-        _info: egui::PaintCallbackInfo,
+        info: egui::PaintCallbackInfo,
         render_pass: &mut wgpu::RenderPass<'static>,
         _resources: &'a egui_wgpu::CallbackResources,
     ) {
+        // Set viewport to entire window; quad is positioned via `Uniforms::rect`.
+        let [screen_w, screen_h] = info.screen_size_px;
+        render_pass.set_viewport(0.0, 0.0, screen_w as f32, screen_h as f32, 0.0, 1.0);
+
         render_pass.set_pipeline(&self.inner.resources.pipeline);
         render_pass.set_bind_group(0, &self.inner.bind_group, &[]);
         render_pass.draw(0..4, 0..1);
@@ -162,6 +181,7 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
 struct Uniforms {
+    rect: [f32; 4], // provided rect, in normalized device coordinates
     matrix: [f32; 12], // 3x3 matrix with wgpu padding
     color1: [f32; 4],
     color2: [f32; 4],

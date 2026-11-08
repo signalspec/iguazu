@@ -4,6 +4,7 @@ struct VertexOut {
 };
 
 struct Uniforms {
+    rect: vec4<f32>,
     matrix: mat3x3<f32>,
     color1: vec4<f32>,
     color2: vec4<f32>,
@@ -33,7 +34,12 @@ fn vs_main(@builtin(vertex_index) v_idx: u32) -> VertexOut {
     let coord = vec2<f32>(f32(v_idx / 2u), f32(v_idx % 2u));
 
     var out: VertexOut;
-    out.position = vec4<f32>(-1.0 + 2.0 * coord.x, 1.0 - 2.0 * coord.y, 0.0, 1.0);
+    out.position = vec4<f32>(
+        mix(uniforms.rect.x, uniforms.rect.y, coord.x),
+        mix(uniforms.rect.z, uniforms.rect.w, coord.y),
+        0.0,
+        1.0
+    );
     out.tex_coord = (uniforms.matrix * vec3f(coord, 1.0)).xy;
 
     return out;
