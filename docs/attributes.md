@@ -48,6 +48,12 @@ On a `record` group, contains the name of the child tuple with `start`, `end` el
 
 Defaults to `iso` if `time:rate` and `time:epoch` are specified, `relative` if `time:rate` is specified, otherwise `raw`.
 
+## `freq:center`
+
+Center frequency in Hz. Used with complex-valued data.
+
+Default: 0.0
+
 ## `number:scale`
 
 Scale factor multiplied with the stored value. This is used to scale data stored in fixed-point format.
