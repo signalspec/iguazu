@@ -21,13 +21,13 @@ const COLORMAP_MAGMA: u32 = 18;
 const COLORMAP_INFERNO: u32 = 19;
 
 @group(0) @binding(0)
-var<uniform> uniforms: Uniforms;
-
-@group(0) @binding(1)
 var tex: texture_2d<f32>;
 
-@group(0) @binding(2)
+@group(0) @binding(1)
 var samp: sampler;
+
+@group(1) @binding(0)
+var<uniform> uniforms: Uniforms;
 
 @vertex
 fn vs_main(@builtin(vertex_index) v_idx: u32) -> VertexOut {

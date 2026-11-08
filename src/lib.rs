@@ -1,8 +1,15 @@
-use std::{marker::PhantomData, num::NonZeroU64, sync::Arc};
+use std::{
+    marker::PhantomData,
+    num::NonZeroU64,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
+};
 
-use bytemuck::{Zeroable, bytes_of};
-use egui_wgpu::{self, wgpu::{self, util::DeviceExt}, ScreenDescriptor};
+use bytemuck::bytes_of;
 use egui::{Color32, PaintCallback, Rangef, Rect};
+use egui_wgpu::{ScreenDescriptor, wgpu};
 
 mod transformation;
 pub use transformation::{Transformation,SampleOrder};
@@ -25,6 +32,7 @@ impl Sample for f32 {
     const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 }
 
+#[derive(Clone)]
 pub struct Heatmap<S> {
     inner: Arc<HeatmapInner>,
     sample: PhantomData<S>,
@@ -71,6 +79,7 @@ impl<S: Sample> Heatmap<S> {
                 inner: self.inner.clone(),
                 options,
                 rect,
+                slot: AtomicU32::new(u32::MAX), // assigned in `prepare`.
             },
         )
     }
@@ -79,7 +88,6 @@ impl<S: Sample> Heatmap<S> {
 struct HeatmapInner {
     resources: Arc<HeatmapRenderer>,
     bind_group: wgpu::BindGroup,
-    uniform_buffer: wgpu::Buffer,
     texture: wgpu::Texture,
 }
 
@@ -111,18 +119,11 @@ struct HeatmapCallback {
     inner: Arc<HeatmapInner>,
     options: DisplayOptions,
     rect: Rect,
+    slot: AtomicU32,
 }
 
-impl egui_wgpu::CallbackTrait for HeatmapCallback {
-    fn prepare(
-        &self,
-        _device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        screen_descriptor: &ScreenDescriptor,
-        _egui_encoder: &mut wgpu::CommandEncoder,
-        _resources: &mut egui_wgpu::CallbackResources,
-    ) -> Vec<wgpu::CommandBuffer> {
-
+impl HeatmapCallback {
+    fn uniforms(&self, screen_descriptor: &ScreenDescriptor) -> Uniforms {
         let (colormap, color1, color2) = match self.options.colormap {
             Colormap::Linear(color1, color2) => (1, color1.to_normalized_gamma_f32(), color2.to_normalized_gamma_f32()),
             Colormap::Viridis => (16, [0.0; 4], [0.0; 4]),
@@ -143,21 +144,41 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
             [left, right, top, bottom]
         };
 
-        queue.write_buffer(
-            &self.inner.uniform_buffer,
-            0,
-            bytes_of(&Uniforms {
-                rect,
-                matrix: self.options.transformation.wgpu_matrix(),
-                color1,
-                color2,
-                colormap,
-                alpha: self.options.alpha,
-                min: self.options.value_range.min,
-                max: self.options.value_range.max,
-            }),
-        );
+        Uniforms {
+            rect,
+            matrix: self.options.transformation.wgpu_matrix(),
+            color1,
+            color2,
+            colormap,
+            alpha: self.options.alpha,
+            min: self.options.value_range.min,
+            max: self.options.value_range.max,
+        }
+    }
+}
 
+impl egui_wgpu::CallbackTrait for HeatmapCallback {
+    fn prepare(
+        &self,
+        _device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+        screen_descriptor: &ScreenDescriptor,
+        _egui_encoder: &mut wgpu::CommandEncoder,
+        _resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        let slot = self.inner.resources.uniform_buffers.lock().unwrap().stage(self.uniforms(screen_descriptor));
+        self.slot.store(slot, Ordering::Relaxed);
+        Vec::new()
+    }
+
+    fn finish_prepare(
+        &self,
+        _device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+        _egui_encoder: &mut wgpu::CommandEncoder,
+        _resources: &mut egui_wgpu::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
+        self.inner.resources.uniform_buffers.lock().unwrap().flush(&self.inner.resources);
         Vec::new()
     }
 
@@ -173,13 +194,17 @@ impl egui_wgpu::CallbackTrait for HeatmapCallback {
 
         render_pass.set_pipeline(&self.inner.resources.pipeline);
         render_pass.set_bind_group(0, &self.inner.bind_group, &[]);
+
+        let uniform_buffers = self.inner.resources.uniform_buffers.lock().unwrap();
+        let offset = self.slot.load(Ordering::Relaxed) * UNIFORM_BUFFER_STRIDE as u32;
+        render_pass.set_bind_group(1, &uniform_buffers.bind_group, &[offset]);
         render_pass.draw(0..4, 0..1);
     }
 }
 
 
 #[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Default)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
     rect: [f32; 4], // provided rect, in normalized device coordinates
     matrix: [f32; 12], // 3x3 matrix with wgpu padding
@@ -191,13 +216,86 @@ struct Uniforms {
     max: f32,
 }
 
+const UNIFORM_ALIGNMENT: u64 = 256;
+const UNIFORM_BUFFER_STRIDE: u64 = (size_of::<Uniforms>() as u64).div_ceil(UNIFORM_ALIGNMENT) * UNIFORM_ALIGNMENT;
+
+/// Buffer containing uniforms for all heatmaps
+/// along with state kept between `prepare` and `finish_prepare`.
+struct UniformBuffers {
+    buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    pending: Vec<Uniforms>,
+}
+
+impl UniformBuffers {
+    fn new(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> UniformBuffers {
+        let (buffer, bind_group) = Self::create_buffer(device, layout, UNIFORM_BUFFER_STRIDE);
+        UniformBuffers {
+            buffer,
+            bind_group,
+            pending: Vec::new(),
+        }
+    }
+
+    fn create_buffer(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, size: u64) -> (wgpu::Buffer, wgpu::BindGroup) {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("heatmap_uniforms"),
+            size,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("heatmap_uniforms"),
+            layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &buffer,
+                    offset: 0,
+                    // Bind exactly one slot; the dynamic offset selects which
+                    // one. Binding the entire buffer would leave no room for
+                    // any dynamic offset.
+                    size: NonZeroU64::new(size_of::<Uniforms>() as u64),
+                }),
+            }],
+        });
+        (buffer, bind_group)
+    }
+
+    fn stage(&mut self, uniforms: Uniforms) -> u32 {
+        let slot = self.pending.len() as u32;
+        self.pending.push(uniforms);
+        slot
+    }
+
+    fn flush(&mut self, renderer: &HeatmapRenderer) {
+        let size = self.pending.len() as u64 * UNIFORM_BUFFER_STRIDE;
+        if self.buffer.size() < size {
+            let new_size = size.max(self.buffer.size() * 2);
+            (self.buffer, self.bind_group) = Self::create_buffer(&renderer.device, &renderer.uniform_bind_group_layout, new_size);
+        }
+
+        if let Some(size) = NonZeroU64::new(size) {
+            let mut view = renderer.queue.write_buffer_with(&self.buffer, 0, size).unwrap();
+
+            for (i, uniforms) in self.pending.iter().enumerate() {
+                let offset = i * UNIFORM_BUFFER_STRIDE as usize;
+                view.slice(offset..offset + size_of::<Uniforms>()).copy_from_slice(bytes_of(uniforms));
+            }
+
+            self.pending.clear()
+        }
+    }
+}
+
 pub struct HeatmapRenderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    bind_group_layout: wgpu::BindGroupLayout,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    uniform_bind_group_layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
+    uniform_buffers: Mutex<UniformBuffers>,
 }
-
 
 impl HeatmapRenderer {
     pub fn new(wgpu_render_state: &egui_wgpu::RenderState) -> HeatmapRenderer {
@@ -209,21 +307,11 @@ impl HeatmapRenderer {
             source: wgpu::ShaderSource::Wgsl(include_str!("./heatmap.wgsl").into()),
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("heatmap"),
+        let texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("heatmap_texture"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(size_of::<Uniforms>() as u64),
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         multisampled: false,
@@ -233,7 +321,7 @@ impl HeatmapRenderer {
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
-                    binding: 2,
+                    binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
@@ -241,9 +329,23 @@ impl HeatmapRenderer {
             ],
         });
 
+        let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("heatmap_uniforms"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: NonZeroU64::new(size_of::<Uniforms>() as u64),
+                },
+                count: None,
+            }],
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("heatmap"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
+            bind_group_layouts: &[Some(&texture_bind_group_layout), Some(&uniform_bind_group_layout)],
             immediate_size: 0,
         });
 
@@ -277,11 +379,15 @@ impl HeatmapRenderer {
             cache: None,
         });
 
+        let uniform_buffers = Mutex::new(UniformBuffers::new(&device, &uniform_bind_group_layout));
+
         HeatmapRenderer {
             device,
             queue,
-            bind_group_layout,
+            texture_bind_group_layout,
+            uniform_bind_group_layout,
             pipeline,
+            uniform_buffers,
         }
     }
 
@@ -291,51 +397,9 @@ impl HeatmapRenderer {
     }
 
     fn create_inner(self: &Arc<Self>, width: u32, height: u32, opts: TextureOptions, texture_format: wgpu::TextureFormat) -> Arc<HeatmapInner> {
-        let uniform_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("heatmap"),
-            contents: bytes_of(&Uniforms::zeroed()),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
-        });
-
-        let texture = self.create_texture(width, height, texture_format);
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: opts.address_mode_u,
-            address_mode_v: opts.address_mode_v,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: opts.mag_filter,
-            min_filter: opts.min_filter,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("heatmap"),
-            layout: &self.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
-
-        Arc::new(HeatmapInner { bind_group, uniform_buffer, texture, resources: self.clone() })
-    }
-
-    fn create_texture(&self, width: u32, height: u32, texture_format: wgpu::TextureFormat) -> wgpu::Texture {
         let texture_size = wgpu::Extent3d {
-            width,
-            height,
+            width: width,
+            height: height,
             depth_or_array_layers: 1,
         };
         let texture = self.device.create_texture(
@@ -350,6 +414,33 @@ impl HeatmapRenderer {
                 view_formats: &[],
             }
         );
-        texture
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: opts.address_mode_u,
+            address_mode_v: opts.address_mode_v,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: opts.mag_filter,
+            min_filter: opts.min_filter,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("heatmap"),
+            layout: &self.texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        Arc::new(HeatmapInner { bind_group, texture, resources: self.clone() })
     }
 }

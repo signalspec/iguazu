@@ -32,12 +32,12 @@ impl App {
         let h1 = heatmap_renderer.heatmap(32, 32, TextureOptions::default());
         h1.write_all(&buf);
 
-        let h2 = heatmap_renderer.heatmap(32, 32, TextureOptions::default());
-        h2.write_all(&buf);
+        //let h2 = heatmap_renderer.heatmap(32, 32, TextureOptions::default());
+        //h2.write_all(&buf);
 
         Self {
             h1: State {
-                heatmap: h1,
+                heatmap: h1.clone(),
                 alpha: 1.0,
                 colormap: Colormap::Inferno,
                 x: Rangef::new(0., 1.),
@@ -46,7 +46,7 @@ impl App {
                 order: SampleOrder::RightDown,
             },
             h2: State {
-                heatmap: h2,
+                heatmap: h1,
                 alpha: 1.0,
                 colormap: Colormap::Viridis,
                 x: Rangef::new(0., 1.),
