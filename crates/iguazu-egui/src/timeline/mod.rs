@@ -160,7 +160,7 @@ impl TimelineView {
                     res
                 }).inner;
 
-            {
+            if state.col_width > 0.0 {
                 // Paint a shadow between the names on the left
                 // and the data on the right:
                 let shadow_width = 30.0;
