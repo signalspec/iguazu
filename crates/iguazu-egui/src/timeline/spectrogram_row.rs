@@ -1,9 +1,11 @@
 use ecow::EcoString;
-use egui::{Id, PaintCallback, Rangef, Rect, Vec2};
+use egui::{Id, PaintCallback, Rangef, Rect};
 use iguazu::{IdxRange, schema::EntityStream, time::{Time, TimeRange}, view::{SpectrogramView, Timebase}};
 use iguazu_egui_heatmap::{Colormap, Heatmap, SampleOrder, TextureOptions, Transformation};
 
 use crate::{ViewerContext, timeline::{TimelineResponse, row_label, scale::Scale, stream_rect}};
+
+const TEXTURE_SIZE: u32 = 4096;
 
 pub(crate) struct SpectrogramRow<'a> {
     sample_rate: f64,
@@ -35,10 +37,14 @@ impl<'a> SpectrogramRow<'a> {
             return TimelineResponse::default();
         }
 
+        let idx_scale = scale.idx_scale(self.sample_rate);
+
+        let pixel_density_level = idx_scale.min_visible_width_log2(ui.pixels_per_point());
+        let texture_resolution_level = (idx_scale.visible.len() as f32 / TEXTURE_SIZE as f32).log2().ceil() as u8;
+        let level = pixel_density_level.max(texture_resolution_level);
+
         let fft_size = self.view.fft_size();
 
-        let idx_scale = scale.idx_scale(self.sample_rate);
-        let level = idx_scale.min_visible_width_log2(ui.pixels_per_point());
         let state = self.view.state();
         let i_range = IdxRange {
             min: idx_scale.visible.min.max(fft_size / 2),
@@ -76,7 +82,7 @@ struct Texture {
 
 impl Texture {
     fn new(vcx: &ViewerContext) -> Self {
-        let texture = vcx.heatmap_renderer.heatmap::<u8>(512, 2048, TextureOptions {
+        let texture = vcx.heatmap_renderer.heatmap::<u8>(512, TEXTURE_SIZE, TextureOptions {
             address_mode_u: iguazu_egui_heatmap::AddressMode::Repeat,
             address_mode_v: iguazu_egui_heatmap::AddressMode::Repeat,
             mag_filter: iguazu_egui_heatmap::FilterMode::Nearest,
@@ -94,6 +100,7 @@ impl Texture {
 
             for (v, i) in scaled_range.into_iter().enumerate() {
                 if v >= self.texture.height() as usize {
+                    log::debug!("scaled_range exceeds texture height");
                     break;
                 }
 

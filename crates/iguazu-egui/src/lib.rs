@@ -7,7 +7,7 @@ pub mod table;
 pub mod import;
 pub mod config;
 
-use std::{any::{Any, TypeId}, cell::{Ref, RefCell, RefMut}, collections::{HashMap, hash_map::Entry}, future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
+use std::{any::{Any, TypeId}, cell::RefCell, collections::HashMap, future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
 use egui::{Id, Ui};
 use iguazu::{send::{Executor, NonWasmSend, SendFuture}, schema::{attribute::display::Layout, EntityStream}, storage::{Pool, Storage}, view::ViewManager};
