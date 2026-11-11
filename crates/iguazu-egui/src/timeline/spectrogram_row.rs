@@ -1,5 +1,5 @@
 use ecow::EcoString;
-use egui::{Rect, Vec2};
+use egui::{Id, PaintCallback, Rangef, Rect, Vec2};
 use iguazu::{IdxRange, schema::EntityStream, time::{Time, TimeRange}, view::{SpectrogramView, Timebase}};
 use iguazu_egui_heatmap::{Colormap, Heatmap, SampleOrder, TextureOptions, Transformation};
 
@@ -9,22 +9,15 @@ pub(crate) struct SpectrogramRow<'a> {
     sample_rate: f64,
     view: SpectrogramView<'a>,
     label: EcoString,
-    heatmap: Heatmap<u8>,
+    id: Id,
 }
 
 impl<'a> SpectrogramRow<'a> {
-    pub fn new(vcx: &'a ViewerContext, label: EcoString, entity: &EntityStream, timebase: &Timebase<'a>,) -> Option<Self> {
+    pub fn new(vcx: &'a ViewerContext, id: Id, label: EcoString, entity: &EntityStream, timebase: &Timebase<'a>,) -> Option<Self> {
         let sample_rate = timebase.uniform_sample_rate()?;
         let view = SpectrogramView::new(&vcx.view_manager, entity)?;
 
-        let heatmap = vcx.heatmap_renderer.heatmap(512, 2048, TextureOptions {
-            address_mode_u: iguazu_egui_heatmap::AddressMode::Repeat,
-            address_mode_v: iguazu_egui_heatmap::AddressMode::Repeat,
-            mag_filter: iguazu_egui_heatmap::FilterMode::Nearest,
-            min_filter: iguazu_egui_heatmap::FilterMode::Nearest,
-        });
-
-        Some(Self { sample_rate, view, label, heatmap })
+        Some(Self { sample_rate, view, label, id })
     }
 
     pub fn time_range(&self) -> Option<TimeRange> {
@@ -34,13 +27,11 @@ impl<'a> SpectrogramRow<'a> {
         })
     }
 
-    pub fn render(&self, ui: &mut egui::Ui, scale: &Scale) -> TimelineResponse{
+    pub fn render(&self, vcx: &'a ViewerContext, ui: &mut egui::Ui, scale: &Scale) -> TimelineResponse{
         row_label(ui, &self.label);
         let rect = stream_rect(ui, scale);
 
-        let padded_rect = rect.shrink2(Vec2::new(0.0, 8.0));
-
-        if !ui.is_rect_visible(padded_rect) {
+        if !ui.is_rect_visible(rect) {
             return TimelineResponse::default();
         }
 
@@ -49,42 +40,79 @@ impl<'a> SpectrogramRow<'a> {
         let idx_scale = scale.idx_scale(self.sample_rate);
         let level = idx_scale.min_visible_width_log2(ui.pixels_per_point());
         let state = self.view.state();
-        let x_range = IdxRange {
+        let i_range = IdxRange {
             min: idx_scale.visible.min.max(fft_size / 2),
             max: (idx_scale.visible.max + 1).min(state.end),
         };
 
-        let mut scratch = self.view.scratch();
+        let scaled_range = i_range.divide(1 << level);
 
-        let mut max_i = x_range.min;
-        let mut max_v = 0;
-
-        let scaled_range = x_range.divide(1 << level);
-
-        for (v, i) in scaled_range.into_iter().enumerate() {
-            if v >= self.heatmap.height() as usize {
-                break;
-            }
-
-            let Some(spectrogram_slice) = scratch.spectrogram_slice(i, level) else { break; };
-            self.heatmap.write(spectrogram_slice, 0, v as u32, fft_size as u32, 1);
-
-            max_i = i;
-            max_v = v;
-        }
+        let tex_id = self.id.with(fft_size).with(level);
+        let mut texture = vcx.get_texture(tex_id).unwrap_or_else(|| {
+            log::info!("Allocating new texture for {fft_size} {level}");
+            Box::new(Texture::new(vcx))
+        });
+        texture.update(&self.view, level, scaled_range);
 
         let painter = ui.painter_at(rect);
+        let y_range = rect.y_range().shrink(8.0);
+        let x_range = idx_scale.x_from_idx(texture.range.min << level)..=idx_scale.x_from_idx(texture.range.max << level);
+        let paint_rect = Rect::from_x_y_ranges(x_range, y_range);
+        painter.add(texture.shape(paint_rect, Colormap::Viridis, (0.0..=1.0).into()));
 
-        let paint_rect = Rect::from_x_y_ranges(idx_scale.x_from_idx(scaled_range.min << level)..=idx_scale.x_from_idx(max_i << level), padded_rect.y_range());
-        painter.add(self.heatmap.shape_at(paint_rect, iguazu_egui_heatmap::DisplayOptions {
-            colormap: Colormap::Viridis,
-            alpha: 1.0,
-            transformation: Transformation::new((-0.5..=0.5).into(), (0.0..=(max_v as f32 / self.heatmap.height() as f32)).into(), SampleOrder::UpRight),
-            value_range: (0.0..=1.0).into(),
-        }));
+        vcx.put_texture(tex_id, texture);
 
         TimelineResponse {
             snap_to_time: None,
         }
+    }
+}
+
+struct Texture {
+    texture: Heatmap<u8>,
+    v_start: u32,
+    range: IdxRange,
+}
+
+impl Texture {
+    fn new(vcx: &ViewerContext) -> Self {
+        let texture = vcx.heatmap_renderer.heatmap::<u8>(512, 2048, TextureOptions {
+            address_mode_u: iguazu_egui_heatmap::AddressMode::Repeat,
+            address_mode_v: iguazu_egui_heatmap::AddressMode::Repeat,
+            mag_filter: iguazu_egui_heatmap::FilterMode::Nearest,
+            min_filter: iguazu_egui_heatmap::FilterMode::Nearest,
+        });
+
+        Self { texture, v_start: 0, range: IdxRange { min: 0, max: 0 } }
+    }
+
+    fn update(&mut self, view: &SpectrogramView, level: u8, scaled_range: IdxRange) {
+        let mut scratch = view.scratch();
+
+        if self.range != scaled_range {
+            self.range = IdxRange { min: scaled_range.min, max: scaled_range.min };
+
+            for (v, i) in scaled_range.into_iter().enumerate() {
+                if v >= self.texture.height() as usize {
+                    break;
+                }
+
+                let Some(spectrogram_slice) = scratch.spectrogram_slice(i, level) else { break; };
+                self.texture.write(spectrogram_slice, 0, v as u32, spectrogram_slice.len() as u32, 1);
+
+                self.range.max = i + 1;
+            }
+        }
+    }
+
+    fn shape(&self, paint_rect: Rect, colormap: Colormap, value_range: Rangef) -> PaintCallback {
+        let v_min = self.v_start as f32 / self.texture.height() as f32;
+        let v_max = self.range.len() as f32 / self.texture.height() as f32;
+        self.texture.shape_at(paint_rect, iguazu_egui_heatmap::DisplayOptions {
+            colormap,
+            alpha: 1.0,
+            transformation: Transformation::new((-0.5..=0.5).into(), (v_min ..= v_max).into(), SampleOrder::UpRight),
+            value_range,
+        })
     }
 }

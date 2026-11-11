@@ -7,9 +7,9 @@ pub mod table;
 pub mod import;
 pub mod config;
 
-use std::{future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
+use std::{any::{Any, TypeId}, cell::{Ref, RefCell, RefMut}, collections::{HashMap, hash_map::Entry}, future::Future, pin::Pin, sync::Arc, task::{Poll, Waker}};
 
-use egui::Ui;
+use egui::{Id, Ui};
 use iguazu::{send::{Executor, NonWasmSend, SendFuture}, schema::{attribute::display::Layout, EntityStream}, storage::{Pool, Storage}, view::ViewManager};
 use iguazu_egui_heatmap::HeatmapRenderer;
 pub use timeline::TimelineView;
@@ -44,6 +44,7 @@ pub struct ViewerContext {
 
     heatmap_renderer: Arc<HeatmapRenderer>,
     view_manager: ViewManager,
+    frame_textures: RefCell<TextureStorage>,
 
     /// Waker that requests egui repaint on wake.
     waker: Waker,
@@ -58,6 +59,7 @@ impl ViewerContext {
             default_storage,
             heatmap_renderer,
             view_manager: ViewManager::new(),
+            frame_textures: RefCell::new(TextureStorage::new()),
             waker,
         }
     }
@@ -68,6 +70,7 @@ impl ViewerContext {
 
     pub fn end(&mut self) {
         self.view_manager.end();
+        self.frame_textures.get_mut().end();
     }
 
     pub fn pool(&self) -> &Arc<Pool> {
@@ -115,5 +118,39 @@ impl ViewerContext {
             }
             Poll::Pending => None,
         }
+    }
+
+    pub fn get_texture<T>(&self, id: Id) -> Option<Box<T>>
+    where
+        T: Any + 'static,
+    {
+        self.frame_textures.borrow_mut().this_frame.remove(&id.with(TypeId::of::<T>()))
+            .and_then(|slot| slot.downcast::<T>().ok())
+    }
+
+    pub fn put_texture<T>(&self, id: Id, data: Box<T>)
+    where
+        T: Any + 'static,
+    {
+        self.frame_textures.borrow_mut().next_frame.insert(id.with(TypeId::of::<T>()), data);
+    }
+}
+
+struct TextureStorage {
+    this_frame: HashMap<Id, Box<dyn Any>>,
+    next_frame: HashMap<Id, Box<dyn Any>>,
+}
+
+impl TextureStorage {
+    pub fn new() -> Self {
+        Self {
+            this_frame: HashMap::new(),
+            next_frame: HashMap::new(),
+        }
+    }
+
+    pub fn end(&mut self) {
+        std::mem::swap(&mut self.this_frame, &mut self.next_frame);
+        self.next_frame.clear();
     }
 }

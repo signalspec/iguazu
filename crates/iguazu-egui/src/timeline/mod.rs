@@ -2,7 +2,7 @@
 use std::iter::Sum;
 
 use ecow::EcoString;
-use egui::{emath::GuiRounding, scroll_area::ScrollSource, Align, CursorIcon, Frame, Label, Layout, Margin, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2};
+use egui::{Align, CursorIcon, Frame, Id, Label, Layout, Margin, PointerButton, Rangef, Rect, Stroke, UiBuilder, Vec2, emath::GuiRounding, scroll_area::ScrollSource};
 use iguazu::{schema::{Entity, EntityStream, FieldRef, attribute::{self, display::{AccentColor, TimelineRow}}}, time::{Time, TimeRange}, view::Timebase};
 use crate::{ ViewerContext, egui_util:: shadow_line::draw_shadow_line };
 
@@ -75,7 +75,7 @@ impl TimelineView {
             time_x_left..=right
         };
 
-        let rows = timeline_rows(vcx, entity);
+        let rows = timeline_rows(vcx, ui.scope_id(), entity);
 
         let capture_len = entity.attribute(attribute::core::CAPTURE_LENGTH).map_or(Time::ZERO, Time::from_seconds);
         let mut time_range = rows.iter()
@@ -153,7 +153,7 @@ impl TimelineView {
                         let shade_rect = Rect::from_x_y_ranges(time_x_range, top..=(top + 16.0));
                         draw_shadow_line(ui, shade_rect, egui::Direction::TopDown, 0.15);
 
-                        res.merge(row.render(&mut child_ui, &scale));
+                        res.merge(row.render(vcx, &mut child_ui, &scale));
                         ui.advance_cursor_after_rect(child_ui.min_rect());
                     }
 
@@ -263,7 +263,7 @@ enum TimelineRowKind<'a> {
     Spectrogram(SpectrogramRow<'a>),
 }
 
-fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<TimelineRowKind<'a>> {
+fn timeline_rows<'a>(vcx: &'a ViewerContext, id: Id, entity: &'a EntityStream) -> Vec<TimelineRowKind<'a>> {
     let mut rows = Vec::new();
 
     fn add_field<'a>(
@@ -299,7 +299,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
         }
     }
 
-    fn add_entity<'a>(vcx: &'a ViewerContext, rows: &mut Vec<TimelineRowKind<'a>>, name: EcoString, timebase: Option<&Timebase<'a>>, entity: &'a EntityStream) {
+    fn add_entity<'a>(vcx: &'a ViewerContext, id: Id, rows: &mut Vec<TimelineRowKind<'a>>, name: EcoString, timebase: Option<&Timebase<'a>>, entity: &'a EntityStream) {
         let this_timebase = vcx.view_manager.timebase(entity);
         let timebase = this_timebase.as_ref().or(timebase);
         if let Some(field) = entity.as_field() {
@@ -312,7 +312,8 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
                     match &entity {
                         Entity::Group { children, .. } => {
                             for (name, child) in children {
-                                add_entity(vcx, rows, name.clone(), timebase, child)
+                                let child_id = id.with(&name);
+                                add_entity(vcx, child_id, rows, name.clone(), timebase, child)
                             }
                         }
 
@@ -323,7 +324,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
                     rows.extend(EventsRow::new(vcx, name, entity).map(TimelineRowKind::Events));
                 }
                 TimelineRow::Spectrogram if let Some(timebase) = timebase => {
-                    rows.extend(SpectrogramRow::new(vcx, name, entity, timebase).map(TimelineRowKind::Spectrogram))
+                    rows.extend(SpectrogramRow::new(vcx, id, name, entity, timebase).map(TimelineRowKind::Spectrogram))
                 }
                 _ => {}
             }
@@ -331,7 +332,7 @@ fn timeline_rows<'a>(vcx: &'a ViewerContext, entity: &'a EntityStream) -> Vec<Ti
         }
     }
 
-    add_entity(vcx, &mut rows, EcoString::new(), None, entity);
+    add_entity(vcx, id, &mut rows, EcoString::new(), None, entity);
     rows
 }
 
@@ -350,13 +351,13 @@ impl Sum for HeightRequest {
 }
 
 impl<'a> TimelineRowKind<'a> {
-    fn render(self, ui: &mut egui::Ui, scale: &Scale) -> TimelineResponse {
+    fn render(self, vcx: &'a ViewerContext, ui: &mut egui::Ui, scale: &Scale) -> TimelineResponse {
         match self {
             TimelineRowKind::YAxis(row) => row.render(ui, scale),
             TimelineRowKind::Trace(row) => row.render(ui, scale),
             TimelineRowKind::Logic(row) => row.render(ui, scale),
             TimelineRowKind::Events(row) => row.render(ui, scale),
-            TimelineRowKind::Spectrogram(row) => row.render(ui, scale),
+            TimelineRowKind::Spectrogram(row) => row.render(vcx, ui, scale),
         }
     }
 
