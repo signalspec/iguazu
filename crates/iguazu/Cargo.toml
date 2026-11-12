@@ -13,7 +13,7 @@ readme = "../../README.md"
 [dependencies]
 once-array.workspace = true
 num-traits.workspace = true
-num-complex.workspace = true
+num-complex = { workspace = true, optional = true }
 log.workspace = true
 indexmap = { workspace = true, features = ["serde"] }
 hashbrown.workspace = true
@@ -32,7 +32,7 @@ ecow.workspace = true
 arrayvec = "0.7.6"
 slab = "0.4.11"
 url = "2.5.7"
-async-lock = "3.4.1"
+async-lock = { version = "3.4.1", optional = true }
 zstd = { version = "0.14.3", optional = true }
 async-compression = { version = "0.4.41", features = ["futures-io", "deflate"], optional = true }
 jiff.workspace = true
@@ -46,10 +46,10 @@ fs = ["dep:blocking", "dep:piper"]
 web = ["dep:web-sys", "dep:wasm-bindgen-futures"]
 clap = ["dep:clap", "fs"]
 
-spectrogram = ["phastft"]
+spectrogram = ["dep:phastft", "dep:num-complex"]
 
 csv = ["dep:csv-core", "dep:lexical-core"]
-izs = ["dep:zstd"]
+izs = ["dep:zstd", "dep:async-lock"]
 srzip = ["dep:async-compression", "dep:lexical-core"]
 
 default = ["csv", "izs", "srzip", "spectrogram"]

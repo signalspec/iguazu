@@ -6,6 +6,7 @@ use thiserror::Error;
 
 use crate::{config::Configurable, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, storage::Pool, send::{NonWasmSend, BoxFuture}};
 
+#[cfg(feature = "csv")]
 mod column_parser;
 
 mod flat_file;

@@ -12,6 +12,7 @@ pub mod summary;
 pub mod time;
 pub mod util;
 mod element;
+#[cfg(feature = "izs")]
 pub mod izs;
 pub mod config;
 use std::range::Range;
