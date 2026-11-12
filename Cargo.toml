@@ -35,7 +35,6 @@ itertools = "0.15.0"
 jiff = "0.2.39"
 log = "0.4.22"
 num-complex = { version = "0.4.3", features = ["bytemuck"] }
-num-rational = "0.4.1"
 num-traits = "0.2.15"
 once-array = "0.1.0"
 serde = { version = "1.0.204", features = ["derive"] }
