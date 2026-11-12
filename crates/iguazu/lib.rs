@@ -40,8 +40,8 @@ impl IdxRange {
         self.max - self.min
     }
 
-    pub fn contains(&self, other: IdxRange) -> bool {
-        self.min <= other.min && other.max <= self.max
+    pub fn overlaps(&self, other: IdxRange) -> bool {
+        self.min < other.max && other.min < self.max
     }
 
     pub fn divide(&self, by: u64) -> IdxRange {
@@ -66,4 +66,13 @@ impl IntoIterator for IdxRange {
     fn into_iter(self) -> Self::IntoIter {
         Range::<Idx>::from(self).into_iter()
     }
+}
+
+#[test]
+fn test_overlaps() {
+    assert!(IdxRange { min: 0, max: 10 }.overlaps(IdxRange { min: 5, max: 7 }));
+    assert!(IdxRange { min: 0, max: 10 }.overlaps(IdxRange { min: 9, max: 11 }));
+    assert!(IdxRange { min: 10, max: 20 }.overlaps(IdxRange { min: 5, max: 15 }));
+    assert!(!IdxRange { min: 0, max: 10 }.overlaps(IdxRange { min: 10, max: 20 }));
+    assert!(!IdxRange { min: 10, max: 15 }.overlaps(IdxRange { min: 8, max: 10 }));
 }

@@ -92,29 +92,39 @@ impl Texture {
         Self { texture, v_start: 0, range: IdxRange { min: 0, max: 0 } }
     }
 
-    fn update(&mut self, view: &SpectrogramView, level: u8, scaled_range: IdxRange) {
+    fn update(&mut self, view: &SpectrogramView, level: u8, requested_range: IdxRange) {
         let mut scratch = view.scratch();
 
-        if self.range != scaled_range {
-            self.range = IdxRange { min: scaled_range.min, max: scaled_range.min };
+        if !requested_range.overlaps(self.range) {
+            self.range = IdxRange { min: requested_range.min, max: requested_range.min };
+            self.v_start = 0;
+        }
 
-            for (v, i) in scaled_range.into_iter().enumerate() {
-                if v >= self.texture.height() as usize {
-                    log::debug!("scaled_range exceeds texture height");
-                    break;
-                }
+        while self.range.max < requested_range.max {
+            let Some(spectrogram_slice) = scratch.spectrogram_slice(self.range.max, level) else { break; };
+            let v = (self.v_start + self.range.len() as u32) % self.texture.height();
+            self.texture.write(spectrogram_slice, 0, v, spectrogram_slice.len() as u32, 1);
+            self.range.max += 1;
+            if self.range.len() >= self.texture.height() as u64 {
+                self.range.min += 1;
+                self.v_start = (self.v_start + 1) % self.texture.height();
+            }
+        }
 
-                let Some(spectrogram_slice) = scratch.spectrogram_slice(i, level) else { break; };
-                self.texture.write(spectrogram_slice, 0, v as u32, spectrogram_slice.len() as u32, 1);
-
-                self.range.max = i + 1;
+        while self.range.min > requested_range.min {
+            let Some(spectrogram_slice) = scratch.spectrogram_slice(self.range.min - 1, level) else { break; };
+            self.v_start = (self.v_start + self.texture.height() - 1) % self.texture.height();
+            self.texture.write(spectrogram_slice, 0, self.v_start, spectrogram_slice.len() as u32, 1);
+            self.range.min -= 1;
+            if self.range.len() >= self.texture.height() as u64 {
+                self.range.max -= 1;
             }
         }
     }
 
     fn shape(&self, paint_rect: Rect, colormap: Colormap, value_range: Rangef) -> PaintCallback {
         let v_min = self.v_start as f32 / self.texture.height() as f32;
-        let v_max = self.range.len() as f32 / self.texture.height() as f32;
+        let v_max = v_min + self.range.len() as f32 / self.texture.height() as f32;
         self.texture.shape_at(paint_rect, iguazu_egui_heatmap::DisplayOptions {
             colormap,
             alpha: 1.0,
