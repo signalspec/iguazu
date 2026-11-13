@@ -50,8 +50,8 @@ async fn create_stream(src_file: Arc<dyn ReadableFile>, pool: Arc<Pool>, stream:
     match stream {
         StreamRef::FlatFile { ref file_name, element_size, offset, count } => {
             let file = src_file.relative(file_name).await?;
-            let opts = RawFileOpts { offset, count, ..RawFileOpts::default() };
-            Ok(Arc::new(RawFileStream::new(file, pool, element_size, &opts).await?) as ArcStream)
+            let opts = RawFileOpts { element_size, offset, count, ..RawFileOpts::default() };
+            Ok(Arc::new(RawFileStream::new(file, pool, &opts).await?) as ArcStream)
         }
         StreamRef::Inline(data) => {
             Ok(match data {

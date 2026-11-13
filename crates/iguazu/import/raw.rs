@@ -16,7 +16,6 @@ use super::{ImportError, Importer};
 #[derive(Clone)]
 pub struct RawImporter {
     pub file: Arc<dyn ReadableFile>,
-    pub element: ElementSize,
     pub dtype: DataType,
     pub attributes: Attributes,
     pub opts: RawFileOpts,
@@ -90,15 +89,14 @@ impl RawImporter {
     pub fn new(file: Arc<dyn ReadableFile>, element: ElementSize, dtype: DataType) -> Self {
         Self {
             file,
-            element,
             dtype,
             attributes: Attributes::default(),
-            opts: RawFileOpts::default(),
+            opts: RawFileOpts { element_size: element, ..RawFileOpts::default() },
         }
     }
 
     pub fn for_file(file: Arc<dyn ReadableFile>) -> Self {
-        let (element, dtype) = match file.filename().rsplit('.').next().unwrap_or("") {
+        let (element_size, dtype) = match file.filename().rsplit('.').next().unwrap_or("") {
             "logic8" => (ElementSize::U8, DataType::Logic),
             "f32" => (ElementSize::U32, DataType::Real(ScalarType::Float)),
             "cf32" | "cfile" => (ElementSize::U32, DataType::Complex(ScalarType::Float)),
@@ -121,12 +119,13 @@ impl RawImporter {
             _ => (ElementSize::U8, DataType::Binary),
         };
         let attributes = Attributes::from_file_name(file.filename(), jiff::tz::TimeZone::system());
-        Self { file, element, dtype, attributes, opts: RawFileOpts::default() }
+        let opts = RawFileOpts { element_size, ..RawFileOpts::default() };
+        Self { file, dtype, attributes, opts }
     }
 
     pub fn schema(&self) -> Result<EntitySchema, ImportError> {
         Ok(
-            self.dtype.schema(self.element)
+            self.dtype.schema(self.opts.element_size)
                 .ok_or_else(|| ImportError::SchemaMismatch("Unsupported combination of element and dtype".into()))?
                 .with_attribute_opt(attribute::core::TIME_RATE, self.attributes.sample_rate)
                 .with_attribute_opt(attribute::core::FREQ_CENTER, self.attributes.center_frequency)
@@ -171,7 +170,7 @@ impl Configurable for RawImporter {
 
     fn set(&mut self, option: &str, value: &str) -> Result<(), String> {
         match option {
-            "bits" => self.element = ElementSize::from_bits_exact(value.parse().map_err(|_| "Invalid integer")?).ok_or_else(|| "Unsupported element size")?,
+            "bits" => self.opts.element_size = ElementSize::from_bits_exact(value.parse().map_err(|_| "Invalid integer")?).ok_or_else(|| "Unsupported element size")?,
             "dtype" => self.dtype = DataType::from_str(value).ok_or_else(|| "Unsupported data type")?,
             "offset" => self.opts.offset = value.parse().map_err(|_| "Invalid integer")?,
             "count" => self.opts.count = if value.is_empty() { None } else { Some(value.parse().map_err(|_| "Invalid integer")?) },
@@ -185,7 +184,7 @@ impl Configurable for RawImporter {
 
     fn get(&self, option: &str) -> Option<String> {
         Some(match option {
-            "bits" => self.element.bits().to_string(),
+            "bits" => self.opts.element_size.bits().to_string(),
             "dtype" => self.dtype.to_str().to_owned(),
             "offset" => self.opts.offset.to_string(),
             "count" => self.opts.count.map_or_else(|| "".into(), |c| c.to_string()),
@@ -212,14 +211,13 @@ impl Importer for RawImporter {
 
     fn import(&self, schema: Option<EntitySchema>, pool: Arc<Pool>) -> BoxFuture<'static, Result<(EntityStream, Task<Result<(), ImportError>>), ImportError>> {
         let file = self.file.clone();
-        let element = self.element;
         let opts = self.opts.clone();
         let schema = if let Some(s) = schema { Ok(s) } else { self.schema() };
 
         Box::pin(async move {
             let schema = schema?;
             let task = pool.executor.spawn(async move { Ok(()) });
-            let entity = RawFileStream::entity(file, pool, element, schema, &opts).await?;
+            let entity = RawFileStream::entity(file, pool, schema, &opts).await?;
             Ok((entity, task))
         })
     }

@@ -12,6 +12,7 @@ use super::BlockState;
 
 #[derive(Clone, Debug)]
 pub struct RawFileOpts {
+    pub element_size: ElementSize,
     pub offset: u64,
     pub count: Option<u64>,
     pub block_size: usize,
@@ -20,6 +21,7 @@ pub struct RawFileOpts {
 impl Default for RawFileOpts {
     fn default() -> Self {
         RawFileOpts {
+            element_size: ElementSize::U8,
             offset: 0,
             count: None,
             block_size: 1 << 20,
@@ -46,9 +48,9 @@ impl Debug for RawFileStream {
 }
 
 impl RawFileStream {
-    pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_size: ElementSize, opts: &RawFileOpts) -> Result<Self, IoError> {
+    pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, opts: &RawFileOpts) -> Result<Self, IoError> {
         let file_len = file.clone().get_len().await?;
-        let block_desc = BlockDesc { element_size, count: opts.block_size };
+        let block_desc = BlockDesc { element_size: opts.element_size, count: opts.block_size };
         let cache = BlockCache::new();
         Ok(RawFileStream { file, file_len, offset: opts.offset, count: opts.count, block_desc, cache, pool })
     }
@@ -69,11 +71,11 @@ impl RawFileStream {
         self.count
     }
 
-    pub async fn entity(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, element_size: ElementSize, schema: EntitySchema, opts: &RawFileOpts) -> Result<EntityStream, ImportError> {
+    pub async fn entity(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, schema: EntitySchema, opts: &RawFileOpts) -> Result<EntityStream, ImportError> {
         let (_field, _stride) = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
 
-        let stream = Self::new(file, pool, element_size, opts).await.map_err(ImportError::Io)?;
+        let stream = Self::new(file, pool, opts).await.map_err(ImportError::Io)?;
         Ok(schema.wrap_single(Arc::new(stream)).unwrap())
     }
 
