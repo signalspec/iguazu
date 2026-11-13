@@ -9,8 +9,8 @@ use crate::{config::Configurable, io::{IoError, ReadableFile}, schema::{EntitySc
 #[cfg(feature = "csv")]
 mod column_parser;
 
-mod flat_file;
-pub use flat_file::FlatFileImporter;
+mod raw;
+pub use raw::RawImporter;
 
 mod json_virtual;
 pub use json_virtual::VirtualImporter;
@@ -148,7 +148,7 @@ pub const RAW: ImportFormat = ImportFormat {
         ".cu8", ".cu16", ".cu32", ".cu64",
         ".cs8", ".cs16", ".cs32", ".cs64"
     ],
-    importer: |file| Box::new(flat_file::FlatFileImporter::for_file(file)),
+    importer: |file| Box::new(raw::RawImporter::for_file(file)),
 };
 
 #[cfg(feature = "csv")]

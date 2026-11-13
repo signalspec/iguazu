@@ -7,19 +7,19 @@ use regex::Regex;
 use crate::{ElementSize, cow_strs};
 use crate::config::{Configurable, OptionDescription, format_rate, parse_optional, parse_rate};
 use crate::schema::{EntityStream, Field};
-use crate::{io::ReadableFile, schema::{EntitySchema, attribute}, storage::{Pool, FlatFileOpts, FlatFileStream}, send::BoxFuture};
+use crate::{io::ReadableFile, schema::{EntitySchema, attribute}, storage::{Pool, RawFileOpts, RawFileStream}, send::BoxFuture};
 
 use super::{ImportError, Importer};
 
-/// Importer for flat files that are directly read from disk.
+/// Importer for arrays of elements that are directly read from disk.
 #[non_exhaustive]
 #[derive(Clone)]
-pub struct FlatFileImporter {
+pub struct RawImporter {
     pub file: Arc<dyn ReadableFile>,
     pub element: ElementSize,
     pub dtype: DataType,
     pub attributes: Attributes,
-    pub opts: FlatFileOpts,
+    pub opts: RawFileOpts,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -86,14 +86,14 @@ impl ScalarType {
     }
 }
 
-impl FlatFileImporter {
+impl RawImporter {
     pub fn new(file: Arc<dyn ReadableFile>, element: ElementSize, dtype: DataType) -> Self {
         Self {
             file,
             element,
             dtype,
             attributes: Attributes::default(),
-            opts: FlatFileOpts::default(),
+            opts: RawFileOpts::default(),
         }
     }
 
@@ -121,7 +121,7 @@ impl FlatFileImporter {
             _ => (ElementSize::U8, DataType::Binary),
         };
         let attributes = Attributes::from_file_name(file.filename(), jiff::tz::TimeZone::system());
-        Self { file, element, dtype, attributes, opts: FlatFileOpts::default() }
+        Self { file, element, dtype, attributes, opts: RawFileOpts::default() }
     }
 
     pub fn schema(&self) -> Result<EntitySchema, ImportError> {
@@ -135,7 +135,7 @@ impl FlatFileImporter {
     }
 }
 
-impl Configurable for FlatFileImporter {
+impl Configurable for RawImporter {
     fn options(&self) -> &'static [ OptionDescription ] {
         &[
             OptionDescription {
@@ -205,7 +205,7 @@ impl Configurable for FlatFileImporter {
     }
 }
 
-impl Importer for FlatFileImporter {
+impl Importer for RawImporter {
     fn load_schema(&self) -> BoxFuture<'static, Result<EntitySchema, ImportError>> {
         Box::pin(future::ready(self.schema()))
     }
@@ -219,7 +219,7 @@ impl Importer for FlatFileImporter {
         Box::pin(async move {
             let schema = schema?;
             let task = pool.executor.spawn(async move { Ok(()) });
-            let entity = FlatFileStream::entity(file, pool, element, schema, &opts).await?;
+            let entity = RawFileStream::entity(file, pool, element, schema, &opts).await?;
             Ok((entity, task))
         })
     }

@@ -10,8 +10,8 @@ use once_array::OnceArray;
 mod in_memory;
 pub use in_memory::{ MemoryStorage, MemoryStream, MemoryStreamWriter };
 
-mod flat_file;
-pub use flat_file::{ FlatFileStream, FlatFileOpts };
+mod raw;
+pub use raw::{ RawFileStream, RawFileOpts };
 
 use crate::send::{Executor, NonWasmSend};
 use crate::{ElementSize, io::IoError, stream::{StreamWriter}};

@@ -25,7 +25,7 @@ pub(crate) fn export(_executor: Arc<Executor<'static>>, entity: EntityStream, fi
 }
 
 fn stream_ref(stream: &ArcStream, base: &Url) -> Result<StreamRef, ExportError> {
-    if let Some(stream) = (&**stream as &dyn Any).downcast_ref::<crate::storage::FlatFileStream>() {
+    if let Some(stream) = (&**stream as &dyn Any).downcast_ref::<crate::storage::RawFileStream>() {
         let url = stream.url()
             .ok_or_else(|| ExportError::UnsupportedStream(format!("Stream has no URL")))?;
         let relative = RelativePath::from_base(base, &url)

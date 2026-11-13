@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::{io::{IoError, WritableFile}, schema::EntityStream, send::{BoxFuture, Executor}};
 
 mod json_virtual;
-mod flat_file;
+mod raw;
 #[cfg(feature = "csv")]
 mod csv;
 #[cfg(feature = "izs")]

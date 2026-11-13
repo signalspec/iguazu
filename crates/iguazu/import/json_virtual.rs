@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use async_executor::Task;
 
-use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::{InlineData, StreamRef}}, storage::{ FlatFileOpts, FlatFileStream, MemoryStream, Pool }, stream::ArcStream, summary::StoredSummaryMap, send::BoxFuture};
+use crate::{io::ReadableFile, schema::{Entity, EntitySchema, EntityStream, json_virtual::{InlineData, StreamRef}}, storage::{ RawFileOpts, RawFileStream, MemoryStream, Pool }, stream::ArcStream, summary::StoredSummaryMap, send::BoxFuture};
 
 use crate::config::Configurable;
 use super::{ImportError, Importer};
@@ -50,8 +50,8 @@ async fn create_stream(src_file: Arc<dyn ReadableFile>, pool: Arc<Pool>, stream:
     match stream {
         StreamRef::FlatFile { ref file_name, element_size, offset, count } => {
             let file = src_file.relative(file_name).await?;
-            let opts = FlatFileOpts { offset, count, ..FlatFileOpts::default() };
-            Ok(Arc::new(FlatFileStream::new(file, pool, element_size, &opts).await?) as ArcStream)
+            let opts = RawFileOpts { offset, count, ..RawFileOpts::default() };
+            Ok(Arc::new(RawFileStream::new(file, pool, element_size, &opts).await?) as ArcStream)
         }
         StreamRef::Inline(data) => {
             Ok(match data {
