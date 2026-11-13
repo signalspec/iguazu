@@ -10,12 +10,12 @@ use crate::{
     ElementSize,
     export::ExportError,
     import::ImportError,
-    io::{IoError, ReadableFile},
+    io::{Endian, IoError, ReadableFile},
     schema::{Entity, EntityData, EntitySchema, EntityStream},
+    send::{Executor, SendAsyncWrite},
     storage::{Pool, izs::IzsStream},
     stream::{ArcStream, Stream},
     summary::StoredSummaryMap,
-    send::{Executor, SendAsyncWrite},
 };
 
 pub(crate) const HEADER_MAGIC: [u8; 8] = [ 0x00, 0x21, 0x4a, 0xd9, 0xff, 0x90, 0xba, 0xed ];
@@ -237,7 +237,8 @@ async fn write_stream(write: Arc<AsyncMutex<WriteState>>, stream: ArcStream) -> 
 
     let mut iter = stream.iter();
     loop {
-        let block = iter.read_to_vec(block_size).await.map_err(ExportError::Source)?;
+        let mut block = iter.read_to_vec(block_size).await.map_err(ExportError::Source)?;
+        Endian::Little.bswap(element, &mut block);
         let compressed_block = zstd::bulk::compress(&block, 0).unwrap();
         let offset = write.lock().await.write_block(&compressed_block).await?;
         block_index.push(offset, compressed_block.len() as u32);

@@ -6,7 +6,7 @@ use std::fmt::Debug;
 use ecow::eco_format;
 use once_array::OnceArray;
 
-use crate::io::IoError;
+use crate::io::{Endian, IoError};
 use crate::izs::{BlockIndex, CompressionMethod, IzsFile, StreamMeta};
 use crate::storage::{ Pool, block::{ BlockCache, BlockState } };
 use crate::stream::{ArcStream, BlockDesc, Stream, StreamIter, StreamState};
@@ -72,18 +72,32 @@ impl Stream for IzsStream {
         }
 
         let block_bytes = self.block_desc.size();
+        let element = self.block_desc.element_size;
         let compression = self.compress;
         let len = self.block_index.lengths[block_i as usize] as usize;
         log::debug!("Loading block {block_i} of {}:{:x} at {} len {}", self.shared.file().filename(), self.id, offset, len);
 
         let shared = self.shared.clone();
         let task = self.pool.clone().spawn_block_fetch(async move {
-            let data = shared.read_at(offset, len).await?;
+            let mut data = shared.read_at(offset, len).await?;
+
+            if data.len() != len {
+                return Err(IoError::new(eco_format!("failed to read entire block"), None, Some(io::ErrorKind::InvalidData)));
+            }
+
             let data = match compression {
-                CompressionMethod::None => data,
+                CompressionMethod::None => {
+                    Endian::Little.bswap(element, &mut data);
+                    data
+                }
                 CompressionMethod::Zstd => {
-                    zstd::bulk::decompress(&data, block_bytes)
-                        .map_err(|e| IoError::new(eco_format!("failed to decompress block: {e}"), None, Some(e.kind())))?
+                    let mut data = zstd::bulk::decompress(&data, block_bytes)
+                        .map_err(|e| IoError::new(eco_format!("failed to decompress block: {e}"), None, Some(e.kind())))?;
+                    if data.len() != element.round_down_bytes(data.len()) {
+                        return Err(IoError::new(eco_format!("decompressed block is not a multiple of element size"), None, Some(io::ErrorKind::InvalidData)));
+                    }
+                    Endian::Little.bswap(element, &mut data);
+                    data
                 }
                 CompressionMethod::Unknown => {
                     return Err(IoError::new(eco_format!("unknown compression method"), None, Some(io::ErrorKind::InvalidData)));
