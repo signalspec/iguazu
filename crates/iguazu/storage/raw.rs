@@ -5,8 +5,14 @@ use futures_lite::FutureExt;
 use once_array::OnceArray;
 use url::Url;
 
-use crate::{ElementSize, import::ImportError, io::{IoError, ReadableFile}, schema::{EntitySchema, EntityStream}, send::{BoxFuture, NonWasmSend, SendAsyncBufRead, SendAsyncRead}, stream::{BlockDesc, IterState, Stream, StreamIter, StreamState}};
-use crate::storage::{ Pool, block::BlockCache };
+use crate::{ElementSize,
+    import::ImportError,
+    io::{IoError, ReadableFile, Endian},
+    schema::{EntitySchema, EntityStream},
+    send::{BoxFuture, NonWasmSend, SendAsyncBufRead, SendAsyncRead},
+    stream::{BlockDesc, IterState, Stream, StreamIter, StreamState},
+    storage::{ Pool, block::BlockCache },
+};
 
 use super::BlockState;
 
@@ -16,6 +22,7 @@ pub struct RawFileOpts {
     pub offset: u64,
     pub count: Option<u64>,
     pub block_size: usize,
+    pub endian: Endian,
 }
 
 impl Default for RawFileOpts {
@@ -25,6 +32,7 @@ impl Default for RawFileOpts {
             offset: 0,
             count: None,
             block_size: 1 << 20,
+            endian: Endian::Little,
         }
     }
 }
@@ -33,6 +41,7 @@ pub struct RawFileStream {
     file: Arc<dyn ReadableFile>,
     file_len: u64,
     offset: u64,
+    endian: Endian,
     count: Option<u64>,
     block_desc: BlockDesc,
     cache: BlockCache,
@@ -51,8 +60,9 @@ impl RawFileStream {
     pub async fn new(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, opts: &RawFileOpts) -> Result<Self, IoError> {
         let file_len = file.clone().get_len().await?;
         let block_desc = BlockDesc { element_size: opts.element_size, count: opts.block_size };
+        let endian = opts.endian;
         let cache = BlockCache::new();
-        Ok(RawFileStream { file, file_len, offset: opts.offset, count: opts.count, block_desc, cache, pool })
+        Ok(RawFileStream { file, file_len, offset: opts.offset, count: opts.count, block_desc, cache, pool, endian })
     }
 
     pub fn url(&self) -> Option<Url> {
@@ -71,6 +81,10 @@ impl RawFileStream {
         self.count
     }
 
+    pub fn endian(&self) -> Endian {
+        self.endian
+    }
+
     pub async fn entity(file: Arc<dyn ReadableFile>, pool: Arc<Pool>, schema: EntitySchema, opts: &RawFileOpts) -> Result<EntityStream, ImportError> {
         let (_field, _stride) = schema.single_stream()
             .ok_or_else(|| ImportError::SchemaMismatch("FlatFileStream requires a single stream".into()))?;
@@ -86,9 +100,13 @@ impl RawFileStream {
         let size = self.count.map(|c| (c * (self.block_desc.element_size.bytes() as u64)).saturating_sub(offset))
             .unwrap_or(u64::MAX)
             .min(self.block_desc.size() as u64) as usize;
+        let element_size = self.block_desc.element_size;
+        let endian = self.endian;
         let file = self.file.clone();
         async move {
-            let data = file.read_at(file_offset, size).await?;
+            let mut data = file.read_at(file_offset, size).await?;
+            data.truncate(element_size.round_down_bytes(data.len()));
+            endian.bswap(element_size, &mut data);
             Ok(Arc::new(OnceArray::from(data)))
         }
     }
@@ -120,13 +138,14 @@ impl Stream for RawFileStream {
     }
 
     fn iter(self: Arc<Self>) -> Box<dyn StreamIter> {
-        Box::new(FileStreamIter::from_file(self.file.clone(), self.offset, self.block_desc, self.count))
+        Box::new(FileStreamIter::from_file(self.file.clone(), self.offset, self.block_desc, self.endian, self.count))
     }
 }
 
 struct FileStreamIter {
     file: EcoString,
     block_desc: BlockDesc,
+    endian: Endian,
     reader_future: FutureOutput<>,
     buffer: Box<[u8]>,
 
@@ -158,18 +177,18 @@ impl FutureOutput {
 }
 
 impl FileStreamIter {
-    fn from_file(file: Arc<dyn ReadableFile>, offset: u64, block_desc: BlockDesc, count: Option<u64>) -> FileStreamIter {
+    fn from_file(file: Arc<dyn ReadableFile>, offset: u64, block_desc: BlockDesc, endian: Endian, count: Option<u64>) -> FileStreamIter {
         let size = count.map(|c| c * (block_desc.element_size.bytes() as u64));
         let reader_future = file.clone().stream(offset, size);
-        FileStreamIter::new(file.describe(), FutureOutput::Future(Box::pin(reader_future)), block_desc)
+        FileStreamIter::new(file.describe(), FutureOutput::Future(Box::pin(reader_future)), block_desc, endian)
     }
 
     #[cfg(test)]
-    fn from_reader(name: EcoString, reader: Pin<Box<dyn SendAsyncRead>>, block_desc: BlockDesc) -> FileStreamIter {
-        FileStreamIter::new(name, FutureOutput::Reader(Ok(reader)), block_desc)
+    fn from_reader(name: EcoString, reader: Pin<Box<dyn SendAsyncRead>>, block_desc: BlockDesc, endian: Endian) -> FileStreamIter {
+        FileStreamIter::new(name, FutureOutput::Reader(Ok(reader)), block_desc, endian)
     }
 
-    fn new(name: EcoString, reader_future: FutureOutput, block_desc: BlockDesc) -> FileStreamIter {
+    fn new(name: EcoString, reader_future: FutureOutput, block_desc: BlockDesc, endian: Endian) -> FileStreamIter {
         FileStreamIter {
             file: name,
             block_desc,
@@ -178,6 +197,7 @@ impl FileStreamIter {
             read_offset: 0,
             write_offset: 0,
             end: None,
+            endian,
         }
     }
 }
@@ -188,7 +208,7 @@ impl StreamIter for FileStreamIter {
     }
 
     fn poll_next(&mut self, cx: &mut Context) -> IterState<'_> {
-        let element_size = self.block_desc.element_size.bytes();
+        let element_size = self.block_desc.element_size;
 
         let file_stream = match self.reader_future.poll(cx) {
             Poll::Pending => return IterState::Partial(&[]),
@@ -203,7 +223,10 @@ impl StreamIter for FileStreamIter {
                     self.end = Some(Ok(()));
                 }
                 Poll::Ready(Ok(read)) => {
+                    let bswap_start = element_size.round_down_bytes(self.write_offset);
                     self.write_offset += read;
+                    let bswap_end = element_size.round_down_bytes(self.write_offset);
+                    self.endian.bswap(element_size, &mut self.buffer[bswap_start..bswap_end]);
                 }
                 Poll::Ready(Err(e)) => {
                     self.end = Some(Err(IoError::new(eco_format!("failed to read file: {e}"), Some(self.file.clone()), Some(e.kind()))));
@@ -211,7 +234,7 @@ impl StreamIter for FileStreamIter {
             }
         }
 
-        let available = &self.buffer[self.read_offset..(self.write_offset / element_size * element_size)];
+        let available = &self.buffer[self.read_offset..element_size.round_down_bytes(self.write_offset)];
 
         if available.is_empty() && let Some(Err(err)) = &self.end {
             IterState::Error(err.clone())
@@ -232,12 +255,12 @@ impl StreamIter for FileStreamIter {
     }
 }
 
-#[test]
-fn test_iter() {
-    use std::{ io, task::Waker, assert_matches };
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{io, task::Waker, assert_matches};
     use futures_lite::{future::block_on, AsyncRead};
     use ecow::EcoString;
-    let cx = &mut Context::from_waker(&Waker::noop());
 
     struct Replay(std::slice::Iter<'static, Poll<Result<&'static [u8], &'static str>>>);
 
@@ -262,52 +285,89 @@ fn test_iter() {
         }
     }
 
-    let src = Box::pin(Replay(const { &[
-        Poll::Pending,
-        Poll::Ready(Ok(&[1u8, 2] as &[u8])),
-        Poll::Pending,
-        Poll::Ready(Ok(&[3])),
-        Poll::Pending,
-        Poll::Ready(Ok(&[4])),
-        Poll::Pending,
-        Poll::Pending,
-        Poll::Ready(Ok(&[5, 6, 7, 8])),
-        Poll::Ready(Ok(&[9, 10, 11, 12, 13, 14, 15, 16])),
-        Poll::Ready(Ok(&[16, 17]))
-    ]}.iter()));
-    let mut iter = FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U16, count: 4 });
-    assert_matches!(iter.poll_next(cx), IterState::Partial(&[]));
-    assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
-    assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
-    assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2, 3, 4]));
-    assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2, 3, 4]));
-    iter.consume(1);
-    assert_matches!(iter.poll_next(cx), IterState::Complete(&[3, 4, 5, 6, 7, 8]));
-    iter.consume(1);
-    assert_matches!(iter.poll_next(cx), IterState::Complete(&[5, 6, 7, 8]));
-    iter.consume(2);
-    assert_matches!(iter.poll_next(cx), IterState::Complete(&[9, 10, 11, 12, 13, 14, 15, 16]));
-    iter.consume(4);
-    assert_matches!(iter.poll_next(cx), IterState::Complete(&[16, 17]));
-    iter.consume(1);
-    assert_matches!(iter.poll_next(cx), IterState::Complete(&[]));
+    #[test]
+    fn test_iter_u16() {
+        let cx = &mut Context::from_waker(&Waker::noop());
 
-    let src = Box::pin(Replay(const { &[
-        Poll::Ready(Ok(&[1u8, 2, 3] as &[u8])),
-        Poll::Ready(Err("err")),
-    ]}.iter()));
-    let mut iter = FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U16, count: 4 });
-    assert_matches!(iter.poll_next(cx), IterState::Complete(&[1, 2]));
-    iter.consume(1);
-    assert_matches!(iter.poll_next(cx), IterState::Error(_));
+        let src = Box::pin(Replay(const { &[
+            Poll::Pending,
+            Poll::Ready(Ok(&[1u8, 2] as &[u8])),
+            Poll::Pending,
+            Poll::Ready(Ok(&[3])),
+            Poll::Pending,
+            Poll::Ready(Ok(&[4])),
+            Poll::Pending,
+            Poll::Pending,
+            Poll::Ready(Ok(&[5, 6, 7, 8])),
+            Poll::Ready(Ok(&[9, 10, 11, 12, 13, 14, 15, 16])),
+            Poll::Ready(Ok(&[16, 17]))
+        ]}.iter()));
+        let mut iter = FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U16, count: 4 }, Endian::Little);
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[]));
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2]));
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2, 3, 4]));
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[1, 2, 3, 4]));
+        iter.consume(1);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[3, 4, 5, 6, 7, 8]));
+        iter.consume(1);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[5, 6, 7, 8]));
+        iter.consume(2);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[9, 10, 11, 12, 13, 14, 15, 16]));
+        iter.consume(4);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[16, 17]));
+        iter.consume(1);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[]));
 
-    let src = Box::pin(Replay(const { &[
-        Poll::Ready(Ok(&[1u8, 2, 3, 4] as &[u8])),
-        Poll::Pending,
-        Poll::Pending,
-        Poll::Ready(Ok(&[5, 6])),
-        Poll::Pending,
-    ]}.iter()));
-    let mut iter = Box::new(FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U8, count: 4 })) as Box<dyn StreamIter>;
-    assert_matches!(block_on(iter.read_to_vec(10)), Ok(v) if v == [1u8, 2, 3, 4, 5, 6]);
+        let src = Box::pin(Replay(const { &[
+            Poll::Ready(Ok(&[1u8, 2, 3] as &[u8])),
+            Poll::Ready(Err("err")),
+        ]}.iter()));
+        let mut iter = FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U16, count: 4 }, Endian::Little);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[1, 2]));
+        iter.consume(1);
+        assert_matches!(iter.poll_next(cx), IterState::Error(_));
+
+        let src = Box::pin(Replay(const { &[
+            Poll::Ready(Ok(&[1u8, 2, 3, 4] as &[u8])),
+            Poll::Pending,
+            Poll::Pending,
+            Poll::Ready(Ok(&[5, 6])),
+            Poll::Pending,
+        ]}.iter()));
+        let mut iter = Box::new(FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U8, count: 4 }, Endian::Little)) as Box<dyn StreamIter>;
+        assert_matches!(block_on(iter.read_to_vec(10)), Ok(v) if v == [1u8, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn test_iter_u32_be() {
+        let cx = &mut Context::from_waker(&Waker::noop());
+
+        let src = Box::pin(Replay(const { &[
+            Poll::Pending,
+            Poll::Ready(Ok(&[1u8, 2, 3, 4] as &[u8])),
+            Poll::Pending,
+            Poll::Ready(Ok(&[5])),
+            Poll::Pending,
+            Poll::Ready(Ok(&[6])),
+            Poll::Pending,
+            Poll::Ready(Ok(&[7, 8, 9, 10])),
+            Poll::Pending,
+            Poll::Ready(Ok(&[11, 12, 13, 14, 15, 16])),
+            Poll::Ready(Ok(&[17, 18, 19, 20]))
+        ]}.iter()));
+        let mut iter = FileStreamIter::from_reader(EcoString::default(), src, BlockDesc { element_size: ElementSize::U32, count: 4 }, Endian::Big);
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[]));
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[4, 3, 2, 1]));
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[4, 3, 2, 1]));
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[4, 3, 2, 1]));
+        assert_matches!(iter.poll_next(cx), IterState::Partial(&[4, 3, 2, 1, 8, 7, 6, 5]));
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[4, 3, 2, 1, 8, 7, 6, 5, 12, 11, 10, 9, 16, 15, 14, 13]));
+        iter.consume(3);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[16, 15, 14, 13]));
+        iter.consume(1);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[20, 19, 18, 17]));
+        iter.consume(1);
+        assert_matches!(iter.poll_next(cx), IterState::Complete(&[]));
+    }
 }

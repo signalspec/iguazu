@@ -48,9 +48,9 @@ async fn load(file: Arc<dyn ReadableFile>) -> Result<Entity<StreamRef, StoredSum
 
 async fn create_stream(src_file: Arc<dyn ReadableFile>, pool: Arc<Pool>, stream: StreamRef) -> Result<ArcStream, ImportError> {
     match stream {
-        StreamRef::FlatFile { ref file_name, element_size, offset, count } => {
+        StreamRef::FlatFile { ref file_name, element_size, offset, count, endian } => {
             let file = src_file.relative(file_name).await?;
-            let opts = RawFileOpts { element_size, offset, count, ..RawFileOpts::default() };
+            let opts = RawFileOpts { element_size, offset, count, endian, ..RawFileOpts::default() };
             Ok(Arc::new(RawFileStream::new(file, pool, &opts).await?) as ArcStream)
         }
         StreamRef::Inline(data) => {

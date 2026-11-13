@@ -22,6 +22,9 @@ mod url;
 use ::url::Url;
 pub use url::{RelativePath, BadRelativePath};
 
+mod endian;
+pub use endian::Endian;
+
 #[cfg(feature = "srzip")]
 pub(crate) mod zip;
 

@@ -162,6 +162,10 @@ impl Configurable for RawImporter {
                 description: "Number of elements to read from the file. Empty means to read until the end of the file.",
             },
             OptionDescription {
+                name: "endian",
+                description: "Endianness (little, big)",
+            },
+            OptionDescription {
                 name: "block_size",
                 description: "Number of elements to read in each block.",
             },
@@ -174,6 +178,7 @@ impl Configurable for RawImporter {
             "dtype" => self.dtype = DataType::from_str(value).ok_or_else(|| "Unsupported data type")?,
             "offset" => self.opts.offset = value.parse().map_err(|_| "Invalid integer")?,
             "count" => self.opts.count = if value.is_empty() { None } else { Some(value.parse().map_err(|_| "Invalid integer")?) },
+            "endian" => self.opts.endian = value.parse().map_err(|_| "Invalid endianness")?,
             "block_size" => self.opts.block_size = value.parse().map_err(|_| "Invalid integer")?,
             "sample_rate" => self.attributes.sample_rate = parse_optional(parse_rate, value)?,
             "center_freq" => self.attributes.center_frequency = parse_optional(parse_rate, value)?,
@@ -188,6 +193,7 @@ impl Configurable for RawImporter {
             "dtype" => self.dtype.to_str().to_owned(),
             "offset" => self.opts.offset.to_string(),
             "count" => self.opts.count.map_or_else(|| "".into(), |c| c.to_string()),
+            "endian" => self.opts.endian.to_string(),
             "block_size" => self.opts.block_size.to_string(),
             "sample_rate" => format_rate(self.attributes.sample_rate?),
             "center_freq" => format_rate(self.attributes.center_frequency?),
@@ -199,6 +205,7 @@ impl Configurable for RawImporter {
         match option {
             "bits" => cow_strs!["8", "16", "32", "64"],
             "dtype" => cow_strs!["binary", "logic", "unsigned", "signed", "float", "complex_unsigned", "complex_signed", "complex_float"],
+            "endian" => cow_strs!["little", "big"],
             _ => (&[]).into()
         }
     }

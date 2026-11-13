@@ -35,6 +35,7 @@ fn stream_ref(stream: &ArcStream, base: &Url) -> Result<StreamRef, ExportError> 
             element_size: stream.element_size(),
             offset: stream.offset(),
             count: stream.count(),
+            endian: stream.endian(),
         })
     } else {
         Err(ExportError::UnsupportedStream(format!("Stream `{:?}` is not supported in Virtual export", stream)))

@@ -22,6 +22,11 @@ impl ElementSize {
     }
 
     #[inline]
+    pub fn round_down_bytes(&self, bytes: usize) -> usize {
+        bytes - bytes % self.bytes()
+    }
+
+    #[inline]
     pub fn bits(&self) -> usize {
         self.bytes() * 8
     }

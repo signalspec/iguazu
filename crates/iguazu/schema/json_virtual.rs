@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use num_traits::Zero;
 
-use crate::{ElementSize, io::RelativePath, schema::EntityData};
+use crate::{ElementSize, io::{Endian, RelativePath}, schema::EntityData};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "storage", rename_all = "snake_case")]
@@ -17,6 +17,9 @@ pub enum StreamRef {
 
         #[serde(default, skip_serializing_if = "Option::is_none")]
         count: Option<u64>,
+
+        #[serde(default)]
+        endian: Endian,
     },
     Inline(InlineData)
 }
