@@ -76,7 +76,7 @@ impl ViewManager {
         if let Some(s) = self.streams.get(&key(stream)) {
             s
         } else {
-            let v = BlockView::new(stream.clone());
+            let v = BlockView::new(stream.clone(), self.waker.clone());
             self.streams.insert(key(stream), Box::new(v))
         }
     }

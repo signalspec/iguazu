@@ -14,9 +14,9 @@ pub struct BlockView {
 }
 
 impl BlockView {
-    pub fn new(stream: ArcStream) -> Self {
+    pub fn new(stream: ArcStream, waker: Waker) -> Self {
         Self {
-            waker: Waker::noop().clone(),
+            waker,
             stream,
             blocks: RefCell::new(BTreeMap::new()),
         }
